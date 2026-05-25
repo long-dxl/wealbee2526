@@ -1,12 +1,12 @@
-// Admin Daily Review — internal page for reviewing pipeline output
-export function AdminDailyReview() {
+// Research Desk — will be merged into Agents/Deep Research in new architecture
+export function ResearchDesk() {
   return (
     <div style={{ padding: 24, color: "#1a1a2e" }}>
       <h1 style={{ fontFamily: "'Montserrat', sans-serif", fontSize: "1.25rem", fontWeight: 700 }}>
-        Admin Daily Review
+        Research Desk
       </h1>
       <p style={{ color: "#6a7282", marginTop: 8 }}>
-        Trang quản trị nội bộ — kiểm tra output pipeline hàng ngày.
+        Tính năng này đã được tích hợp vào Agent Studio.
       </p>
     </div>
   );
