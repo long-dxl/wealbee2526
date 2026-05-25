@@ -22,31 +22,31 @@ interface MarketNews {
   news_type: string | null;
 }
 
-// ─── VN30 demo movers (replace with real prices_daily query once table exists) ─
+interface IndexData {
+  label: string;
+  value: string;
+  change: string;
+  pct: string;
+  up: boolean;
+}
 
-const VN30_MOVERS = {
-  gainers: [
-    { ticker: "FPT",  name: "FPT Corp",     price: 125600, change: 2100,  pct: 1.70,  sector: "Tech" },
-    { ticker: "VCB",  name: "Vietcombank",   price: 95800,  change: 800,   pct: 0.84,  sector: "Bank" },
-    { ticker: "MBB",  name: "MB Bank",       price: 28900,  change: 300,   pct: 1.05,  sector: "Bank" },
-    { ticker: "TCB",  name: "Techcombank",   price: 22400,  change: 200,   pct: 0.90,  sector: "Bank" },
-    { ticker: "ACB",  name: "ACB",           price: 23100,  change: 150,   pct: 0.65,  sector: "Bank" },
-  ],
-  losers: [
-    { ticker: "HPG",  name: "Hòa Phát",      price: 27950,  change: -350,  pct: -1.24, sector: "Steel" },
-    { ticker: "VHM",  name: "Vinhomes",       price: 38700,  change: -820,  pct: -2.08, sector: "RE" },
-    { ticker: "MSN",  name: "Masan",          price: 67800,  change: -600,  pct: -0.88, sector: "Consumer" },
-    { ticker: "VIC",  name: "Vingroup",       price: 42100,  change: -400,  pct: -0.94, sector: "RE" },
-    { ticker: "GAS",  name: "PV Gas",         price: 98400,  change: -800,  pct: -0.81, sector: "Energy" },
-  ],
+interface StockMover {
+  ticker: string;
+  name: string;
+  price: number;
+  change: number;
+  pct: number;
+}
+
+// ─── Ticker name map ─────────────────────────────────────────────────────────
+const TICKER_NAMES: Record<string, string> = {
+  ACB:"ACB", BID:"BIDV", BVH:"Bảo Việt", CTG:"VietinBank", FPT:"FPT Corp",
+  GAS:"PV Gas", HDB:"HDBank", HPG:"Hòa Phát", MBB:"MB Bank", MSN:"Masan",
+  MWG:"Thế Giới Di Động", PLX:"Petrolimex", SAB:"Sabeco", SSI:"SSI",
+  STB:"Sacombank", TCB:"Techcombank", TPB:"TPBank", VCB:"Vietcombank",
+  VHM:"Vinhomes", VIB:"VIB", VIC:"Vingroup", VJC:"VietJet", VNM:"Vinamilk",
+  VPB:"VPBank", VRE:"Vincom Retail",
 };
-
-const MARKET_INDICES = [
-  { label: "VN-Index", value: "1,247.68", change: "+10.11", pct: "+0.82%", up: true },
-  { label: "VN30",     value: "1,319.44", change: "+9.84",  pct: "+0.75%", up: true },
-  { label: "HNX",      value: "251.91",   change: "−0.86",  pct: "−0.34%", up: false },
-  { label: "UPCOM",    value: "95.32",    change: "+0.24",  pct: "+0.25%", up: true  },
-];
 
 const SOURCE_LABEL: Record<string, string> = {
   vietstock: "Vietstock", cafef: "CafeF", baodautu: "Báo Đầu tư",
@@ -81,7 +81,7 @@ function timeAgo(iso: string) {
 
 // ─── StatCard ─────────────────────────────────────────────────────────────────
 
-function IndexCard({ idx }: { idx: typeof MARKET_INDICES[0] }) {
+function IndexCard({ idx }: { idx: IndexData }) {
   return (
     <div style={{
       flex: 1, minWidth: 140,
@@ -115,7 +115,71 @@ export function UserDashboard() {
   const [news, setNews] = useState<MarketNews[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [marketIndices, setMarketIndices] = useState<IndexData[]>([]);
+  const [gainers, setGainers] = useState<StockMover[]>([]);
+  const [losers, setLosers] = useState<StockMover[]>([]);
   const { setContextTicker, setActionHubOpen } = useAppStore();
+
+  const loadMarketData = async () => {
+    try {
+      // Fetch latest 2 rows per index (today + yesterday) for change calculation
+      const { data: idxData } = await pipelineSupabase
+        .from("market_indices")
+        .select("index_code, date, close, change_pt, change_pct")
+        .in("index_code", ["VNINDEX", "HNX"])
+        .order("date", { ascending: false })
+        .limit(4);
+
+      if (idxData && idxData.length > 0) {
+        const byCode: Record<string, typeof idxData[0]> = {};
+        for (const row of idxData) {
+          if (!byCode[row.index_code]) byCode[row.index_code] = row;
+        }
+        const indices: IndexData[] = [];
+        for (const [code, row] of Object.entries(byCode)) {
+          const up = (row.change_pct ?? 0) >= 0;
+          indices.push({
+            label:  code === "VNINDEX" ? "VN-Index" : code,
+            value:  row.close.toLocaleString("vi-VN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            change: row.change_pt != null ? `${up ? "+" : ""}${Number(row.change_pt).toFixed(2)}` : "—",
+            pct:    row.change_pct != null ? `${up ? "+" : ""}${Number(row.change_pct).toFixed(2)}%` : "—",
+            up,
+          });
+        }
+        setMarketIndices(indices);
+      }
+    } catch { /* keep empty */ }
+
+    try {
+      // Fetch last 2 trading days of VN30 prices to compute movers
+      const { data: prices } = await pipelineSupabase
+        .from("prices_daily")
+        .select("symbol, date, close")
+        .order("date", { ascending: false })
+        .limit(50); // 25 stocks * 2 days
+
+      if (prices && prices.length > 0) {
+        // Group by symbol, take last 2 dates
+        const bySymbol: Record<string, number[]> = {};
+        for (const row of prices) {
+          if (!bySymbol[row.symbol]) bySymbol[row.symbol] = [];
+          if (bySymbol[row.symbol].length < 2) bySymbol[row.symbol].push(Number(row.close));
+        }
+        const movers: StockMover[] = Object.entries(bySymbol)
+          .filter(([, closes]) => closes.length === 2)
+          .map(([sym, closes]) => {
+            const [today, yesterday] = closes;
+            const change = today - yesterday;
+            const pct = (change / yesterday) * 100;
+            return { ticker: sym, name: TICKER_NAMES[sym] || sym, price: today, change, pct };
+          })
+          .sort((a, b) => b.pct - a.pct);
+
+        setGainers(movers.filter(m => m.pct > 0).slice(0, 5));
+        setLosers(movers.filter(m => m.pct < 0).slice(-5).reverse());
+      }
+    } catch { /* keep empty */ }
+  };
 
   const loadNews = async () => {
     try {
@@ -134,11 +198,14 @@ export function UserDashboard() {
     }
   };
 
-  useEffect(() => { loadNews(); }, []);
+  useEffect(() => {
+    loadMarketData();
+    loadNews();
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadNews();
+    await Promise.all([loadMarketData(), loadNews()]);
     setRefreshing(false);
   };
 
@@ -166,7 +233,13 @@ export function UserDashboard() {
 
       {/* ── Market indices ── */}
       <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
-        {MARKET_INDICES.map(idx => <IndexCard key={idx.label} idx={idx} />)}
+        {marketIndices.length > 0
+          ? marketIndices.map(idx => <IndexCard key={idx.label} idx={idx} />)
+          : [
+              { label: "VN-Index", value: "—", change: "—", pct: "—", up: true },
+              { label: "HNX",      value: "—", change: "—", pct: "—", up: true },
+            ].map(idx => <IndexCard key={idx.label} idx={idx} />)
+        }
       </div>
 
       {/* ── Quick actions ── */}
@@ -209,15 +282,17 @@ export function UserDashboard() {
               <TrendingUp style={{ width: 14, height: 14, color: "#0ea5a0" }} />
               <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#1a1a2e" }}>Top tăng VN30</span>
             </div>
-            {VN30_MOVERS.gainers.map((s) => (
+            {gainers.length === 0
+              ? <div style={{ padding: "16px 14px", textAlign: "center" }}><span style={{ fontSize: "0.75rem", color: "#c4c9d4" }}>Đang tải...</span></div>
+              : gainers.map((s) => (
               <div key={s.ticker} onClick={() => handleTickerClick(s.ticker)} style={{ display: "flex", alignItems: "center", padding: "8px 14px", cursor: "pointer", borderBottom: "1px solid rgba(8,73,172,0.03)", transition: "background 0.1s" }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(14,165,160,0.04)"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
               >
                 <span style={{ width: 44, fontSize: "0.8125rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "'IBM Plex Mono', monospace" }}>{s.ticker}</span>
                 <span style={{ flex: 1, fontSize: "0.6875rem", color: "#99a1af" }}>{s.name}</span>
-                <span style={{ fontSize: "0.8125rem", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: "#1a1a2e", marginRight: 10 }}>{s.price.toLocaleString()}</span>
-                <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#0ea5a0", fontFamily: "'IBM Plex Mono', monospace", minWidth: 48, textAlign: "right" }}>+{s.pct}%</span>
+                <span style={{ fontSize: "0.8125rem", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: "#1a1a2e", marginRight: 10 }}>{s.price.toLocaleString("vi-VN")}</span>
+                <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#0ea5a0", fontFamily: "'IBM Plex Mono', monospace", minWidth: 52, textAlign: "right" }}>+{s.pct.toFixed(2)}%</span>
               </div>
             ))}
           </div>
@@ -228,15 +303,17 @@ export function UserDashboard() {
               <TrendingDown style={{ width: 14, height: 14, color: "#ef4444" }} />
               <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#1a1a2e" }}>Top giảm VN30</span>
             </div>
-            {VN30_MOVERS.losers.map((s) => (
+            {losers.length === 0
+              ? <div style={{ padding: "16px 14px", textAlign: "center" }}><span style={{ fontSize: "0.75rem", color: "#c4c9d4" }}>Đang tải...</span></div>
+              : losers.map((s) => (
               <div key={s.ticker} onClick={() => handleTickerClick(s.ticker)} style={{ display: "flex", alignItems: "center", padding: "8px 14px", cursor: "pointer", borderBottom: "1px solid rgba(8,73,172,0.03)", transition: "background 0.1s" }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(239,68,68,0.04)"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
               >
                 <span style={{ width: 44, fontSize: "0.8125rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "'IBM Plex Mono', monospace" }}>{s.ticker}</span>
                 <span style={{ flex: 1, fontSize: "0.6875rem", color: "#99a1af" }}>{s.name}</span>
-                <span style={{ fontSize: "0.8125rem", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: "#1a1a2e", marginRight: 10 }}>{s.price.toLocaleString()}</span>
-                <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#ef4444", fontFamily: "'IBM Plex Mono', monospace", minWidth: 48, textAlign: "right" }}>{s.pct}%</span>
+                <span style={{ fontSize: "0.8125rem", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: "#1a1a2e", marginRight: 10 }}>{s.price.toLocaleString("vi-VN")}</span>
+                <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#ef4444", fontFamily: "'IBM Plex Mono', monospace", minWidth: 52, textAlign: "right" }}>{s.pct.toFixed(2)}%</span>
               </div>
             ))}
           </div>

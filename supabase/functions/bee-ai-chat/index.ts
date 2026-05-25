@@ -16,36 +16,35 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const SUPABASE_URL            = Deno.env.get("SUPABASE_URL") ?? "";
-const SUPABASE_SERVICE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const OPENAI_API_KEY          = Deno.env.get("OPENAI_API_KEY") ?? "";
-const ANTHROPIC_API_KEY       = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const SUPABASE_URL         = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const OPENAI_API_KEY       = Deno.env.get("OPENAI_API_KEY") ?? "";
+const ANTHROPIC_API_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 
-// Dùng Claude nếu có key, fallback OpenAI
-const USE_CLAUDE = ANTHROPIC_API_KEY.length > 10;
+const USE_CLAUDE  = ANTHROPIC_API_KEY.length > 10;
 const MODEL_LABEL = USE_CLAUDE ? "claude-sonnet-4-6" : "gpt-4.1-mini";
 
-// Supabase client với service role (để bypass RLS khi đọc market data)
 const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-// ─── Compliance system prompt ─────────────────────────────────────────────────
+// ─── System prompt ────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `Bạn là BeeAI — trợ lý phân tích thị trường chứng khoán Việt Nam của Wealbee.
 
 ## Vai trò
-- Cung cấp thông tin thị trường, tin tức, và dữ liệu tài chính chính xác
+- Cung cấp thông tin thị trường, tin tức, và dữ liệu tài chính CHÍNH XÁC từ dữ liệu được cung cấp
 - Trả lời bằng tiếng Việt, ngắn gọn và rõ ràng
-- Sử dụng số liệu cụ thể khi có thể
+- CHỈ sử dụng số liệu từ phần "DỮ LIỆU THỊ TRƯỜNG THỰC" bên dưới — KHÔNG tự bịa số
+- Nếu không có dữ liệu, nói rõ "Tôi chưa có dữ liệu về X"
 
 ## Quy tắc bắt buộc (Luật Chứng khoán 2019)
 - TUYỆT ĐỐI KHÔNG đưa ra khuyến nghị mua/bán cổ phiếu cụ thể
 - KHÔNG dự đoán giá cụ thể hoặc đưa ra target price
 - KHÔNG hứa hẹn lợi nhuận
-- Thay vào đó: mô tả dữ liệu, nêu các yếu tố ảnh hưởng, cung cấp thông tin để người dùng tự quyết định
+- Mô tả dữ liệu, nêu các yếu tố ảnh hưởng, để người dùng tự quyết định
 
 ## Định dạng
 - Dùng bullet points cho danh sách
-- In đậm số liệu quan trọng: **1,247.68**
+- In đậm số liệu quan trọng: **1,850.00**
 - Dùng emoji phù hợp: 📈 📉 💰 📊`;
 
 // ─── Market context builder ───────────────────────────────────────────────────
@@ -54,11 +53,91 @@ async function buildMarketContext(contextTicker?: string): Promise<string> {
   const lines: string[] = [];
   const today = new Date().toLocaleDateString("vi-VN", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
-    timeZone: "Asia/Ho_Chi_Minh"
+    timeZone: "Asia/Ho_Chi_Minh",
   });
   lines.push(`Ngày hôm nay: ${today} (múi giờ Việt Nam, UTC+7)`);
 
-  // Fetch recent high-impact news
+  // ── 1. Market indices (VN-Index, HNX) ──────────────────────────────────────
+  try {
+    const { data: indices } = await sb
+      .from("market_indices")
+      .select("index_code, date, close, change_pt, change_pct, volume")
+      .in("index_code", ["VNINDEX", "HNX"])
+      .order("date", { ascending: false })
+      .limit(4);
+
+    if (indices && indices.length > 0) {
+      lines.push("\n## DỮ LIỆU THỊ TRƯỜNG THỰC — Chỉ số hôm nay");
+      const seen = new Set<string>();
+      for (const idx of indices) {
+        if (seen.has(idx.index_code)) continue;
+        seen.add(idx.index_code);
+        const arrow = (idx.change_pct ?? 0) >= 0 ? "▲" : "▼";
+        const pct   = idx.change_pct != null ? `${idx.change_pct >= 0 ? "+" : ""}${Number(idx.change_pct).toFixed(2)}%` : "";
+        const pt    = idx.change_pt  != null ? `${idx.change_pt  >= 0 ? "+" : ""}${Number(idx.change_pt).toFixed(2)} điểm` : "";
+        const vol   = idx.volume ? ` | KL: ${(idx.volume / 1_000_000).toFixed(1)}M` : "";
+        lines.push(`- **${idx.index_code}**: ${Number(idx.close).toLocaleString("vi-VN", { minimumFractionDigits: 2 })} điểm ${arrow} ${pt} (${pct})${vol} [ngày ${idx.date}]`);
+      }
+    }
+  } catch { /* ignore */ }
+
+  // ── 2. VN30 prices — top movers ────────────────────────────────────────────
+  try {
+    const { data: prices } = await sb
+      .from("prices_daily")
+      .select("symbol, date, close")
+      .order("date", { ascending: false })
+      .limit(75); // 25 stocks × 3 days buffer
+
+    if (prices && prices.length > 0) {
+      // Group latest 2 prices per symbol
+      const bySymbol: Record<string, number[]> = {};
+      for (const row of prices) {
+        if (!bySymbol[row.symbol]) bySymbol[row.symbol] = [];
+        if (bySymbol[row.symbol].length < 2) bySymbol[row.symbol].push(Number(row.close));
+      }
+
+      const movers = Object.entries(bySymbol)
+        .filter(([, closes]) => closes.length === 2)
+        .map(([sym, [today, yesterday]]) => ({
+          sym,
+          price: today,
+          pct: ((today - yesterday) / yesterday) * 100,
+        }))
+        .sort((a, b) => b.pct - a.pct);
+
+      const top5up   = movers.filter(m => m.pct > 0).slice(0, 5);
+      const top5down = movers.filter(m => m.pct < 0).slice(-5).reverse();
+
+      // Latest prices map for all symbols
+      const latestPrice: Record<string, number> = {};
+      for (const [sym, closes] of Object.entries(bySymbol)) {
+        latestPrice[sym] = closes[0];
+      }
+
+      lines.push("\n## DỮ LIỆU THỊ TRƯỜNG THỰC — Giá VN30 cuối phiên gần nhất");
+      for (const [sym, closes] of Object.entries(bySymbol)) {
+        if (closes[0]) {
+          lines.push(`- ${sym}: **${closes[0].toLocaleString("vi-VN")}** đ`);
+        }
+      }
+
+      if (top5up.length > 0) {
+        lines.push("\n### Top tăng VN30");
+        for (const m of top5up) {
+          lines.push(`- **${m.sym}**: ${m.price.toLocaleString("vi-VN")} đ (+${m.pct.toFixed(2)}%)`);
+        }
+      }
+      if (top5down.length > 0) {
+        lines.push("\n### Top giảm VN30");
+        for (const m of top5down) {
+          lines.push(`- **${m.sym}**: ${m.price.toLocaleString("vi-VN")} đ (${m.pct.toFixed(2)}%)`);
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // ── 3. High-impact news (48h) ──────────────────────────────────────────────
   try {
     const { data: news } = await sb
       .from("market_news")
@@ -68,45 +147,72 @@ async function buildMarketContext(contextTicker?: string): Promise<string> {
       .not("impact_score", "is", null)
       .gte("published_at", new Date(Date.now() - 2 * 86400000).toISOString())
       .order("impact_score", { ascending: false, nullsFirst: false })
-      .limit(6);
+      .limit(8);
 
     if (news && news.length > 0) {
       lines.push("\n## Tin tức thị trường nổi bật (48h gần nhất)");
       for (const n of news) {
-        const score = n.impact_score !== null ? ` [impact: ${n.impact_score > 0 ? "+" : ""}${n.impact_score}]` : "";
-        const syms = n.affected_symbols?.length ? ` — ${n.affected_symbols.slice(0, 3).join(", ")}` : "";
+        const score = n.impact_score !== null
+          ? ` [tác động: ${n.impact_score > 0 ? "+" : ""}${n.impact_score}]`
+          : "";
+        const syms = n.affected_symbols?.length
+          ? ` — ${n.affected_symbols.slice(0, 3).join(", ")}`
+          : "";
         lines.push(`- ${n.title}${syms}${score}`);
-        if (n.content_summary) lines.push(`  ${n.content_summary.substring(0, 120)}...`);
+        if (n.content_summary) {
+          lines.push(`  ${n.content_summary.substring(0, 150)}...`);
+        }
       }
     }
   } catch { /* ignore */ }
 
-  // Fetch context ticker info if provided
+  // ── 4. Context ticker deep-dive ────────────────────────────────────────────
   if (contextTicker) {
+    const sym = contextTicker.toUpperCase();
     try {
       const { data: ticker } = await sb
         .from("tickers")
         .select("symbol, name, exchange, sector")
-        .eq("symbol", contextTicker.toUpperCase())
+        .eq("symbol", sym)
         .single();
 
       if (ticker) {
         lines.push(`\n## Mã CP đang xem: ${ticker.symbol} — ${ticker.name}`);
         lines.push(`Sàn: ${ticker.exchange} | Ngành: ${ticker.sector || "N/A"}`);
 
-        // Recent news for this ticker
+        // Price history 10 days
+        const { data: ph } = await sb
+          .from("prices_daily")
+          .select("date, open, high, low, close, volume")
+          .eq("symbol", sym)
+          .order("date", { ascending: false })
+          .limit(10);
+
+        if (ph && ph.length > 0) {
+          const latest = ph[0];
+          const prev   = ph[1];
+          const chg    = prev ? Number(latest.close) - Number(prev.close) : 0;
+          const chgPct = prev ? (chg / Number(prev.close)) * 100 : 0;
+          lines.push(`\nGiá ${sym} cuối phiên gần nhất (${latest.date}):`);
+          lines.push(`- Đóng cửa: **${Number(latest.close).toLocaleString("vi-VN")} đ** (${chg >= 0 ? "+" : ""}${chg.toLocaleString("vi-VN")} / ${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(2)}%)`);
+          lines.push(`- OHLC: ${Number(latest.open).toLocaleString("vi-VN")} / ${Number(latest.high).toLocaleString("vi-VN")} / ${Number(latest.low).toLocaleString("vi-VN")} / ${Number(latest.close).toLocaleString("vi-VN")}`);
+          lines.push(`- Khối lượng: ${Number(latest.volume).toLocaleString("vi-VN")} CP`);
+        }
+
+        // News for this ticker
         const { data: tickerNews } = await sb
           .from("market_news")
           .select("title, impact_score, published_at")
-          .contains("affected_symbols", [contextTicker.toUpperCase()])
+          .contains("affected_symbols", [sym])
           .gte("published_at", new Date(Date.now() - 7 * 86400000).toISOString())
           .order("published_at", { ascending: false })
-          .limit(3);
+          .limit(5);
 
         if (tickerNews && tickerNews.length > 0) {
-          lines.push(`\nTin gần đây về ${contextTicker}:`);
+          lines.push(`\nTin tức về ${sym} (7 ngày gần đây):`);
           for (const n of tickerNews) {
-            lines.push(`- ${n.title}`);
+            const score = n.impact_score != null ? ` [${n.impact_score >= 0 ? "+" : ""}${n.impact_score}]` : "";
+            lines.push(`- ${n.title}${score}`);
           }
         }
       }
@@ -114,6 +220,45 @@ async function buildMarketContext(contextTicker?: string): Promise<string> {
   }
 
   return lines.join("\n");
+}
+
+// ─── RAG: semantic search in user's knowledge base ───────────────────────────
+
+async function buildRAGContext(query: string, userId: string): Promise<string> {
+  try {
+    // 1. Embed the query
+    const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
+    });
+    if (!embedRes.ok) return "";
+    const embedJson = await embedRes.json();
+    const embedding = embedJson.data?.[0]?.embedding;
+    if (!embedding) return "";
+
+    // 2. Match chunks from user's knowledge base
+    const { data: chunks } = await sb.rpc("match_knowledge_chunks", {
+      query_embedding: embedding,
+      match_user_id: userId,
+      match_count: 4,
+      match_threshold: 0.65,
+    });
+
+    if (!chunks || chunks.length === 0) return "";
+
+    // 3. Format relevant chunks
+    const lines: string[] = ["\n## KIẾN THỨC TỪ THƯ VIỆN CỦA BẠN (Knowledge Base)"];
+    for (const chunk of chunks) {
+      lines.push(`\n---\n${chunk.content}`);
+    }
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
 }
 
 // ─── Call OpenAI (streaming) ──────────────────────────────────────────────────
@@ -142,7 +287,6 @@ async function callOpenAIStream(
     const err = await res.text();
     throw new Error(`OpenAI error ${res.status}: ${err}`);
   }
-
   return res.body!;
 }
 
@@ -174,11 +318,10 @@ async function callAnthropicStream(
     const err = await res.text();
     throw new Error(`Anthropic error ${res.status}: ${err}`);
   }
-
   return res.body!;
 }
 
-// ─── SSE parser helpers ───────────────────────────────────────────────────────
+// ─── SSE helper ───────────────────────────────────────────────────────────────
 
 function sseChunk(data: Record<string, unknown>): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
@@ -187,7 +330,6 @@ function sseChunk(data: Record<string, unknown>): Uint8Array {
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
-  // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, {
       headers: {
@@ -207,16 +349,12 @@ Deno.serve(async (req) => {
   if (!authHeader) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
-
   const jwt = authHeader.replace("Bearer ", "");
-
-  // Verify user with anon client
   const anonSb = createClient(
     SUPABASE_URL,
     Deno.env.get("SUPABASE_ANON_KEY") ?? "",
     { global: { headers: { Authorization: `Bearer ${jwt}` } } }
   );
-
   const { data: { user }, error: authError } = await anonSb.auth.getUser();
   if (authError || !user) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
@@ -235,7 +373,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "message is required" }), { status: 400 });
   }
 
-  // ── Get or create chat session ──
+  // ── Get or create session ──
   let sessionId = body.session_id;
   if (!sessionId) {
     const { data: sess } = await sb
@@ -246,49 +384,46 @@ Deno.serve(async (req) => {
     sessionId = sess?.id;
   }
 
-  // ── Fetch conversation history (last 10 messages) ──
+  // ── Conversation history (last 12 messages) ──
   const { data: history } = await sb
     .from("chat_messages")
     .select("role, content")
     .eq("session_id", sessionId)
     .order("created_at", { ascending: true })
-    .limit(10);
+    .limit(12);
 
   // ── Save user message ──
-  const { data: userMsg } = await sb
-    .from("chat_messages")
-    .insert({ session_id: sessionId, user_id: user.id, role: "user", content: message })
-    .select("id")
-    .single();
+  await sb.from("chat_messages")
+    .insert({ session_id: sessionId, user_id: user.id, role: "user", content: message });
 
-  // ── Build messages array ──
-  const marketContext = await buildMarketContext(context_ticker);
-  const fullSystemPrompt = `${SYSTEM_PROMPT}\n\n---\n${marketContext}`;
+  // ── Build prompt with real market data + RAG ──
+  const [marketContext, ragContext] = await Promise.all([
+    buildMarketContext(context_ticker),
+    buildRAGContext(message, user.id),
+  ]);
+  const fullSystem = `${SYSTEM_PROMPT}\n\n---\n${marketContext}${ragContext}`;
 
   const messages: Array<{ role: string; content: string }> = [
-    ...(USE_CLAUDE ? [] : [{ role: "system", content: fullSystemPrompt }]),
+    ...(USE_CLAUDE ? [] : [{ role: "system", content: fullSystem }]),
     ...(history ?? []).map((m: { role: string; content: string }) => ({
-      role: m.role,
-      content: m.content,
+      role: m.role, content: m.content,
     })),
     { role: "user", content: message },
   ];
 
-  // ── Stream response ──
+  // ── Stream ──
   const controller = new AbortController();
-  const { signal } = controller;
 
   const stream = new ReadableStream({
     async start(ctrl) {
-      const enc = new TextEncoder();
-      let fullText = "";
-      let inputTokens = 0;
-      let outputTokens = 0;
+      let fullText  = "";
+      let inputTok  = 0;
+      let outputTok = 0;
 
       try {
         const aiStream = USE_CLAUDE
-          ? await callAnthropicStream(fullSystemPrompt, messages, signal)
-          : await callOpenAIStream(messages, signal);
+          ? await callAnthropicStream(fullSystem, messages, controller.signal)
+          : await callOpenAIStream(messages, controller.signal);
 
         const reader = aiStream.getReader();
         let buf = "";
@@ -310,36 +445,35 @@ Deno.serve(async (req) => {
               const json = JSON.parse(raw);
 
               if (USE_CLAUDE) {
-                // Anthropic SSE format
                 if (json.type === "content_block_delta" && json.delta?.type === "text_delta") {
                   const text = json.delta.text ?? "";
                   fullText += text;
                   ctrl.enqueue(sseChunk({ type: "chunk", text }));
                 }
                 if (json.type === "message_delta" && json.usage) {
-                  outputTokens = json.usage.output_tokens ?? 0;
+                  outputTok = json.usage.output_tokens ?? 0;
                 }
                 if (json.type === "message_start" && json.message?.usage) {
-                  inputTokens = json.message.usage.input_tokens ?? 0;
+                  inputTok = json.message.usage.input_tokens ?? 0;
                 }
               } else {
-                // OpenAI SSE format
+                // OpenAI
                 const text = json.choices?.[0]?.delta?.content ?? "";
                 if (text) {
                   fullText += text;
                   ctrl.enqueue(sseChunk({ type: "chunk", text }));
                 }
                 if (json.usage) {
-                  inputTokens = json.usage.prompt_tokens ?? 0;
-                  outputTokens = json.usage.completion_tokens ?? 0;
+                  inputTok  = json.usage.prompt_tokens ?? 0;
+                  outputTok = json.usage.completion_tokens ?? 0;
                 }
               }
-            } catch { /* skip malformed SSE */ }
+            } catch { /* skip */ }
           }
         }
 
-        // Save assistant message
-        const totalTokens = inputTokens + outputTokens;
+        // ── Save assistant response ──
+        const totalTokens = inputTok + outputTok;
         const { data: assistantMsg } = await sb
           .from("chat_messages")
           .insert({
@@ -352,10 +486,16 @@ Deno.serve(async (req) => {
           .select("id")
           .single();
 
-        // Update session title if first exchange
+        // Update session title on first message
         if (!body.session_id) {
-          const title = message.length > 40 ? message.substring(0, 40) + "…" : message;
-          await sb.from("chat_sessions").update({ title }).eq("id", sessionId);
+          const title = message.length > 50 ? message.substring(0, 50) + "…" : message;
+          await sb.from("chat_sessions")
+            .update({ title, updated_at: new Date().toISOString() })
+            .eq("id", sessionId);
+        } else {
+          await sb.from("chat_sessions")
+            .update({ updated_at: new Date().toISOString() })
+            .eq("id", sessionId);
         }
 
         ctrl.enqueue(sseChunk({
@@ -365,15 +505,14 @@ Deno.serve(async (req) => {
           tokens: totalTokens,
           model: MODEL_LABEL,
         }));
+
       } catch (err) {
         ctrl.enqueue(sseChunk({ type: "error", message: String(err) }));
       } finally {
         ctrl.close();
       }
     },
-    cancel() {
-      controller.abort();
-    },
+    cancel() { controller.abort(); },
   });
 
   return new Response(stream, {
