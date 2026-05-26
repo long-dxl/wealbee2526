@@ -233,9 +233,7 @@ export function ActionHub() {
     if (actionHubOpen) loadSessions();
   }, [actionHubOpen, loadSessions]);
 
-  if (!actionHubOpen) return null;
-
-  // ── Clear chat ──
+  // ── Clear chat ── (must be before early return to obey Rules of Hooks)
   const handleClearChat = useCallback(() => {
     cancelRef.current?.();
     cancelRef.current = null;
@@ -244,6 +242,8 @@ export function ActionHub() {
     setSessionId(undefined);
     clearChat();
   }, [clearChat]);
+
+  if (!actionHubOpen) return null;
 
   // ── Load session history ──
   const loadSession = async (s: ChatSession) => {

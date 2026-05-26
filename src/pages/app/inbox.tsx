@@ -66,7 +66,7 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString("vi-VN");
 }
 
-// ─── Markdown-lite renderer (same as ActionHub) ───────────────────────────────
+// ─── Markdown renderer ────────────────────────────────────────────────────────
 
 function renderInline(text: string): React.ReactNode[] {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
@@ -77,32 +77,108 @@ function renderInline(text: string): React.ReactNode[] {
   );
 }
 
-function MdContent({ text }: { text: string }) {
-  const lines = text.split("\n");
+function MdTable({ lines }: { lines: string[] }) {
+  const dataRows = lines.filter(l => !l.replace(/[\s|:-]/g, "").match(/^-+$/));
+  if (dataRows.length === 0) return null;
+  const parseRow = (row: string) => row.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+  const [header, ...body] = dataRows;
+  const headers = parseRow(header);
   return (
-    <div style={{ fontSize: "0.875rem", color: "#1a1a2e", lineHeight: 1.75 }}>
-      {lines.map((line, i) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={i} style={{ height: 8 }} />;
-        if (trimmed.startsWith("## ")) return <h3 key={i} style={{ fontSize: "0.9375rem", fontWeight: 700, color: "#1a1a2e", margin: "14px 0 6px" }}>{trimmed.slice(3)}</h3>;
-        if (trimmed.startsWith("### ")) return <h4 key={i} style={{ fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", margin: "10px 0 4px" }}>{trimmed.slice(4)}</h4>;
-        if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
-          return <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4 }}>
-            <span style={{ color: "#0849ac", flexShrink: 0, marginTop: 2 }}>•</span>
-            <span>{renderInline(trimmed.slice(2))}</span>
-          </div>;
-        }
-        if (/^\d+\.\s/.test(trimmed)) {
-          const [num, ...rest] = trimmed.split(/\.\s(.+)/);
-          return <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4 }}>
-            <span style={{ color: "#0849ac", flexShrink: 0, fontWeight: 700, minWidth: 18 }}>{num}.</span>
-            <span>{renderInline(rest[0] ?? "")}</span>
-          </div>;
-        }
-        return <p key={i} style={{ margin: "0 0 6px" }}>{renderInline(trimmed)}</p>;
-      })}
+    <div style={{ overflowX: "auto", margin: "14px 0", borderRadius: 10, border: "1px solid rgba(8,73,172,0.1)" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem", minWidth: 400 }}>
+        <thead>
+          <tr>
+            {headers.map((h, i) => (
+              <th key={i} style={{ padding: "9px 14px", background: "rgba(8,73,172,0.07)", color: "#1a1a2e", fontWeight: 700, textAlign: "left", borderBottom: "2px solid rgba(8,73,172,0.12)", whiteSpace: "nowrap", fontFamily: "inherit" }}>
+                {renderInline(h)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((row, ri) => (
+            <tr key={ri} style={{ background: ri % 2 === 0 ? "#fff" : "rgba(8,73,172,0.02)" }}>
+              {parseRow(row).map((cell, ci) => (
+                <td key={ci} style={{ padding: "8px 14px", borderBottom: "1px solid rgba(8,73,172,0.06)", color: "#374151", verticalAlign: "middle", fontFamily: "inherit" }}>
+                  {renderInline(cell)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
+}
+
+function MdContent({ text }: { text: string }) {
+  const lines = text.split("\n");
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const raw  = lines[i];
+    const trim = raw.trim();
+
+    // Table: nhóm các dòng bắt đầu và kết thúc bằng |
+    if (trim.startsWith("|") && trim.endsWith("|")) {
+      const tableLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) {
+        tableLines.push(lines[i].trim());
+        i++;
+      }
+      nodes.push(<MdTable key={`tbl-${i}`} lines={tableLines} />);
+      continue;
+    }
+
+    // Đường kẻ ngang ---
+    if (/^---+$/.test(trim)) {
+      nodes.push(<hr key={i} style={{ border: "none", borderTop: "1px solid rgba(8,73,172,0.1)", margin: "14px 0" }} />);
+      i++; continue;
+    }
+
+    // Dòng trống
+    if (!trim) {
+      nodes.push(<div key={i} style={{ height: 6 }} />);
+      i++; continue;
+    }
+
+    // Heading #
+    if (trim.startsWith("# "))  { nodes.push(<h2 key={i} style={{ fontFamily: "'Montserrat',sans-serif", fontSize: "1.0625rem", fontWeight: 800, color: "#1a1a2e", margin: "18px 0 8px", borderBottom: "2px solid rgba(8,73,172,0.1)", paddingBottom: 6 }}>{trim.slice(2)}</h2>); i++; continue; }
+    if (trim.startsWith("## ")) { nodes.push(<h3 key={i} style={{ fontFamily: "'Montserrat',sans-serif", fontSize: "0.9375rem", fontWeight: 700, color: "#0849ac", margin: "16px 0 6px" }}>{trim.slice(3)}</h3>); i++; continue; }
+    if (trim.startsWith("### ")){ nodes.push(<h4 key={i} style={{ fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", margin: "10px 0 4px" }}>{trim.slice(4)}</h4>); i++; continue; }
+
+    // Bullet
+    if (trim.startsWith("- ") || trim.startsWith("• ")) {
+      nodes.push(
+        <div key={i} style={{ display: "flex", gap: 9, marginBottom: 5, alignItems: "flex-start" }}>
+          <span style={{ color: "#0849ac", flexShrink: 0, marginTop: 3, fontSize: "0.625rem" }}>●</span>
+          <span style={{ lineHeight: 1.65 }}>{renderInline(trim.slice(2))}</span>
+        </div>
+      );
+      i++; continue;
+    }
+
+    // Numbered list
+    if (/^\d+\.\s/.test(trim)) {
+      const match = trim.match(/^(\d+)\.\s(.+)/);
+      if (match) {
+        nodes.push(
+          <div key={i} style={{ display: "flex", gap: 9, marginBottom: 5, alignItems: "flex-start" }}>
+            <span style={{ color: "#0849ac", flexShrink: 0, fontWeight: 700, minWidth: 20, fontSize: "0.8125rem" }}>{match[1]}.</span>
+            <span style={{ lineHeight: 1.65 }}>{renderInline(match[2])}</span>
+          </div>
+        );
+        i++; continue;
+      }
+    }
+
+    // Paragraph
+    nodes.push(<p key={i} style={{ margin: "0 0 7px", lineHeight: 1.75, color: "#374151" }}>{renderInline(trim)}</p>);
+    i++;
+  }
+
+  return <div style={{ fontSize: "0.875rem", color: "#1a1a2e", lineHeight: 1.75, fontFamily: "'Inter',sans-serif" }}>{nodes}</div>;
 }
 
 // ─── InboxPage ────────────────────────────────────────────────────────────────
