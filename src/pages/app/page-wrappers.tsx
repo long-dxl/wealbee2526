@@ -2,8 +2,7 @@
  * Route wrapper components that connect new UI pages to the NewLayout outlet context.
  * Each wrapper calls useOutletContext() to get navigation and theme props.
  */
-import { useOutletContext } from "react-router";
-import { useNavigate } from "react-router";
+import { useOutletContext, useNavigate } from "react-router";
 import type { Theme } from "../../lib/theme-context";
 import type { ContextCard } from "../../types/cards";
 
@@ -33,10 +32,11 @@ function useApp() {
 
 export function DashboardRoute() {
   const { onNavigate, addContextCard, isDark } = useApp();
+  const navigate = useNavigate();
   return (
     <Dashboard
       onNavigate={onNavigate}
-      onSelectTicker={(sym) => onNavigate(`tickers`)}
+      onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)}
       isDark={isDark}
     />
   );
@@ -44,7 +44,8 @@ export function DashboardRoute() {
 
 export function InboxRoute() {
   const { isDark } = useApp();
-  return <Inbox isDark={isDark} />;
+  const navigate = useNavigate();
+  return <Inbox isDark={isDark} onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)} />;
 }
 
 export function AgentStudioRoute() {
@@ -69,10 +70,11 @@ export function KnowledgeBaseRoute() {
 
 export function PortfolioRoute() {
   const { onNavigate, addContextCard, isDark } = useApp();
+  const navigate = useNavigate();
   return (
     <Portfolio
       onNavigate={onNavigate}
-      onSelectTicker={(sym) => onNavigate("tickers")}
+      onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)}
       onAddContextCard={addContextCard}
       isDark={isDark}
     />
@@ -85,10 +87,11 @@ export function SettingsRoute() {
 
 export function MarketPulseRoute() {
   const { onNavigate, isDark } = useApp();
+  const navigate = useNavigate();
   return (
     <MarketPulse
       onNavigate={onNavigate}
-      onSelectTicker={(sym) => onNavigate("tickers")}
+      onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)}
       isDark={isDark}
     />
   );

@@ -50,7 +50,9 @@ function NewLayoutInner() {
   const [hubContextCards, setHubContextCards] = useState<ContextCard[]>([]);
 
   // Derive currentPage from URL
-  const currentPage = ROUTE_PAGE[location.pathname] ?? "dashboard";
+  // For /app/ticker/:symbol — no direct sidebar item, highlight nothing special
+  const isTickerPage = location.pathname.startsWith("/app/ticker/");
+  const currentPage = isTickerPage ? "" : (ROUTE_PAGE[location.pathname] ?? "dashboard");
   const isStudioMode = currentPage === "agent-studio" || currentPage === "create-agent";
 
   const handleNavigate = (page: string) => {
@@ -107,10 +109,7 @@ function NewLayoutInner() {
             zIndex: 20, position: "relative",
           }}>
             <GlobalSearch
-              onSelectTicker={(sym) => {
-                // Navigate to ticker detail or agents page
-                navigate(`/app/agents?ticker=${sym}`);
-              }}
+              onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)}
               onNavigate={handleNavigate}
               isDark={isDark}
             />

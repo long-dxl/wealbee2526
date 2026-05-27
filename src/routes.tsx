@@ -31,6 +31,9 @@ import {
 // Agents page (has full run functionality with SSE)
 import { AgentsPage } from "./pages/app/agents";
 
+// Ticker detail page (real Supabase data)
+import { TickerDetailPage } from "./pages/app/ticker-detail-page";
+
 // Legacy admin page
 import { AdminDailyReview } from "./pages/admin-daily-review";
 
@@ -61,6 +64,7 @@ export const router = createBrowserRouter([
       { path: "knowledge",       Component: KnowledgeBaseRoute },
       { path: "portfolio",       Component: PortfolioRoute    },
       { path: "settings",        Component: SettingsRoute     },
+      { path: "ticker/:symbol",  Component: TickerDetailPage  },
 
       // Legacy admin
       { path: "admin/daily-review", Component: AdminDailyReview },

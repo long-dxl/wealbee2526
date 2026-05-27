@@ -267,7 +267,7 @@ function MarkdownBody({ body, fg, fgMuted, fgSubtle, divider, isDark }: {
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export function Inbox({ isDark = false }: { isDark?: boolean }) {
+export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; onSelectTicker?: (sym: string) => void }) {
   const fg       = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
   const fgMuted  = isDark ? "rgba(240,242,255,0.60)" : "rgba(26,26,46,0.65)";
   const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "rgba(26,26,46,0.40)";
@@ -434,11 +434,17 @@ export function Inbox({ isDark = false }: { isDark?: boolean }) {
                     <span style={{ fontSize: 12, color: fgSubtle }}>{brief.agentName}</span>
 
                     {brief.symbol && (
-                      <span style={{
-                        fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 5,
-                        background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
-                        color: brand,
-                      }}>
+                      <span
+                        onClick={(e) => { e.stopPropagation(); onSelectTicker?.(brief.symbol!); }}
+                        style={{
+                          fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 5,
+                          background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
+                          color: brand,
+                          cursor: onSelectTicker ? "pointer" : "default",
+                          textDecoration: onSelectTicker ? "underline" : "none",
+                        }}
+                        title={onSelectTicker ? `Xem chi tiết ${brief.symbol}` : undefined}
+                      >
                         {brief.symbol}
                       </span>
                     )}

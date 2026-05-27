@@ -48,6 +48,7 @@ interface RunPanelState {
   briefId?: string;
   tokens?: number;
   error?: string;
+  targetSymbol?: string;
 }
 
 // ─── Icon + color map ─────────────────────────────────────────────────────────
@@ -188,10 +189,11 @@ function MdContent({ text }: { text: string }) {
 
 // ─── Run Panel ────────────────────────────────────────────────────────────────
 
-function RunPanel({ panel, onClose, onInbox }: {
+function RunPanel({ panel, onClose, onInbox, onViewTicker }: {
   panel: RunPanelState;
   onClose: () => void;
   onInbox: () => void;
+  onViewTicker?: (sym: string) => void;
 }) {
   const outputRef = useRef<HTMLDivElement>(null);
 
@@ -216,9 +218,19 @@ function RunPanel({ panel, onClose, onInbox }: {
           {panel.error && <span style={{ fontSize: "0.75rem", color: "#ef4444", marginLeft: 10, fontWeight: 600 }}>✕ Lỗi</span>}
         </div>
         {panel.done && !panel.error && (
-          <button onClick={onInbox} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "none", background: "#0849ac", color: "#fff", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}>
-            <Inbox style={{ width: 13, height: 13 }} />Xem trong Inbox
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {panel.targetSymbol && onViewTicker && (
+              <button
+                onClick={() => onViewTicker(panel.targetSymbol!)}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "1px solid rgba(139,92,246,0.3)", background: "rgba(139,92,246,0.08)", color: "#8b5cf6", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}
+              >
+                <BarChart3 style={{ width: 13, height: 13 }} />{panel.targetSymbol}
+              </button>
+            )}
+            <button onClick={onInbox} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "none", background: "#0849ac", color: "#fff", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}>
+              <Inbox style={{ width: 13, height: 13 }} />Xem trong Inbox
+            </button>
+          </div>
         )}
       </div>
 
@@ -375,7 +387,7 @@ export function AgentsPage() {
 
     const sym = targetSymbol || savedSym || undefined;
 
-    setRunPanel({ agentId: agent.id, agentName: agent.name, steps: [], output: "", done: false });
+    setRunPanel({ agentId: agent.id, agentName: agent.name, steps: [], output: "", done: false, targetSymbol: sym });
 
     let res: Response;
     try {
@@ -445,6 +457,7 @@ export function AgentsPage() {
         panel={runPanel}
         onClose={() => setRunPanel(null)}
         onInbox={() => { setRunPanel(null); navigate("/app/inbox"); }}
+        onViewTicker={(sym) => { setRunPanel(null); navigate(`/app/ticker/${sym}`); }}
       />
     );
   }
