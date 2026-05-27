@@ -333,9 +333,17 @@ export function AgentsPage() {
 
   const activateTemplate = async (tmpl: AgentTemplate) => {
     if (!userId) return;
+    // Fetch full template to get tools + system_prompt
+    const { data: full } = await supabase
+      .from("agent_templates")
+      .select("id, tools, system_prompt")
+      .eq("id", tmpl.id)
+      .single();
     const { data: agent } = await supabase.from("agents").insert({
       user_id: userId, template_id: tmpl.id, name: tmpl.name,
       description: tmpl.description, status: "active", schedule: "manual",
+      tools: full?.tools ?? [],
+      system_prompt: full?.system_prompt ?? null,
     }).select("*").single();
     if (agent) { setAgents(prev => [...prev, agent as UserAgent]); setShowTemplates(false); }
   };

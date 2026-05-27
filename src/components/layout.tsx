@@ -23,6 +23,7 @@ import { useAuth } from "../lib/auth-context";
 import { WealbeeIcon } from "./WealbeeIcon";
 import { ActionHub } from "./ActionHub";
 import { useAppStore } from "../store/appStore";
+import { supabase } from "../lib/supabase/client";
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
@@ -71,6 +72,66 @@ function MarketTicker({ ticker }: { ticker: Ticker }) {
   );
 }
 
+// ─── useMarketTickers hook ────────────────────────────────────────────────────
+
+function useMarketTickers() {
+  const [tickers, setTickers] = useState<Ticker[]>([
+    { label: "VN-Index", value: "—", change: "—", up: true },
+    { label: "HNX",      value: "—", change: "—", up: true },
+    { label: "USD/VND",  value: "26,341", change: "+0.11%", up: true },
+  ]);
+
+  useEffect(() => {
+    async function fetchTickers() {
+      const { data } = await supabase
+        .from("market_indices")
+        .select("index_code, close, change_pct, date")
+        .in("index_code", ["VNINDEX", "HNX"])
+        .order("date", { ascending: false })
+        .limit(10);
+
+      if (!data || data.length === 0) return;
+
+      // Get latest record per index
+      const latest: Record<string, { close: number; change_pct: number | null }> = {};
+      for (const row of data) {
+        if (!latest[row.index_code]) {
+          latest[row.index_code] = { close: row.close, change_pct: row.change_pct };
+        }
+      }
+
+      const fmt = (n: number, decimals = 2) =>
+        n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+
+      const fmtChange = (pct: number | null) => {
+        if (pct == null) return "—";
+        const sign = pct >= 0 ? "+" : "";
+        return `${sign}${pct.toFixed(2)}%`;
+      };
+
+      setTickers(prev => {
+        const next = [...prev];
+        const vn = latest["VNINDEX"];
+        const hnx = latest["HNX"];
+        if (vn) {
+          next[0] = { label: "VN-Index", value: fmt(vn.close, 2), change: fmtChange(vn.change_pct), up: (vn.change_pct ?? 0) >= 0 };
+        }
+        if (hnx) {
+          next[1] = { label: "HNX", value: fmt(hnx.close, 2), change: fmtChange(hnx.change_pct), up: (hnx.change_pct ?? 0) >= 0 };
+        }
+        return next;
+      });
+    }
+
+    fetchTickers();
+    // Refresh every 5 minutes
+    const interval = setInterval(fetchTickers, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return tickers;
+}
+
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export function Layout() {
@@ -79,6 +140,7 @@ export function Layout() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const tickers = useMarketTickers();
 
   // Close user menu on outside click
   useEffect(() => {
@@ -236,9 +298,7 @@ export function Layout() {
 
           {/* Market tickers */}
           <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1, justifyContent: "center" }}>
-            <MarketTicker ticker={{ label: "VN-Index", value: "1,247.68", change: "+0.82%", up: true }} />
-            <MarketTicker ticker={{ label: "HNX",      value: "251.91",   change: "−0.34%",  up: false }} />
-            <MarketTicker ticker={{ label: "USD/VND",  value: "26,341",   change: "+0.11%",  up: true }} />
+            {tickers.map(t => <MarketTicker key={t.label} ticker={t} />)}
           </div>
 
           {/* Right actions */}

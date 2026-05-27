@@ -1,6 +1,4 @@
-import { createBrowserRouter, Navigate } from "react-router";
-import { Layout } from "./components/layout";
-import { ProtectedRoute } from "./components/protected-route";
+import { createBrowserRouter } from "react-router";
 
 // Landing pages
 import { Landing } from "./pages/landing";
@@ -14,21 +12,27 @@ import BlogListPage from "./pages/landing/blog/BlogListPage";
 import BlogPostPage from "./pages/landing/blog/BlogPostPage";
 import { NotFound } from "./pages/not-found";
 
-// App pages
-import { UserDashboard } from "./pages/user-dashboard";
-import { IntelligenceFeed } from "./pages/intelligence-feed";
-import { ResearchDesk } from "./pages/research-desk";
-import { AdminDailyReview } from "./pages/admin-daily-review";
+// New layout
+import { NewLayout } from "./components/new-layout";
 
-// New platform pages
-import { InboxPage } from "./pages/app/inbox";
+// New platform pages (new UI via route wrappers)
+import {
+  DashboardRoute,
+  InboxRoute,
+  AgentStudioRoute,
+  TemplatesRoute,
+  ToolLibraryRoute,
+  KnowledgeBaseRoute,
+  PortfolioRoute,
+  SettingsRoute,
+  MarketPulseRoute,
+} from "./pages/app/page-wrappers";
+
+// Agents page (has full run functionality with SSE)
 import { AgentsPage } from "./pages/app/agents";
-import { AgentStudioPage } from "./pages/app/agent-studio";
-import { TemplatesPage } from "./pages/app/templates";
-import { ToolsPage } from "./pages/app/tools";
-import { KnowledgePage } from "./pages/app/knowledge";
-import { PortfolioPage } from "./pages/app/portfolio";
-import { SettingsPage } from "./pages/app/settings";
+
+// Legacy admin page
+import { AdminDailyReview } from "./pages/admin-daily-review";
 
 export const router = createBrowserRouter([
   // ── Public routes ──────────────────────────────────────────────────────────
@@ -42,32 +46,24 @@ export const router = createBrowserRouter([
   { path: "/landing-old",   Component: Landing        },
   { path: "/login",         Component: Login          },
 
-  // ── Protected app routes (with layout) ────────────────────────────────────
+  // ── Protected app routes (new layout) ─────────────────────────────────────
   {
     path: "/app",
-    element: (
-      <ProtectedRoute>
-        <Layout />
-      </ProtectedRoute>
-    ),
+    Component: NewLayout,
     children: [
-      // Dashboard (index)
-      { index: true,                   Component: UserDashboard    },
+      { index: true,             Component: DashboardRoute    },
+      { path: "feed",            Component: MarketPulseRoute  },
+      { path: "inbox",           Component: InboxRoute        },
+      { path: "agents",          Component: AgentsPage        },
+      { path: "agent-studio",    Component: AgentStudioRoute  },
+      { path: "templates",       Component: TemplatesRoute    },
+      { path: "tools",           Component: ToolLibraryRoute  },
+      { path: "knowledge",       Component: KnowledgeBaseRoute },
+      { path: "portfolio",       Component: PortfolioRoute    },
+      { path: "settings",        Component: SettingsRoute     },
 
-      // Core platform
-      { path: "feed",                  Component: IntelligenceFeed },
-      { path: "inbox",                 Component: InboxPage        },
-      { path: "agents",                Component: AgentsPage       },
-      { path: "agent-studio",          Component: AgentStudioPage  },
-      { path: "templates",             Component: TemplatesPage    },
-      { path: "tools",                 Component: ToolsPage        },
-      { path: "knowledge",             Component: KnowledgePage    },
-      { path: "portfolio",             Component: PortfolioPage    },
-      { path: "settings",              Component: SettingsPage     },
-
-      // Legacy / admin
-      { path: "research",              Component: ResearchDesk     },
-      { path: "admin/daily-review",    Component: AdminDailyReview },
+      // Legacy admin
+      { path: "admin/daily-review", Component: AdminDailyReview },
     ],
   },
 

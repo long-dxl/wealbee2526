@@ -1,0 +1,346 @@
+/* ════════════════════════════════════════════════════════════════════
+   WEALBEE — DESIGN TOKEN SYSTEM
+   ─────────────────────────────────────────────────────────────────────
+   Layer 1  →  Primitives   (:root)          raw values, never consumed directly
+   Layer 2  →  Semantics    ([data-theme])   functional aliases, used by UI
+   ─────────────────────────────────────────────────────────────────────
+   To add a new theme: copy one [data-theme] block → override only what differs.
+   Do NOT touch Layer 1 when theming.
+   ════════════════════════════════════════════════════════════════════ */
+
+
+/* ── @custom-variant: maps Tailwind dark: prefix to data-theme ─────── */
+@custom-variant dark (&:is([data-theme="dark"] *), &:is([data-theme="midnight"] *));
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   LAYER 1 — PRIMITIVE TOKENS
+   Immutable raw values. Referenced only by Layer 2.
+   ═══════════════════════════════════════════════════════════════════ */
+:root {
+  /* Brand scale */
+  --p-blue-900:   #032D6B;
+  --p-blue-700:   #0849AC;
+  --p-blue-400:   #4D8FE8;
+  --p-blue-100:   #E8F0FE;
+
+  /* Neutral scale */
+  --p-navy-950:   #0B0D18;
+  --p-navy-900:   #0D1117;
+  --p-navy-800:   #131824;
+  --p-navy-700:   #1A1A2E;
+  --p-navy-600:   #1a2438;
+  --p-navy-500:   #0f1220;
+  --p-white:      #FFFFFF;
+  --p-gray-50:    #F5F5F7;
+
+  /* Financial accent — constant across all themes */
+  --p-green:      #34C759;
+  --p-red:        #FF3B30;
+  --p-orange:     #FF9500;
+  --p-yellow:     #FFD60A;
+  --p-indigo:     #6366F1;
+  --p-indigo-400: #818CF8;
+
+  /* Typography */
+  --p-font-sans:  'Montserrat', system-ui, sans-serif;
+  --p-font-size:  16px;
+
+  /* Radius scale */
+  --radius: 0.875rem;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   LAYER 2 — SEMANTIC TOKENS: LIGHT (default)
+   ═══════════════════════════════════════════════════════════════════ */
+[data-theme="light"] {
+
+  /* ── Backgrounds ── */
+  --bg-primary:        var(--p-gray-50);
+  --bg-card:           var(--p-white);
+  --bg-card-hover:     var(--p-blue-100);
+  --bg-muted:          var(--p-gray-50);
+  --bg-accent:         rgba(8, 73, 172, 0.06);
+  --bg-accent-strong:  rgba(8, 73, 172, 0.08);
+  --bg-accent-active:  var(--p-blue-100);
+  --bg-sidebar:        var(--p-white);
+  --bg-hub:            var(--p-white);
+  --bg-topbar:         var(--p-gray-50);
+  --bg-input:          var(--p-gray-50);
+
+  /* ── Text ── */
+  --text-primary:      #1A1A2E;
+  --text-muted:        rgba(26, 26, 46, 0.60);
+  --text-subtle:       rgba(26, 26, 46, 0.45);
+  --text-disabled:     rgba(26, 26, 46, 0.30);
+
+  /* ── Brand ── */
+  --brand:             var(--p-blue-700);
+  --brand-deep:        var(--p-blue-700);
+  --brand-fg:          var(--p-white);
+
+  /* ── Borders ── */
+  --border:            rgba(8, 73, 172, 0.12);
+  --border-strong:     rgba(8, 73, 172, 0.20);
+  --border-input:      rgba(8, 73, 172, 0.14);
+  --border-topbar:     rgba(8, 73, 172, 0.10);
+
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 3px rgba(8, 73, 172, 0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 16px rgba(8, 73, 172, 0.12), 0 2px 4px rgba(0,0,0,0.06);
+  --shadow-lg: 0 20px 60px rgba(8, 73, 172, 0.16), 0 4px 12px rgba(0,0,0,0.08);
+
+  /* ── Charts ── */
+  --chart-1: var(--p-blue-700);
+  --chart-2: var(--p-indigo);
+  --chart-3: var(--p-green);
+  --chart-4: var(--p-orange);
+  --chart-5: var(--p-red);
+
+  /* ── Tailwind shadcn compat ── */
+  --background:                  var(--p-gray-50);
+  --foreground:                  #1A1A2E;
+  --card:                        var(--p-white);
+  --card-foreground:             #1A1A2E;
+  --popover:                     var(--p-white);
+  --popover-foreground:          #1A1A2E;
+  --primary:                     var(--p-blue-700);
+  --primary-foreground:          var(--p-white);
+  --secondary:                   var(--p-blue-100);
+  --secondary-foreground:        #1A1A2E;
+  --muted:                       var(--p-gray-50);
+  --muted-foreground:            rgba(26, 26, 46, 0.60);
+  --accent:                      var(--p-blue-100);
+  --accent-foreground:           var(--p-blue-700);
+  --destructive:                 var(--p-red);
+  --destructive-foreground:      var(--p-white);
+  --border:                      rgba(8, 73, 172, 0.12);
+  --input:                       transparent;
+  --input-background:            var(--p-gray-50);
+  --ring:                        rgba(8, 73, 172, 0.50);
+  --sidebar:                     var(--p-white);
+  --sidebar-foreground:          #1A1A2E;
+  --sidebar-primary:             var(--p-blue-700);
+  --sidebar-primary-foreground:  var(--p-white);
+  --sidebar-accent:              rgba(8, 73, 172, 0.08);
+  --sidebar-accent-foreground:   var(--p-blue-700);
+  --sidebar-border:              rgba(8, 73, 172, 0.12);
+  --sidebar-ring:                rgba(8, 73, 172, 0.50);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   LAYER 2 — SEMANTIC TOKENS: DARK
+   ═══════════════════════════════════════════════════════════════════ */
+[data-theme="dark"] {
+
+  --bg-primary:        var(--p-navy-950);
+  --bg-card:           var(--p-navy-800);
+  --bg-card-hover:     var(--p-navy-600);
+  --bg-muted:          var(--p-navy-500);
+  --bg-accent:         rgba(77, 143, 232, 0.12);
+  --bg-accent-strong:  rgba(77, 143, 232, 0.18);
+  --bg-accent-active:  rgba(77, 143, 232, 0.25);
+  --bg-sidebar:        var(--p-navy-900);
+  --bg-hub:            var(--p-navy-800);
+  --bg-topbar:         rgba(11, 13, 24, 0.96);
+  --bg-input:          rgba(255, 255, 255, 0.06);
+
+  --text-primary:      rgba(240, 242, 255, 0.90);
+  --text-muted:        rgba(240, 242, 255, 0.55);
+  --text-subtle:       rgba(240, 242, 255, 0.35);
+  --text-disabled:     rgba(240, 242, 255, 0.22);
+
+  --brand:             var(--p-blue-400);
+  --brand-deep:        #1e3a6e;
+  --brand-fg:          var(--p-white);
+
+  --border:            rgba(255, 255, 255, 0.07);
+  --border-strong:     rgba(255, 255, 255, 0.13);
+  --border-input:      rgba(255, 255, 255, 0.10);
+  --border-topbar:     rgba(255, 255, 255, 0.07);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.30);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.60);
+
+  --chart-1: var(--p-blue-400);
+  --chart-2: var(--p-indigo-400);
+  --chart-3: var(--p-green);
+  --chart-4: var(--p-orange);
+  --chart-5: var(--p-red);
+
+  --background:                  var(--p-navy-950);
+  --foreground:                  rgba(240, 242, 255, 0.90);
+  --card:                        var(--p-navy-800);
+  --card-foreground:             rgba(240, 242, 255, 0.90);
+  --popover:                     var(--p-navy-800);
+  --popover-foreground:          rgba(240, 242, 255, 0.90);
+  --primary:                     var(--p-blue-400);
+  --primary-foreground:          var(--p-white);
+  --secondary:                   var(--p-blue-900);
+  --secondary-foreground:        var(--p-white);
+  --muted:                       var(--p-navy-700);
+  --muted-foreground:            rgba(235, 235, 245, 0.60);
+  --accent:                      var(--p-blue-900);
+  --accent-foreground:           var(--p-blue-400);
+  --destructive:                 var(--p-red);
+  --destructive-foreground:      var(--p-white);
+  --input:                       rgba(255, 255, 255, 0.07);
+  --input-background:            rgba(255, 255, 255, 0.06);
+  --ring:                        rgba(77, 143, 232, 0.50);
+  --sidebar:                     var(--p-navy-900);
+  --sidebar-foreground:          rgba(240, 242, 255, 0.90);
+  --sidebar-primary:             var(--p-blue-400);
+  --sidebar-primary-foreground:  var(--p-white);
+  --sidebar-accent:              rgba(77, 143, 232, 0.15);
+  --sidebar-accent-foreground:   var(--p-blue-400);
+  --sidebar-border:              rgba(255, 255, 255, 0.07);
+  --sidebar-ring:                rgba(77, 143, 232, 0.50);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   LAYER 2 — SEMANTIC TOKENS: MIDNIGHT  (proof of scalability)
+   Pure black canvas, indigo brand — add to ThemeId union to activate.
+   ═══════════════════════════════════════════════════════════════════ */
+[data-theme="midnight"] {
+
+  --bg-primary:        #000000;
+  --bg-card:           #0A0A0F;
+  --bg-card-hover:     #111118;
+  --bg-muted:          #050508;
+  --bg-accent:         rgba(139, 156, 248, 0.10);
+  --bg-accent-strong:  rgba(139, 156, 248, 0.16);
+  --bg-accent-active:  rgba(139, 156, 248, 0.22);
+  --bg-sidebar:        #05050A;
+  --bg-hub:            #0A0A0F;
+  --bg-topbar:         rgba(0, 0, 0, 0.92);
+  --bg-input:          rgba(255, 255, 255, 0.04);
+
+  --text-primary:      rgba(220, 220, 255, 0.92);
+  --text-muted:        rgba(220, 220, 255, 0.52);
+  --text-subtle:       rgba(220, 220, 255, 0.32);
+  --text-disabled:     rgba(220, 220, 255, 0.18);
+
+  --brand:             #8B9CF8;
+  --brand-deep:        #1a1a4e;
+  --brand-fg:          #000000;
+
+  --border:            rgba(255, 255, 255, 0.05);
+  --border-strong:     rgba(255, 255, 255, 0.09);
+  --border-input:      rgba(255, 255, 255, 0.07);
+  --border-topbar:     rgba(255, 255, 255, 0.05);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.60);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.70);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.85);
+
+  --chart-1: #8B9CF8;
+  --chart-2: #C084FC;
+  --chart-3: var(--p-green);
+  --chart-4: var(--p-orange);
+  --chart-5: var(--p-red);
+
+  --background:                  #000000;
+  --foreground:                  rgba(220, 220, 255, 0.92);
+  --card:                        #0A0A0F;
+  --card-foreground:             rgba(220, 220, 255, 0.92);
+  --popover:                     #0A0A0F;
+  --popover-foreground:          rgba(220, 220, 255, 0.92);
+  --primary:                     #8B9CF8;
+  --primary-foreground:          #000000;
+  --secondary:                   #1a1a4e;
+  --secondary-foreground:        rgba(220, 220, 255, 0.92);
+  --muted:                       #0A0A0F;
+  --muted-foreground:            rgba(220, 220, 255, 0.52);
+  --accent:                      #1a1a4e;
+  --accent-foreground:           #8B9CF8;
+  --destructive:                 var(--p-red);
+  --destructive-foreground:      var(--p-white);
+  --input:                       rgba(255, 255, 255, 0.05);
+  --input-background:            rgba(255, 255, 255, 0.04);
+  --ring:                        rgba(139, 156, 248, 0.50);
+  --sidebar:                     #05050A;
+  --sidebar-foreground:          rgba(220, 220, 255, 0.92);
+  --sidebar-primary:             #8B9CF8;
+  --sidebar-primary-foreground:  #000000;
+  --sidebar-accent:              rgba(139, 156, 248, 0.12);
+  --sidebar-accent-foreground:   #8B9CF8;
+  --sidebar-border:              rgba(255, 255, 255, 0.05);
+  --sidebar-ring:                rgba(139, 156, 248, 0.50);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAILWIND v4 THEME BRIDGE
+   Maps CSS vars → Tailwind color utilities
+   ═══════════════════════════════════════════════════════════════════ */
+@theme inline {
+  --color-background:                var(--background);
+  --color-foreground:                var(--foreground);
+  --color-card:                      var(--card);
+  --color-card-foreground:           var(--card-foreground);
+  --color-popover:                   var(--popover);
+  --color-popover-foreground:        var(--popover-foreground);
+  --color-primary:                   var(--primary);
+  --color-primary-foreground:        var(--primary-foreground);
+  --color-secondary:                 var(--secondary);
+  --color-secondary-foreground:      var(--secondary-foreground);
+  --color-muted:                     var(--muted);
+  --color-muted-foreground:          var(--muted-foreground);
+  --color-accent:                    var(--accent);
+  --color-accent-foreground:         var(--accent-foreground);
+  --color-destructive:               var(--destructive);
+  --color-destructive-foreground:    var(--destructive-foreground);
+  --color-border:                    var(--border);
+  --color-input:                     var(--input);
+  --color-input-background:          var(--input-background);
+  --color-ring:                      var(--ring);
+  --color-chart-1:                   var(--chart-1);
+  --color-chart-2:                   var(--chart-2);
+  --color-chart-3:                   var(--chart-3);
+  --color-chart-4:                   var(--chart-4);
+  --color-chart-5:                   var(--chart-5);
+  --color-sidebar:                   var(--sidebar);
+  --color-sidebar-foreground:        var(--sidebar-foreground);
+  --color-sidebar-primary:           var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent:            var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border:            var(--sidebar-border);
+  --color-sidebar-ring:              var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   BASE STYLES
+   ═══════════════════════════════════════════════════════════════════ */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    font-size: var(--p-font-size);
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--p-font-sans);
+  }
+
+  h1 { font-size: var(--text-2xl); font-weight: 700; line-height: 1.25; }
+  h2 { font-size: var(--text-xl);  font-weight: 600; line-height: 1.35; }
+  h3 { font-size: var(--text-lg);  font-weight: 600; line-height: 1.4; }
+  h4 { font-size: var(--text-base); font-weight: 600; line-height: 1.5; }
+
+  label, button { font-size: var(--text-base); font-weight: 500; line-height: 1.5; }
+  input         { font-size: var(--text-base); font-weight: 400; line-height: 1.5; }
+}
