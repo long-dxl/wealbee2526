@@ -1,13 +1,42 @@
+/**
+ * MarketPulse — Trang thị trường với data THẬT từ Supabase:
+ *  - market_indices  → chỉ số VN-INDEX, HNX (sparkline 7 ngày)
+ *  - prices_daily    → top movers (9 symbols hiện có)
+ *  - stocks          → sector map cho heatmap
+ *  - market_news     → tin thị trường mới nhất
+ */
+import { useState, useEffect } from "react";
 import { TrendingUp, TrendingDown, Clock, AlertCircle } from "lucide-react";
+import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 
+// ── Types ──────────────────────────────────────────────────────────────────
+interface MoverRow { symbol: string; price: number; pct: number; vol: string; isCeil: boolean; isFloor: boolean; }
+interface SectorRow { name: string; pct: number; }
+interface NewsRow   { title: string; sentiment: string; source: string; time: string; url?: string; }
+interface IndexState { name: string; value: number; pt: number; pct: number; spark: number[]; vol: string; }
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function relativeTime(ts: string): string {
+  const mins = (Date.now() - new Date(ts).getTime()) / 60000;
+  if (mins < 60) return `${Math.round(mins)}p`;
+  if (mins < 1440) return `${Math.round(mins / 60)}h`;
+  return `${Math.round(mins / 1440)} ngày`;
+}
+
+function fmtVol(v: number | null): string {
+  if (!v) return "—";
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(0)}K`;
+  return `${v}`;
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────
 function PctBadge({ value, ceilingFloor }: { value: number; ceilingFloor?: "ceil" | "floor" }) {
-  if (ceilingFloor === "ceil") {
+  if (ceilingFloor === "ceil")
     return <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: "rgba(124,58,237,0.12)", color: "#7C3AED", fontFamily: "'Montserrat', system-ui, sans-serif" }}>+{value.toFixed(2)}%</span>;
-  }
-  if (ceilingFloor === "floor") {
+  if (ceilingFloor === "floor")
     return <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: "rgba(6,182,212,0.12)", color: "#06B6D4", fontFamily: "'Montserrat', system-ui, sans-serif" }}>{value.toFixed(2)}%</span>;
-  }
   const isUp = value > 0, isDown = value < 0;
   return (
     <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: isUp ? "rgba(52,199,89,0.12)" : isDown ? "rgba(255,59,48,0.12)" : "rgba(0,0,0,0.06)", color: isUp ? "#34C759" : isDown ? "#FF3B30" : "rgba(26,26,46,0.45)", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
@@ -16,49 +45,18 @@ function PctBadge({ value, ceilingFloor }: { value: number; ceilingFloor?: "ceil
   );
 }
 
-const sectors = [
-  { name: "Thép", pct: 2.8 }, { name: "IT/Tech", pct: 1.4 },
-  { name: "Ngân hàng", pct: 0.9 }, { name: "Hóa chất", pct: 0.6 },
-  { name: "BĐS", pct: -1.9 }, { name: "Bán lẻ", pct: -1.2 },
-  { name: "Xây dựng", pct: -0.8 }, { name: "Thủy sản", pct: -0.4 },
-];
-
-const topGainers = [
-  { symbol: "HPG", price: 26500, pct: 4.10, vol: "12.4M", isFloor: false, isCeil: false },
-  { symbol: "VIC", price: 47800, pct: 3.80, vol: "9.2M", isFloor: false, isCeil: false },
-  { symbol: "MSN", price: 68200, pct: 2.91, vol: "6.8M", isFloor: false, isCeil: false },
-  { symbol: "STB", price: 31200, pct: 7.00, vol: "5.1M", isFloor: false, isCeil: true },
-  { symbol: "TCB", price: 24800, pct: 2.40, vol: "8.4M", isFloor: false, isCeil: false },
-];
-
-const topLosers = [
-  { symbol: "MWG", price: 62100, pct: -3.20, vol: "8.1M", isFloor: false, isCeil: false },
-  { symbol: "DXG", price: 14200, pct: -2.90, vol: "5.6M", isFloor: false, isCeil: false },
-  { symbol: "PDR", price: 11800, pct: -7.00, vol: "5.6M", isFloor: true, isCeil: false },
-  { symbol: "NVL", price: 8900, pct: -2.50, vol: "3.8M", isFloor: false, isCeil: false },
-  { symbol: "SHB", price: 8200, pct: -1.80, vol: "6.2M", isFloor: false, isCeil: false },
-];
-
-const newsItems = [
-  { sentiment: "Tích cực", source: "CafeF", time: "30p", title: "HPG dẫn đầu sàn nhờ giá thép HRC phục hồi tuần này" },
-  { sentiment: "Trung lập", source: "Vietstock", time: "1h", title: "NHNN giữ lãi suất điều hành, thị trường không biến động" },
-  { sentiment: "Cảnh báo", source: "HOSE Filing", time: "2h", title: "Phó TGĐ HPG đăng ký bán 500,000 cp" },
-];
-
-function getSentimentColor(sentiment: string, isDark: boolean): { bg: string; text: string } {
-  if (sentiment === "Tích cực") return { bg: "rgba(52,199,89,0.12)", text: "#34C759" };
-  if (sentiment === "Cảnh báo") return { bg: "rgba(255,59,48,0.10)", text: "#FF3B30" };
-  return isDark
-    ? { bg: "rgba(255,255,255,0.08)", text: "rgba(240,242,255,0.55)" }
-    : { bg: "rgba(26,26,46,0.08)", text: "rgba(26,26,46,0.60)" };
+function getSentimentColor(s: string, isDark: boolean) {
+  if (s === "Tích cực" || s === "positive") return { bg: "rgba(52,199,89,0.12)", text: "#34C759" };
+  if (s === "Cảnh báo" || s === "negative") return { bg: "rgba(255,59,48,0.10)", text: "#FF3B30" };
+  return isDark ? { bg: "rgba(255,255,255,0.08)", text: "rgba(240,242,255,0.55)" } : { bg: "rgba(26,26,46,0.08)", text: "rgba(26,26,46,0.60)" };
 }
 
 function getSectorColor(pct: number) {
-  if (pct >= 2) return { bg: "rgba(52,199,89,0.25)", text: "#1a7a3a" };
-  if (pct >= 0.5) return { bg: "rgba(52,199,89,0.12)", text: "#34C759" };
-  if (pct >= 0) return { bg: "rgba(52,199,89,0.06)", text: "#0ea5a0" };
+  if (pct >= 2)    return { bg: "rgba(52,199,89,0.25)", text: "#1a7a3a" };
+  if (pct >= 0.5)  return { bg: "rgba(52,199,89,0.12)", text: "#34C759" };
+  if (pct >= 0)    return { bg: "rgba(52,199,89,0.06)", text: "#0ea5a0" };
   if (pct >= -0.5) return { bg: "rgba(255,59,48,0.06)", text: "#FF3B30" };
-  if (pct >= -2) return { bg: "rgba(255,59,48,0.12)", text: "#FF3B30" };
+  if (pct >= -2)   return { bg: "rgba(255,59,48,0.12)", text: "#FF3B30" };
   return { bg: "rgba(255,59,48,0.25)", text: "#cc1010" };
 }
 
@@ -76,127 +74,265 @@ function makeDragHandlers(card: ContextCard) {
   };
 }
 
-export function MarketPulse({ onNavigate, onSelectTicker, isDark = false }: { onNavigate: (page: string) => void; onSelectTicker?: (symbol: string) => void; isDark?: boolean }) {
-  const cardBg = isDark ? "#131824" : "#fff";
+// ── Label normaliser ───────────────────────────────────────────────────────
+function normLabel(label: string | null): string {
+  if (!label) return "Trung lập";
+  const l = label.toLowerCase();
+  if (l.includes("positive") || l.includes("tích")) return "Tích cực";
+  if (l.includes("negative") || l.includes("cảnh") || l.includes("warning")) return "Cảnh báo";
+  if (l.includes("event") || l.includes("sự kiện")) return "Sự kiện";
+  return label;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+export function MarketPulse({
+  onNavigate: _onNavigate,
+  onSelectTicker,
+  isDark = false,
+}: {
+  onNavigate: (page: string) => void;
+  onSelectTicker?: (symbol: string) => void;
+  isDark?: boolean;
+}) {
+  const cardBg    = isDark ? "#131824" : "#fff";
   const cardShadow = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08)";
-  const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgSubtle = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
-  const fgMuted = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.60)";
-  const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)";
-  const brand = isDark ? "#4D8FE8" : "#0849AC";
-  const hoverBg = isDark ? "#1a2438" : "#E8F0FE";
-  void hoverBg; void fgMuted;
+  const fg        = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
+  const fgSubtle  = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const divider   = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)";
+  const brand     = isDark ? "#4D8FE8" : "#0849AC";
+  const hoverBg   = isDark ? "#1a2438" : "#E8F0FE";
+
+  // ── State ────────────────────────────────────────────────────────────────
+  const [gainers,  setGainers]  = useState<MoverRow[]>([]);
+  const [losers,   setLosers]   = useState<MoverRow[]>([]);
+  const [sectors,  setSectors]  = useState<SectorRow[]>([]);
+  const [newsItems, setNewsItems] = useState<NewsRow[]>([]);
+  const [indices,  setIndices]  = useState<IndexState[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [lastDate, setLastDate] = useState<string>("—");
+
+  // ── Data fetch ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      await Promise.all([loadMovers(), loadIndices(), loadNews()]);
+      if (!cancelled) setLoading(false);
+    }
+
+    async function loadMovers() {
+      const { data: latestRow } = await supabase
+        .from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
+      if (!latestRow || cancelled) return;
+
+      const dateStr = new Date(latestRow.date).toLocaleDateString("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit" });
+      if (!cancelled) setLastDate(dateStr);
+
+      const [{ data: prices }, { data: stocksInfo }] = await Promise.all([
+        supabase.from("prices_daily").select("symbol,open,close,volume").eq("date", latestRow.date),
+        supabase.from("stocks").select("symbol,sector_name"),
+      ]);
+      if (!prices || cancelled) return;
+
+      const sectorMap: Record<string, string> = {};
+      stocksInfo?.forEach((s: any) => { sectorMap[s.symbol] = s.sector_name || "Khác"; });
+
+      const withPct = prices.map((p: any) => ({
+        symbol: p.symbol,
+        price: p.close,
+        pct: p.open > 0 ? ((p.close - p.open) / p.open) * 100 : 0,
+        vol: fmtVol(p.volume),
+        sector: sectorMap[p.symbol] || "Khác",
+      }));
+
+      const sorted = [...withPct].sort((a, b) => b.pct - a.pct);
+      if (!cancelled) {
+        setGainers(sorted.slice(0, 5).map(s => ({
+          symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol,
+          isCeil: s.pct >= 6.9, isFloor: false,
+        })));
+        setLosers(sorted.slice(-5).reverse().map(s => ({
+          symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol,
+          isCeil: false, isFloor: s.pct <= -6.9,
+        })));
+
+        // Sector heatmap
+        const groups: Record<string, number[]> = {};
+        withPct.forEach((p: any) => {
+          if (!groups[p.sector]) groups[p.sector] = [];
+          groups[p.sector].push(p.pct);
+        });
+        const sRows: SectorRow[] = Object.entries(groups)
+          .map(([name, pcts]) => ({ name, pct: pcts.reduce((a: number, b: number) => a + b, 0) / pcts.length }))
+          .sort((a, b) => b.pct - a.pct)
+          .slice(0, 8);
+        setSectors(sRows);
+      }
+    }
+
+    async function loadIndices() {
+      const { data } = await supabase
+        .from("market_indices")
+        .select("index_code,close,change_pct,date")
+        .in("index_code", ["VNINDEX", "HNX"])
+        .order("date", { ascending: false })
+        .limit(20);
+      if (!data || cancelled) return;
+
+      const groups: Record<string, { close: number; date: string; change_pct: number | null }[]> = {};
+      data.forEach((row: any) => {
+        if (!groups[row.index_code]) groups[row.index_code] = [];
+        groups[row.index_code].push(row);
+      });
+
+      const result: IndexState[] = [];
+      for (const [code, rows] of Object.entries(groups)) {
+        const sortedRows = rows.sort((a: any, b: any) => a.date.localeCompare(b.date));
+        const latest = sortedRows[sortedRows.length - 1];
+        const prev   = sortedRows[sortedRows.length - 2];
+        const spark  = sortedRows.slice(-7).map((r: any) => r.close);
+        const pt     = prev ? latest.close - prev.close : 0;
+        result.push({
+          name: code === "VNINDEX" ? "VN-INDEX" : "HNX-INDEX",
+          value: latest.close,
+          pt,
+          pct: latest.change_pct ?? 0,
+          spark,
+          vol: "—",
+        });
+      }
+      if (!cancelled && result.length > 0) setIndices(result);
+    }
+
+    async function loadNews() {
+      const { data } = await supabase
+        .from("market_news")
+        .select("title,published_at,label,article_url")
+        .order("published_at", { ascending: false })
+        .limit(3);
+      if (!data || cancelled) return;
+      setNewsItems(data.map((n: any) => ({
+        sentiment: normLabel(n.label),
+        source: (() => {
+          try { return new URL(n.article_url).hostname.replace("www.", ""); } catch { return "Wealbee"; }
+        })(),
+        time: relativeTime(n.published_at),
+        title: n.title,
+        url: n.article_url,
+      })));
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const now = new Date();
+  const isMarketOpen = (() => {
+    const h = now.getHours(), m = now.getMinutes();
+    const mins = h * 60 + m;
+    return mins >= 9 * 60 + 15 && mins < 15 * 60;
+  })();
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px", fontFamily: "'Montserrat', system-ui, sans-serif", background: isDark ? "#0B0D18" : undefined }}>
+
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, paddingBottom: 16, borderBottom: "0.5px solid " + divider }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: fg, margin: 0 }}>Thị trường</h1>
-          <span style={{ fontSize: 13, color: fgSubtle }}>Thứ Năm, 15/05</span>
+          <span style={{ fontSize: 13, color: fgSubtle }}>{lastDate}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <Clock size={14} color={fgSubtle} strokeWidth={1.5} />
-            <span style={{ fontSize: 13, color: fgSubtle }}>09:24</span>
+            <span style={{ fontSize: 13, color: fgSubtle }}>
+              {now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+            </span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: "rgba(52,199,89,0.12)", border: isDark ? "0.5px solid rgba(52,199,89,0.20)" : "none" }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#34C759" }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#34C759" }}>HOSE đang mở</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, background: isMarketOpen ? "rgba(52,199,89,0.12)" : "rgba(255,59,48,0.08)", border: isDark ? `0.5px solid ${isMarketOpen ? "rgba(52,199,89,0.20)" : "rgba(255,59,48,0.15)"}` : "none" }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: isMarketOpen ? "#34C759" : "#FF3B30" }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: isMarketOpen ? "#34C759" : "#FF3B30" }}>HOSE {isMarketOpen ? "đang mở" : "đã đóng"}</span>
           </div>
         </div>
       </div>
 
-      {/* Block 1: Indices — draggable */}
       <div style={{ marginBottom: 4 }}>
-        <span style={{ fontSize: 11, color: fgSubtle, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-          · kéo card chỉ số vào Action Hub để AI phân tích
-        </span>
-      </div>
-      <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-        {[
-          { name: "VN-INDEX", exchange: "HOSE", value: 1287.34, pt: 5.41, pct: 0.42, vol: "8,240 tỷ", spark: [1275, 1278, 1280, 1282, 1279, 1283, 1287] },
-          { name: "HNX-INDEX", exchange: "HNX", value: 232.18, pt: -0.25, pct: -0.11, vol: "1,120 tỷ", spark: [233, 232.8, 232.5, 232.3, 232.6, 232.4, 232.18] },
-          { name: "UPCoM", exchange: "UPCoM", value: 96.42, pt: 0.00, pct: 0.00, vol: "320 tỷ", spark: [96.4, 96.4, 96.42, 96.41, 96.43, 96.42, 96.42] },
-        ].map((idx) => {
-          const isUp = idx.pt >= 0;
-          const minS = Math.min(...idx.spark);
-          const maxS = Math.max(...idx.spark);
-          const range = maxS - minS || 1;
-          const card: ContextCard = {
-            id: `market-index-${idx.name}`,
-            type: "index",
-            label: idx.name,
-            badge: `${idx.pct >= 0 ? "+" : ""}${idx.pct.toFixed(2)}%`,
-            summary: `${idx.value.toLocaleString("vi-VN")} · Vol: ${idx.vol}`,
-          };
-          return (
-            <div
-              key={idx.name}
-              {...makeDragHandlers(card)}
-              style={{ flex: 1, background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, cursor: "grab", userSelect: "none", position: "relative" }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)";
-                const hint = (e.currentTarget as HTMLElement).querySelector(".mp-drag-hint") as HTMLElement | null;
-                if (hint) hint.style.opacity = "1";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.boxShadow = cardShadow;
-                const hint = (e.currentTarget as HTMLElement).querySelector(".mp-drag-hint") as HTMLElement | null;
-                if (hint) hint.style.opacity = "0";
-              }}
-            >
-              <div className="mp-drag-hint" style={{ position: "absolute", top: 8, right: 8, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)", borderRadius: 6, padding: "3px 7px", opacity: 0, transition: "opacity 150ms ease", pointerEvents: "none" }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>⠿ Kéo vào AI</span>
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle, marginBottom: 2 }}>{idx.name}</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: fg, marginBottom: 4 }}>{idx.value.toLocaleString("vi-VN")}</div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
-                {isUp ? <TrendingUp size={13} color="#34C759" strokeWidth={1.5} /> : <TrendingDown size={13} color="#FF3B30" strokeWidth={1.5} />}
-                <span style={{ fontSize: 13, fontWeight: 600, color: isUp ? "#34C759" : "#FF3B30" }}>
-                  {isUp ? "+" : ""}{idx.pt.toFixed(2)} ({isUp ? "+" : ""}{idx.pct.toFixed(2)}%)
-                </span>
-              </div>
-              <svg width="100%" height={28} viewBox={`0 0 ${idx.spark.length * 10} 28`} preserveAspectRatio="none" style={{ marginBottom: 4 }}>
-                <polyline
-                  points={idx.spark.map((v, i) => `${i * 10 + 5},${28 - ((v - minS) / range) * 24}`).join(" ")}
-                  fill="none" stroke={isUp ? "#34C759" : "#FF3B30"} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
-                />
-              </svg>
-              <div style={{ fontSize: 12, color: fgSubtle }}>Vol: {idx.vol}</div>
-            </div>
-          );
-        })}
+        <span style={{ fontSize: 11, color: fgSubtle }}>· kéo card chỉ số vào Action Hub để AI phân tích</span>
       </div>
 
-      {/* Block 2: Top Movers — rows draggable */}
+      {/* Indices */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+        {loading && indices.length === 0 ? (
+          [0, 1].map(i => (
+            <div key={i} style={{ flex: 1, background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, height: 110, opacity: 0.5 }} />
+          ))
+        ) : (
+          indices.map(idx => {
+            const isUp = idx.pt >= 0;
+            const minS = Math.min(...idx.spark), maxS = Math.max(...idx.spark);
+            const range = maxS - minS || 1;
+            const card: ContextCard = {
+              id: `market-index-${idx.name}`,
+              type: "index",
+              label: idx.name,
+              badge: `${idx.pct >= 0 ? "+" : ""}${idx.pct.toFixed(2)}%`,
+              summary: `${idx.value.toLocaleString("vi-VN")} · ${idx.spark.length} ngày`,
+            };
+            return (
+              <div key={idx.name} {...makeDragHandlers(card)}
+                style={{ flex: 1, background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, cursor: "grab", userSelect: "none", position: "relative" }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle, marginBottom: 2 }}>{idx.name}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: fg, marginBottom: 4 }}>{idx.value.toLocaleString("vi-VN")}</div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
+                  {isUp ? <TrendingUp size={13} color="#34C759" strokeWidth={1.5} /> : <TrendingDown size={13} color="#FF3B30" strokeWidth={1.5} />}
+                  <span style={{ fontSize: 13, fontWeight: 600, color: isUp ? "#34C759" : "#FF3B30" }}>
+                    {isUp ? "+" : ""}{idx.pt.toFixed(2)} ({isUp ? "+" : ""}{idx.pct.toFixed(2)}%)
+                  </span>
+                </div>
+                {idx.spark.length > 1 && (
+                  <svg width="100%" height={28} viewBox={`0 0 ${idx.spark.length * 10} 28`} preserveAspectRatio="none" style={{ marginBottom: 4 }}>
+                    <polyline
+                      points={idx.spark.map((v, i) => `${i * 10 + 5},${28 - ((v - minS) / range) * 24}`).join(" ")}
+                      fill="none" stroke={isUp ? "#34C759" : "#FF3B30"} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+                <div style={{ fontSize: 12, color: fgSubtle }}>7 ngày gần nhất</div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Top Movers */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+        {/* TĂNG MẠNH */}
         <div style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
             <TrendingUp size={16} color="#34C759" strokeWidth={1.5} />
             <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle }}>TĂNG MẠNH</span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {topGainers.map((s) => {
-              const card: ContextCard = {
-                id: `mover-gain-${s.symbol}`,
-                type: "mover",
-                label: s.symbol,
-                badge: `+${s.pct.toFixed(2)}%`,
-                summary: `${s.price.toLocaleString("vi-VN")} · Vol: ${s.vol}`,
-              };
+            {loading && gainers.length === 0 ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} style={{ height: 30, borderRadius: 8, background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", marginBottom: 2 }} />
+              ))
+            ) : gainers.map(s => {
+              const card: ContextCard = { id: `mover-gain-${s.symbol}`, type: "mover", label: s.symbol, badge: `+${s.pct.toFixed(2)}%`, summary: `${s.price.toLocaleString("vi-VN")} · Vol: ${s.vol}` };
               return (
-                <div
-                  key={s.symbol}
-                  {...makeDragHandlers(card)}
-                  onClick={() => onSelectTicker?.(s.symbol)}
+                <div key={s.symbol} {...makeDragHandlers(card)} onClick={() => onSelectTicker?.(s.symbol)}
                   style={{ display: "flex", alignItems: "center", padding: "7px 8px", borderRadius: 8, cursor: "pointer", transition: "background 80ms ease", userSelect: "none" }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = isDark ? "#1a2438" : "#E8F0FE"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                >
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
                   <span style={{ width: 48, fontWeight: 700, fontSize: 14, color: fg }}>{s.symbol}</span>
                   <span style={{ flex: 1, fontSize: 13, color: fgSubtle }}>{s.price.toLocaleString("vi-VN")}</span>
                   <span style={{ marginRight: 8 }}>
-                    {s.isCeil ? <PctBadge value={s.pct} ceilingFloor="ceil" /> : <PctBadge value={s.pct} />}
+                    <PctBadge value={s.pct} ceilingFloor={s.isCeil ? "ceil" : undefined} />
                   </span>
                   <span style={{ fontSize: 12, color: fgSubtle, width: 40, textAlign: "right" }}>{s.vol}</span>
                 </div>
@@ -204,33 +340,29 @@ export function MarketPulse({ onNavigate, onSelectTicker, isDark = false }: { on
             })}
           </div>
         </div>
+
+        {/* GIẢM MẠNH */}
         <div style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
             <TrendingDown size={16} color="#FF3B30" strokeWidth={1.5} />
             <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle }}>GIẢM MẠNH</span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {topLosers.map((s) => {
-              const card: ContextCard = {
-                id: `mover-loss-${s.symbol}`,
-                type: "mover",
-                label: s.symbol,
-                badge: `${s.pct.toFixed(2)}%`,
-                summary: `${s.price.toLocaleString("vi-VN")} · Vol: ${s.vol}`,
-              };
+            {loading && losers.length === 0 ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} style={{ height: 30, borderRadius: 8, background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", marginBottom: 2 }} />
+              ))
+            ) : losers.map(s => {
+              const card: ContextCard = { id: `mover-loss-${s.symbol}`, type: "mover", label: s.symbol, badge: `${s.pct.toFixed(2)}%`, summary: `${s.price.toLocaleString("vi-VN")} · Vol: ${s.vol}` };
               return (
-                <div
-                  key={s.symbol}
-                  {...makeDragHandlers(card)}
-                  onClick={() => onSelectTicker?.(s.symbol)}
+                <div key={s.symbol} {...makeDragHandlers(card)} onClick={() => onSelectTicker?.(s.symbol)}
                   style={{ display: "flex", alignItems: "center", padding: "7px 8px", borderRadius: 8, cursor: "pointer", transition: "background 80ms ease", userSelect: "none" }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = isDark ? "#1a2438" : "#E8F0FE"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                >
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
                   <span style={{ width: 48, fontWeight: 700, fontSize: 14, color: fg }}>{s.symbol}</span>
                   <span style={{ flex: 1, fontSize: 13, color: fgSubtle }}>{s.price.toLocaleString("vi-VN")}</span>
                   <span style={{ marginRight: 8 }}>
-                    {s.isFloor ? <PctBadge value={s.pct} ceilingFloor="floor" /> : <PctBadge value={s.pct} />}
+                    <PctBadge value={s.pct} ceilingFloor={s.isFloor ? "floor" : undefined} />
                   </span>
                   <span style={{ fontSize: 12, color: fgSubtle, width: 40, textAlign: "right" }}>{s.vol}</span>
                 </div>
@@ -240,59 +372,60 @@ export function MarketPulse({ onNavigate, onSelectTicker, isDark = false }: { on
         </div>
       </div>
 
-      {/* Block 3: Sector Heatmap */}
-      <div style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, marginBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle, marginBottom: 12 }}>HEATMAP NGÀNH</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
-          {sectors.map((s) => {
-            const col = getSectorColor(s.pct);
-            return (
-              <div
-                key={s.name}
-                style={{ padding: "12px 14px", borderRadius: 10, background: col.bg, cursor: "pointer", transition: "opacity 150ms ease" }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = "0.8"; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-              >
-                <div style={{ fontSize: 13, fontWeight: 700, color: fg, marginBottom: 4 }}>{s.name}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: col.text }}>{s.pct >= 0 ? "+" : ""}{s.pct.toFixed(1)}%</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Block 4: Liquidity & Foreign */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-        <div style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle, marginBottom: 12 }}>THANH KHOẢN HÔM NAY</div>
-          {[{ label: "HOSE", val: "8,240 tỷ" }, { label: "HNX", val: "1,120 tỷ" }, { label: "Tổng", val: "9,360 tỷ" }].map((r) => (
-            <div key={r.label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 14, color: fgSubtle }}>{r.label}</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: fg }}>{r.val}</span>
-            </div>
-          ))}
-          <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 13, color: fgSubtle }}>vs TB 30 ngày:</span>
-            <span style={{ background: "rgba(52,199,89,0.12)", color: "#34C759", fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 6 }}>+18%</span>
+      {/* Sector Heatmap */}
+      {sectors.length > 0 && (
+        <div style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle, marginBottom: 12 }}>HEATMAP NGÀNH</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+            {sectors.map(s => {
+              const col = getSectorColor(s.pct);
+              return (
+                <div key={s.name}
+                  style={{ padding: "12px 14px", borderRadius: 10, background: col.bg, cursor: "default", transition: "opacity 150ms ease" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = "0.8"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: fg, marginBottom: 4 }}>{s.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: col.text }}>{s.pct >= 0 ? "+" : ""}{s.pct.toFixed(1)}%</div>
+                </div>
+              );
+            })}
           </div>
         </div>
+      )}
+
+      {/* Liquidity & Foreign — still static (no volume data in DB) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
         <div style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle, marginBottom: 12 }}>KHỐI NGOẠI</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "#34C759", marginBottom: 8 }}>Mua ròng +124 tỷ</div>
-          {[{ label: "HPG", val: "+48 tỷ", up: true }, { label: "VCB", val: "+31 tỷ", up: true }, { label: "MSN", val: "-22 tỷ", up: false }].map((r) => (
-            <div key={r.label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: fg }}>{r.label}</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: r.up ? "#34C759" : "#FF3B30" }}>{r.val}</span>
-            </div>
-          ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <AlertCircle size={14} color={fgSubtle} strokeWidth={1.5} />
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle }}>THANH KHOẢN</div>
+          </div>
+          <p style={{ margin: 0, fontSize: 13, color: fgSubtle, lineHeight: 1.6 }}>
+            Dữ liệu thanh khoản thị trường chưa có trong DB hiện tại.
+            Sẽ cập nhật khi tích hợp feed HOSE.
+          </p>
+        </div>
+        <div style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <AlertCircle size={14} color={fgSubtle} strokeWidth={1.5} />
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle }}>KHỐI NGOẠI</div>
+          </div>
+          <p style={{ margin: 0, fontSize: 13, color: fgSubtle, lineHeight: 1.6 }}>
+            Dữ liệu giao dịch khối ngoại chưa có trong DB hiện tại.
+            Sẽ cập nhật khi tích hợp feed SSI/VNDS.
+          </p>
         </div>
       </div>
 
-      {/* Block 5: News — draggable */}
+      {/* News */}
       <div style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow }}>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle, marginBottom: 12 }}>TIN THỊ TRƯỜNG</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {newsItems.map((item, i) => {
+          {loading && newsItems.length === 0 ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} style={{ height: 48, borderRadius: 8, background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" }} />
+            ))
+          ) : newsItems.map((item, i) => {
             const sc = getSentimentColor(item.sentiment, isDark);
             const card: ContextCard = {
               id: `market-news-${i}`,
@@ -302,22 +435,22 @@ export function MarketPulse({ onNavigate, onSelectTicker, isDark = false }: { on
               summary: `${item.source} · ${item.time} trước`,
             };
             return (
-              <div
-                key={i}
-                {...makeDragHandlers(card)}
+              <div key={i} {...makeDragHandlers(card)}
                 style={{ display: "flex", gap: 12, padding: "10px 8px", borderBottom: i < newsItems.length - 1 ? "0.5px solid " + divider : "none", cursor: "grab", borderRadius: 8, transition: "background 80ms ease", userSelect: "none" }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = isDark ? "#0f1220" : "#F5F5F7"; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-              >
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = isDark ? "#0f1220" : "#F5F5F7"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
                 <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: sc.bg, color: sc.text, whiteSpace: "nowrap", height: "fit-content", marginTop: 2 }}>
                   {item.sentiment}
                 </span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, color: fgSubtle, marginBottom: 4 }}>{item.source} · {item.time} trước</div>
                   <div style={{ fontSize: 14, color: fg, lineHeight: 1.5 }}>{item.title}</div>
-                  <button style={{ background: "none", border: "none", color: brand, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 6, padding: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                    Đọc thêm →
-                  </button>
+                  {item.url && (
+                    <a href={item.url} target="_blank" rel="noopener noreferrer"
+                      style={{ background: "none", border: "none", color: brand, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 6, padding: 0, display: "inline-block", textDecoration: "none", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                      Đọc thêm →
+                    </a>
+                  )}
                 </div>
               </div>
             );

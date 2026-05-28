@@ -11,19 +11,26 @@ export interface ChatStreamCallbacks {
   onError: (error: string) => void;
 }
 
+export interface ContextCardPayload {
+  type: string;
+  label: string;
+  badge?: string;
+  summary?: string;
+}
+
 /**
  * sendChatMessage — stream BeeAI response
  *
- * @param message     - Tin nhắn của user
- * @param sessionId   - ID session (undefined = tạo mới)
- * @param contextTicker - Mã CP đang xem (để BeeAI hiểu ngữ cảnh)
- * @param callbacks   - Handlers cho streaming events
+ * @param message      - Tin nhắn của user
+ * @param sessionId    - ID session (undefined = tạo mới)
+ * @param contextCards - Các card đang được kéo vào ActionHub
+ * @param callbacks    - Handlers cho streaming events
  * @returns cleanup function (call để cancel stream)
  */
 export async function sendChatMessage(
   message: string,
   sessionId: string | undefined,
-  contextTicker: string | null,
+  contextCards: ContextCardPayload[] | null,
   callbacks: ChatStreamCallbacks
 ): Promise<() => void> {
   // Get current user session token
@@ -49,7 +56,7 @@ export async function sendChatMessage(
         body: JSON.stringify({
           message,
           session_id: sessionId,
-          context_ticker: contextTicker || undefined,
+          context_cards: contextCards?.length ? contextCards : undefined,
         }),
         signal: controller.signal,
       });

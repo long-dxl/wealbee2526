@@ -60,6 +60,8 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  let document_id: string | null = null;
+
   try {
     // Auth — get user from JWT
     const authHeader = req.headers.get("authorization") || "";
@@ -73,13 +75,14 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = await req.json();
-    const { document_id } = body;
+    document_id = body.document_id ?? null;
     if (!document_id) {
       return new Response(JSON.stringify({ error: "document_id required" }), {
         status: 400,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
       });
     }
+    document_id = document_id as string;
 
     // Fetch document (user must own it)
     const { data: doc, error: docErr } = await sb
@@ -175,6 +178,11 @@ Deno.serve(async (req: Request) => {
 
   } catch (err) {
     console.error("embed-document error:", err);
+    if (document_id) {
+      await sb.from("knowledge_documents")
+        .update({ status: "error", error_msg: String(err) })
+        .eq("id", document_id);
+    }
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 500,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },

@@ -1,6 +1,19 @@
 import { useState, useEffect } from "react";
-import { Sparkles, Clock, AlertTriangle, ChevronRight, X, BookOpen, RefreshCw } from "lucide-react";
+import { Sparkles, Clock, AlertTriangle, ChevronRight, X, BookOpen, RefreshCw, GripVertical } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
+import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
+
+function makeDragHandlers(card: ContextCard) {
+  return {
+    draggable: true as const,
+    onDragStart(e: React.DragEvent) {
+      e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
+      e.dataTransfer.effectAllowed = "copy";
+      (e.currentTarget as HTMLElement).style.opacity = "0.7";
+    },
+    onDragEnd(e: React.DragEvent) { (e.currentTarget as HTMLElement).style.opacity = "1"; },
+  };
+}
 
 interface Brief {
   id: string;
@@ -388,22 +401,34 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
         {filtered.map((brief, idx) => {
           const isAlert = brief.type === "alert";
           const accentColor = isAlert ? "#FF9500" : brand;
+          const dragCard: ContextCard = {
+            id: `inbox-${brief.id}`,
+            type: isAlert ? "news" : "news",
+            label: brief.title.length > 40 ? brief.title.slice(0, 40) + "…" : brief.title,
+            badge: isAlert ? "Alert" : brief.agentName,
+            summary: brief.summary,
+          };
 
           return (
             <div
               key={brief.id}
+              {...makeDragHandlers(dragCard)}
               onClick={() => open(brief)}
               style={{
                 display: "flex", alignItems: "stretch",
                 borderBottom: idx < filtered.length - 1 ? `1px solid ${divider}` : "none",
-                cursor: "pointer", position: "relative",
+                cursor: "grab", position: "relative",
                 transition: "background 120ms",
               }}
               onMouseEnter={(e) => {
                 (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(77,143,232,0.05)" : "rgba(8,73,172,0.03)";
+                const hint = (e.currentTarget as HTMLElement).querySelector<HTMLElement>(".drag-hint");
+                if (hint) hint.style.opacity = "1";
               }}
               onMouseLeave={(e) => {
                 (e.currentTarget as HTMLElement).style.background = "transparent";
+                const hint = (e.currentTarget as HTMLElement).querySelector<HTMLElement>(".drag-hint");
+                if (hint) hint.style.opacity = "0";
               }}
             >
               {/* Unread accent bar */}
@@ -474,8 +499,18 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                 </div>
               </div>
 
-              {/* Chevron */}
-              <div style={{ display: "flex", alignItems: "center", paddingRight: 16 }}>
+              {/* Drag hint + Chevron */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: 16 }}>
+                <div className="drag-hint" style={{
+                  display: "flex", alignItems: "center", gap: 3,
+                  background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)",
+                  borderRadius: 6, padding: "3px 7px",
+                  opacity: 0, transition: "opacity 150ms ease",
+                  pointerEvents: "none",
+                }}>
+                  <GripVertical size={10} color={brand} strokeWidth={2} />
+                  <span style={{ fontSize: 10, fontWeight: 700, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>Kéo vào AI</span>
+                </div>
                 <ChevronRight size={16} color={fgSubtle} strokeWidth={1.5} />
               </div>
             </div>

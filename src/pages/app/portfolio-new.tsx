@@ -1,16 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Upload, Download, Pencil, Trash2, ArrowUpRight, RefreshCw, X, Activity, GripVertical } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from "recharts";
+import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 
 interface Holding {
+  id?: string;          // portfolio_holdings.id
   symbol: string;
   name: string;
   quantity: number;
-  avgPrice: number | null;
+  avgPrice: number | null;  // avg_cost
   currentPrice: number;
   purchaseDate: string | null;
 }
@@ -82,13 +84,6 @@ const CHART_DATA: Record<ChartPeriod, Array<{ date: string; portfolio: number; v
   ],
 };
 
-const initialHoldings: Holding[] = [
-  { symbol: "VCB", name: "Vietcombank", quantity: 1000, avgPrice: 85000, currentPrice: 91200, purchaseDate: "12/03/2026" },
-  { symbol: "HPG", name: "Hoà Phát Group", quantity: 5000, avgPrice: 22000, currentPrice: 26500, purchaseDate: "08/01/2026" },
-  { symbol: "MWG", name: "Mobile World", quantity: 2000, avgPrice: 68000, currentPrice: 62100, purchaseDate: "15/02/2026" },
-  { symbol: "FPT", name: "FPT Corporation", quantity: 3000, avgPrice: 110000, currentPrice: 128400, purchaseDate: "20/11/2025" },
-  { symbol: "VNM", name: "Vinamilk", quantity: 2500, avgPrice: 72000, currentPrice: 68900, purchaseDate: "05/04/2026" },
-];
 
 function makeDragHandlers(card: ContextCard) {
   return {
@@ -182,11 +177,67 @@ export function Portfolio({
   const gridStroke = isDark ? "rgba(255,255,255,0.05)" : "rgba(8,73,172,0.06)";
   const refStroke = isDark ? "rgba(255,255,255,0.12)" : "rgba(8,73,172,0.15)";
 
-  const [holdings, setHoldings] = useState<Holding[]>(initialHoldings);
-  const [showModal, setShowModal] = useState(false);
-  const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
+  const [holdings,         setHoldings]         = useState<Holding[]>([]);
+  const [portfolioLoading, setPortfolioLoading] = useState(true);
+  const [saveError,        setSaveError]        = useState<string | null>(null);
+  const [showModal,        setShowModal]        = useState(false);
+  const [editingHolding,   setEditingHolding]   = useState<Holding | null>(null);
   const [form, setForm] = useState({ symbol: "", quantity: "", avgPrice: "", purchaseDate: "" });
   const [hoveredSlice, setHoveredSlice] = useState<string | null>(null);
+
+  // ── Load portfolio_holdings + enrich with latest prices ─────────────────
+  const loadHoldings = async () => {
+    setPortfolioLoading(true);
+    setSaveError(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: rows, error } = await supabase
+        .from("portfolio_holdings")
+        .select("id, symbol, quantity, avg_cost, purchase_date, notes")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true });
+
+      if (error) { setSaveError(error.message); return; }
+      if (!rows) return;
+
+      const symbols = rows.map((r: any) => r.symbol);
+      const latestPrices: Record<string, number> = {};
+      const tickerNames: Record<string, string> = {};
+
+      if (symbols.length > 0) {
+        // Get latest closing prices
+        const { data: latestRow } = await supabase
+          .from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
+        if (latestRow) {
+          const { data: prices } = await supabase
+            .from("prices_daily").select("symbol,close").eq("date", latestRow.date).in("symbol", symbols);
+          prices?.forEach((p: any) => { latestPrices[p.symbol] = Number(p.close); });
+        }
+        // Get names from tickers
+        const { data: tickers } = await supabase
+          .from("tickers").select("symbol,name").in("symbol", symbols);
+        tickers?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
+      }
+
+      setHoldings(rows.map((r: any) => ({
+        id: r.id,
+        symbol: r.symbol,
+        name: tickerNames[r.symbol] || r.symbol,
+        quantity: Number(r.quantity),
+        avgPrice: r.avg_cost != null ? Number(r.avg_cost) : null,
+        currentPrice: latestPrices[r.symbol] ?? 0,
+        purchaseDate: r.purchase_date
+          ? new Date(r.purchase_date).toLocaleDateString("vi-VN")
+          : null,
+      })));
+    } finally {
+      setPortfolioLoading(false);
+    }
+  };
+
+  useEffect(() => { loadHoldings(); }, []);
 
   // Chart state
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("3M");
@@ -223,12 +274,14 @@ export function Portfolio({
 
   const openAdd = () => {
     setEditingHolding(null);
+    setSaveError(null);
     setForm({ symbol: "", quantity: "", avgPrice: "", purchaseDate: "" });
     setShowModal(true);
   };
 
   const openEdit = (h: Holding) => {
     setEditingHolding(h);
+    setSaveError(null);
     setForm({
       symbol: h.symbol,
       quantity: String(h.quantity),
@@ -238,26 +291,55 @@ export function Portfolio({
     setShowModal(true);
   };
 
-  const handleSave = () => {
-    if (!form.symbol) return;
-    const holding: Holding = {
-      symbol: form.symbol.toUpperCase(),
-      name: form.symbol.toUpperCase(),
-      quantity: parseInt(form.quantity) || 0,
-      avgPrice: form.avgPrice ? parseInt(form.avgPrice) : null,
-      currentPrice: 50000,
-      purchaseDate: form.purchaseDate || null,
-    };
-    if (editingHolding) {
-      setHoldings((prev: Holding[]) => prev.map((h: Holding) => (h.symbol === editingHolding.symbol ? { ...h, ...holding } : h)));
+  const handleSave = async () => {
+    if (!form.symbol.trim() || !form.quantity.trim()) return;
+    const sym  = form.symbol.trim().toUpperCase();
+    const qty  = parseFloat(form.quantity) || 0;
+    const avgP = form.avgPrice ? parseFloat(form.avgPrice.replace(/[.,]/g, "")) || null : null;
+    const purchDate = form.purchaseDate
+      ? (() => {
+          // Accept dd/mm/yyyy or yyyy-mm-dd
+          const parts = form.purchaseDate.split("/");
+          if (parts.length === 3) return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+          return form.purchaseDate;
+        })()
+      : null;
+
+    setSaveError(null);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSaveError("Bạn chưa đăng nhập"); return; }
+
+    if (editingHolding?.id) {
+      // UPDATE
+      const { error } = await supabase
+        .from("portfolio_holdings")
+        .update({ quantity: qty, avg_cost: avgP, purchase_date: purchDate })
+        .eq("id", editingHolding.id)
+        .eq("user_id", user.id);
+
+      if (error) { setSaveError(error.message); return; }
     } else {
-      setHoldings((prev: Holding[]) => [...prev, holding]);
+      // UPSERT — if symbol already exists for this user, update it
+      const { error } = await supabase
+        .from("portfolio_holdings")
+        .upsert(
+          { user_id: user.id, symbol: sym, quantity: qty, avg_cost: avgP, purchase_date: purchDate },
+          { onConflict: "user_id,symbol" }
+        );
+
+      if (error) { setSaveError(error.message); return; }
     }
+
     setShowModal(false);
+    await loadHoldings();
   };
 
-  const deleteHolding = (symbol: string) => {
-    setHoldings((prev: Holding[]) => prev.filter((h: Holding) => h.symbol !== symbol));
+  const deleteHolding = async (id: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setHoldings(prev => prev.filter(h => h.id !== id));
+    await supabase.from("portfolio_holdings").delete().eq("id", id).eq("user_id", user.id);
   };
 
   // Context cards for drag-to-hub
@@ -307,10 +389,12 @@ export function Portfolio({
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: fg, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
               Danh mục của tôi
-              <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, background: "rgba(99,102,241,0.10)", color: "#6366F1" }}>Cập nhật 09:24</span>
+              <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, background: portfolioLoading ? "rgba(0,0,0,0.08)" : "rgba(99,102,241,0.10)", color: portfolioLoading ? fgSubtle : "#6366F1" }}>
+                {portfolioLoading ? "Đang tải…" : `${holdings.length} vị thế`}
+              </span>
             </div>
             <div style={{ fontSize: 34, fontWeight: 700, color: fg, marginBottom: 6 }}>
-              {totalValue.toLocaleString("vi-VN")} đ
+              {portfolioLoading ? "—" : `${totalValue.toLocaleString("vi-VN")} đ`}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: totalPnl >= 0 ? GREEN : RED }}>
@@ -321,14 +405,16 @@ export function Portfolio({
           </div>
           <button
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); }}
+            onClick={(e) => { e.stopPropagation(); loadHoldings(); }}
+            disabled={portfolioLoading}
             style={{
               display: "flex", alignItems: "center", gap: 6, padding: "8px 14px",
               borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.20)"), background: "transparent",
-              cursor: "pointer", fontSize: 13, fontWeight: 600, color: brand, fontFamily: FONT,
+              cursor: portfolioLoading ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: brand, fontFamily: FONT,
+              opacity: portfolioLoading ? 0.6 : 1,
             }}
           >
-            <RefreshCw size={14} strokeWidth={1.5} /> Làm mới
+            <RefreshCw size={14} strokeWidth={1.5} style={{ animation: portfolioLoading ? "spin 1s linear infinite" : "none" }} /> Làm mới
           </button>
         </div>
       </div>
@@ -637,7 +723,7 @@ export function Portfolio({
                 <button onClick={(e) => { e.stopPropagation(); openEdit(h); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: fgSubtle, display: "flex" }} title="Sửa">
                   <Pencil size={14} strokeWidth={1.5} />
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); deleteHolding(h.symbol); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: fgSubtle, display: "flex" }} title="Xóa">
+                <button onClick={(e) => { e.stopPropagation(); if (h.id) deleteHolding(h.id); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: fgSubtle, display: "flex" }} title="Xóa">
                   <Trash2 size={14} strokeWidth={1.5} />
                 </button>
                 <button onClick={(e) => { e.stopPropagation(); onSelectTicker?.(h.symbol); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: fgSubtle, display: "flex" }} title="Xem ticker">
@@ -752,6 +838,11 @@ export function Portfolio({
             {!form.avgPrice && (
               <p style={{ fontSize: 12, color: "rgba(26,26,46,0.45)", marginTop: 12, fontStyle: "italic" }}>
                 Nếu không nhập giá mua: chỉ track % thay đổi, không tính P&L
+              </p>
+            )}
+            {saveError && (
+              <p style={{ fontSize: 12, color: "#FF3B30", marginTop: 10, padding: "8px 12px", background: "rgba(255,59,48,0.06)", borderRadius: 8 }}>
+                ⚠ {saveError}
               </p>
             )}
             <div style={{ display: "flex", gap: 10, marginTop: 24, justifyContent: "flex-end" }}>

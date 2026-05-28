@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Sparkles, PanelRightClose, Paperclip, ArrowUp,
   Maximize2, RotateCcw, GripVertical, X, Plus,
 } from "lucide-react";
 import { ContextCard, CardType, DRAG_CARD_MIME, cardTypeQuestions } from "../types/cards";
 import { lightTheme, type Theme } from "../lib/theme-context";
+import { sendChatMessage } from "../lib/supabase/bee-ai";
 
 const DEFAULT_WIDTH = 380;
 const MIN_WIDTH = 260;
@@ -68,6 +69,7 @@ interface ChatMessage {
   content: string;
   time: string;
   contextSnapshot?: string[];
+  streaming?: boolean;
 }
 
 const contextLabel: Record<string, string> = {
@@ -92,6 +94,9 @@ export function ActionHub({
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  const cancelRef = useRef<(() => void) | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Resize drag
   const [isDraggingResize, setIsDraggingResize] = useState(false);
@@ -176,19 +181,74 @@ export function ActionHub({
     } catch {}
   };
 
+  /* ── Auto-scroll ── */
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping]);
+
   /* ── Chat ── */
-  const fireQuestion = (question: string) => {
+  const fireQuestion = useCallback(async (question: string) => {
+    if (isTyping) return;
+    cancelRef.current?.();
+
     const snapshot = contextCards.map((c) => c.label);
+    const contextHint = snapshot.length ? `\n[Context: ${snapshot.join(", ")}]` : "";
+    const fullMessage = question + contextHint;
+
     setMessages((prev) => [...prev, { role: "user", content: question, time: "vừa xong", contextSnapshot: snapshot }]);
     setIsTyping(true);
-    setTimeout(() => {
-      const response =
-        mockResponses[question] ||
-        `Tôi đang phân tích "${question}"${snapshot.length ? ` với context: ${snapshot.join(", ")}` : ""}.\n\nĐây là thông tin tham khảo, không phải tư vấn đầu tư theo Luật Chứng khoán 2019.`;
-      setMessages((prev) => [...prev, { role: "assistant", content: response, time: "vừa xong" }]);
+
+    // Add empty streaming bubble
+    setMessages((prev) => [...prev, { role: "assistant", content: "", time: "vừa xong", streaming: true }]);
+
+    try {
+      const cardPayloads = contextCards.map(c => ({ type: c.type, label: c.label, badge: c.badge, summary: c.summary }));
+      const cancel = await sendChatMessage(fullMessage, sessionId, cardPayloads.length ? cardPayloads : null, {
+        onChunk: (chunk) => {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.streaming) {
+              return [...prev.slice(0, -1), { ...last, content: last.content + chunk }];
+            }
+            return prev;
+          });
+        },
+        onDone: ({ sessionId: newId }) => {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.streaming) {
+              return [...prev.slice(0, -1), { ...last, streaming: false }];
+            }
+            return prev;
+          });
+          if (newId) setSessionId(newId);
+          setIsTyping(false);
+          cancelRef.current = null;
+        },
+        onError: (err) => {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.streaming) {
+              return [...prev.slice(0, -1), { ...last, content: `⚠️ ${err}`, streaming: false }];
+            }
+            return prev;
+          });
+          setIsTyping(false);
+          cancelRef.current = null;
+        },
+      });
+      cancelRef.current = cancel;
+    } catch (err) {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.streaming) {
+          return [...prev.slice(0, -1), { ...last, content: `⚠️ Không thể kết nối BeeAI: ${String(err)}`, streaming: false }];
+        }
+        return prev;
+      });
       setIsTyping(false);
-    }, 1200);
-  };
+    }
+  }, [isTyping, contextCards, sessionId]);
 
   const handleSend = () => {
     if (!inputValue.trim()) return;
@@ -197,6 +257,11 @@ export function ActionHub({
   };
 
   return (
+    <>
+    <style>{`
+      @keyframes pulse { 0%,100%{opacity:0.4;transform:scale(0.9)} 50%{opacity:1;transform:scale(1.1)} }
+      @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    `}</style>
     <aside
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -512,8 +577,20 @@ export function ActionHub({
                     fontFamily: "'Montserrat', system-ui, sans-serif",
                     lineHeight: 1.6, whiteSpace: "pre-line",
                   }}>
-                    {msg.content.split("**").map((part, idx) =>
-                      idx % 2 === 1 ? <strong key={idx}>{part}</strong> : part
+                    {msg.content
+                      ? msg.content.split("**").map((part, idx) =>
+                          idx % 2 === 1 ? <strong key={idx}>{part}</strong> : part
+                        )
+                      : (
+                        <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          {[0,1,2].map(j => (
+                            <span key={j} style={{ width: 6, height: 6, borderRadius: "50%", background: t.brand, opacity: 0.6, display: "inline-block", animation: `pulse 1.2s ease-in-out ${j*0.2}s infinite` }} />
+                          ))}
+                        </span>
+                      )
+                    }
+                    {msg.streaming && msg.content && (
+                      <span style={{ display: "inline-block", width: 2, height: "1em", background: t.brand, marginLeft: 1, verticalAlign: "text-bottom", animation: "blink 0.8s step-end infinite" }} />
                     )}
                   </div>
                 </div>
@@ -521,29 +598,7 @@ export function ActionHub({
             </div>
           ))}
 
-          {isTyping && (
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <Sparkles size={14} color={t.brand} strokeWidth={1.5} />
-                <span style={{ fontSize: 12, color: t.fgSubtle, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                  Wealbee đang phân tích...
-                </span>
-              </div>
-              <div style={{
-                background: t.bgMuted, border: "0.5px solid " + t.border,
-                borderRadius: "4px 14px 14px 14px", padding: "12px 14px",
-                display: "flex", gap: 4, alignItems: "center",
-              }}>
-                {[0, 1, 2].map((j) => (
-                  <div key={j} style={{
-                    width: 6, height: 6, borderRadius: "50%",
-                    background: t.brand, opacity: 0.6,
-                    animation: `pulse 1.2s ease-in-out ${j * 0.2}s infinite`,
-                  }} />
-                ))}
-              </div>
-            </div>
-          )}
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Input area */}
@@ -642,5 +697,6 @@ export function ActionHub({
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, cursor: "col-resize" }} />
       )}
     </aside>
+    </>
   );
 }

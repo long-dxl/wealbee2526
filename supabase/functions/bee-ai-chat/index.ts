@@ -49,6 +49,142 @@ const SYSTEM_PROMPT = `Bạn là BeeAI — trợ lý phân tích thị trường
 
 // ─── Market context builder ───────────────────────────────────────────────────
 
+interface ContextCardPayload { type: string; label: string; badge?: string; summary?: string; }
+
+async function buildContextCardsSection(cards: ContextCardPayload[], userId: string): Promise<string> {
+  if (!cards.length) return "";
+  const lines: string[] = ["\n## CONTEXT CARDS — Dữ liệu từ card bạn kéo vào"];
+
+  const tickerSymbols: string[] = [];
+  const newsCards: ContextCardPayload[] = [];
+  const portfolioCards: ContextCardPayload[] = [];
+  const reportCards: ContextCardPayload[] = [];
+
+  for (const card of cards) {
+    if (card.type === "ticker" || card.type === "mover") {
+      // label = symbol e.g. "VIC", "HPG"
+      const sym = card.label.trim().toUpperCase().split(/\s+/)[0];
+      if (sym && /^[A-Z0-9]{2,5}$/.test(sym)) tickerSymbols.push(sym);
+    } else if (card.type === "index") {
+      const code = /hnx/i.test(card.label) ? "HNX" : "VNINDEX";
+      lines.push(`\n### Chỉ số: ${card.label} (${code})`);
+      lines.push("(Xem dữ liệu chỉ số ở phần trên — Chỉ số thị trường)");
+    } else if (card.type === "news") {
+      newsCards.push(card);
+    } else if (card.type === "portfolio") {
+      portfolioCards.push(card);
+    } else if (card.type === "report") {
+      reportCards.push(card);
+    }
+  }
+
+  // ── Ticker / Mover: query prices + info ──────────────────────────────────
+  if (tickerSymbols.length > 0) {
+    lines.push(`\n### Cổ phiếu: ${tickerSymbols.join(", ")}`);
+
+    try {
+      const [pricesRes, tickerInfoRes] = await Promise.all([
+        sb.from("prices_daily")
+          .select("symbol, date, open, high, low, close, volume")
+          .in("symbol", tickerSymbols)
+          .order("date", { ascending: false })
+          .limit(tickerSymbols.length * 10),
+        sb.from("tickers")
+          .select("symbol, name, exchange, sector")
+          .in("symbol", tickerSymbols),
+      ]);
+
+      const infoMap: Record<string, { name: string; sector?: string }> = {};
+      for (const t of (tickerInfoRes.data ?? [])) {
+        infoMap[t.symbol] = { name: t.name, sector: t.sector };
+      }
+
+      const bySymbol: Record<string, Array<{ date: string; open: number; high: number; low: number; close: number; volume: number }>> = {};
+      for (const row of (pricesRes.data ?? [])) {
+        if (!bySymbol[row.symbol]) bySymbol[row.symbol] = [];
+        bySymbol[row.symbol].push(row);
+      }
+
+      for (const sym of tickerSymbols) {
+        const rows = bySymbol[sym] ?? [];
+        const info = infoMap[sym];
+        if (info) lines.push(`- **${sym}** — ${info.name}${info.sector ? ` (${info.sector})` : ""}`);
+        if (!rows.length) { lines.push(`  Chưa có dữ liệu giá cho ${sym}`); continue; }
+
+        const latest = rows[0];
+        const prev   = rows[1];
+        const close  = Number(latest.close);
+        const open   = Number(latest.open);
+        const chgVsOpen    = ((close - open) / open) * 100;
+        const chgVsPrev    = prev ? ((close - Number(prev.close)) / Number(prev.close)) * 100 : null;
+
+        lines.push(`  Phiên ${latest.date}: Đóng **${close.toLocaleString("vi-VN")} đ** | Thay đổi trong ngày: ${chgVsOpen >= 0 ? "+" : ""}${chgVsOpen.toFixed(2)}%${chgVsPrev !== null ? ` | So phiên trước: ${chgVsPrev >= 0 ? "+" : ""}${chgVsPrev.toFixed(2)}%` : ""}`);
+        lines.push(`  OHLC: ${Number(latest.open).toLocaleString("vi-VN")} / ${Number(latest.high).toLocaleString("vi-VN")} / ${Number(latest.low).toLocaleString("vi-VN")} / ${close.toLocaleString("vi-VN")}`);
+        lines.push(`  Khối lượng: ${Number(latest.volume).toLocaleString("vi-VN")} CP`);
+
+        if (rows.length > 1) {
+          const history = rows.slice(0, 5).map(r => `${r.date}: ${Number(r.close).toLocaleString("vi-VN")}`).join(" → ");
+          lines.push(`  Lịch sử 5 phiên (gần → xa): ${history}`);
+        }
+
+        // News for this ticker (7 days)
+        const { data: tickerNews } = await sb
+          .from("market_news")
+          .select("title, impact_score, published_at")
+          .contains("affected_symbols", [sym])
+          .gte("published_at", new Date(Date.now() - 7 * 86400000).toISOString())
+          .order("published_at", { ascending: false })
+          .limit(3);
+
+        if (tickerNews && tickerNews.length > 0) {
+          lines.push(`  Tin liên quan: ${tickerNews.map(n => `"${n.title}"${n.impact_score != null ? ` [${n.impact_score >= 0 ? "+" : ""}${n.impact_score}]` : ""}`).join("; ")}`);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // ── News cards ──────────────────────────────────────────────────────────
+  if (newsCards.length > 0) {
+    lines.push("\n### Tin tức bạn đang quan tâm:");
+    for (const card of newsCards) {
+      lines.push(`- **${card.label}**`);
+      if (card.summary) lines.push(`  ${card.summary}`);
+    }
+  }
+
+  // ── Report cards ────────────────────────────────────────────────────────
+  if (reportCards.length > 0) {
+    lines.push("\n### Báo cáo bạn đang quan tâm:");
+    for (const card of reportCards) {
+      lines.push(`- **${card.label}**`);
+      if (card.summary) lines.push(`  ${card.summary}`);
+    }
+  }
+
+  // ── Portfolio cards ─────────────────────────────────────────────────────
+  if (portfolioCards.length > 0) {
+    try {
+      const { data: holdings } = await sb
+        .from("portfolio_holdings")
+        .select("symbol, quantity, avg_cost, current_price")
+        .eq("user_id", userId)
+        .limit(20);
+
+      if (holdings && holdings.length > 0) {
+        lines.push("\n### Danh mục đầu tư của bạn:");
+        for (const h of holdings) {
+          const pnl = h.current_price
+            ? ((Number(h.current_price) - Number(h.avg_cost)) / Number(h.avg_cost)) * 100
+            : null;
+          lines.push(`- **${h.symbol}**: ${Number(h.quantity).toLocaleString("vi-VN")} CP | Giá vốn: ${Number(h.avg_cost).toLocaleString("vi-VN")} đ${pnl !== null ? ` | P&L: ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%` : ""}`);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  return lines.join("\n");
+}
+
 async function buildMarketContext(contextTicker?: string): Promise<string> {
   const lines: string[] = [];
   const today = new Date().toLocaleDateString("vi-VN", {
@@ -85,41 +221,33 @@ async function buildMarketContext(contextTicker?: string): Promise<string> {
   try {
     const { data: prices } = await sb
       .from("prices_daily")
-      .select("symbol, date, close")
+      .select("symbol, date, open, close")
       .order("date", { ascending: false })
       .limit(75); // 25 stocks × 3 days buffer
 
     if (prices && prices.length > 0) {
-      // Group latest 2 prices per symbol
-      const bySymbol: Record<string, number[]> = {};
+      // Use latest row per symbol, compute pct = (close-open)/open — same as Dashboard
+      const latestBySymbol: Record<string, { close: number; open: number }> = {};
       for (const row of prices) {
-        if (!bySymbol[row.symbol]) bySymbol[row.symbol] = [];
-        if (bySymbol[row.symbol].length < 2) bySymbol[row.symbol].push(Number(row.close));
+        if (!latestBySymbol[row.symbol]) {
+          latestBySymbol[row.symbol] = { close: Number(row.close), open: Number(row.open) };
+        }
       }
 
-      const movers = Object.entries(bySymbol)
-        .filter(([, closes]) => closes.length === 2)
-        .map(([sym, [today, yesterday]]) => ({
+      const movers = Object.entries(latestBySymbol)
+        .map(([sym, { close, open }]) => ({
           sym,
-          price: today,
-          pct: ((today - yesterday) / yesterday) * 100,
+          price: close,
+          pct: open > 0 ? ((close - open) / open) * 100 : 0,
         }))
         .sort((a, b) => b.pct - a.pct);
 
       const top5up   = movers.filter(m => m.pct > 0).slice(0, 5);
       const top5down = movers.filter(m => m.pct < 0).slice(-5).reverse();
 
-      // Latest prices map for all symbols
-      const latestPrice: Record<string, number> = {};
-      for (const [sym, closes] of Object.entries(bySymbol)) {
-        latestPrice[sym] = closes[0];
-      }
-
       lines.push("\n## DỮ LIỆU THỊ TRƯỜNG THỰC — Giá VN30 cuối phiên gần nhất");
-      for (const [sym, closes] of Object.entries(bySymbol)) {
-        if (closes[0]) {
-          lines.push(`- ${sym}: **${closes[0].toLocaleString("vi-VN")}** đ`);
-        }
+      for (const [sym, { close }] of Object.entries(latestBySymbol)) {
+        lines.push(`- ${sym}: **${close.toLocaleString("vi-VN")}** đ`);
       }
 
       if (top5up.length > 0) {
@@ -361,14 +489,14 @@ Deno.serve(async (req) => {
   }
 
   // ── Parse body ──
-  let body: { message: string; session_id?: string; context_ticker?: string };
+  let body: { message: string; session_id?: string; context_ticker?: string; context_cards?: ContextCardPayload[] };
   try {
     body = await req.json();
   } catch {
     return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400 });
   }
 
-  const { message, context_ticker } = body;
+  const { message, context_ticker, context_cards } = body;
   if (!message?.trim()) {
     return new Response(JSON.stringify({ error: "message is required" }), { status: 400 });
   }
@@ -396,12 +524,13 @@ Deno.serve(async (req) => {
   await sb.from("chat_messages")
     .insert({ session_id: sessionId, user_id: user.id, role: "user", content: message });
 
-  // ── Build prompt with real market data + RAG ──
-  const [marketContext, ragContext] = await Promise.all([
+  // ── Build prompt with real market data + RAG + context cards ──
+  const [marketContext, ragContext, cardsContext] = await Promise.all([
     buildMarketContext(context_ticker),
     buildRAGContext(message, user.id),
+    context_cards?.length ? buildContextCardsSection(context_cards, user.id) : Promise.resolve(""),
   ]);
-  const fullSystem = `${SYSTEM_PROMPT}\n\n---\n${marketContext}${ragContext}`;
+  const fullSystem = `${SYSTEM_PROMPT}\n\n---\n${marketContext}${cardsContext}${ragContext}`;
 
   const messages: Array<{ role: string; content: string }> = [
     ...(USE_CLAUDE ? [] : [{ role: "system", content: fullSystem }]),
