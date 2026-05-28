@@ -1,4 +1,4 @@
-import{a as v}from"./router-vendor-DEDa1VWL.js";import"./chart-vendor-CKjeqMDt.js";var i={exports:{}},t={};/**
+import{a as v}from"./router-vendor-DEDa1VWL.js";import"./chart-vendor-u9wlF8ap.js";var i={exports:{}},t={};/**
  * @license React
  * react-jsx-runtime.production.min.js
  *

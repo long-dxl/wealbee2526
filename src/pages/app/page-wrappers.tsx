@@ -15,6 +15,7 @@ import { KnowledgeBase } from "./knowledge-new";
 import { Portfolio } from "./portfolio-new";
 import { Settings } from "./settings-new";
 import { MarketPulse } from "./market-pulse";
+import { Tickers } from "./tickers";
 
 // Outlet context type shared by NewLayout
 export interface AppOutletContext {
@@ -83,6 +84,12 @@ export function PortfolioRoute() {
 
 export function SettingsRoute() {
   return <Settings />;
+}
+
+export function TickersRoute() {
+  const { isDark } = useApp();
+  const navigate = useNavigate();
+  return <Tickers onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)} isDark={isDark} />;
 }
 
 export function MarketPulseRoute() {

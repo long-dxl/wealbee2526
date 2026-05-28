@@ -1,15 +1,16 @@
-import { useState } from "react";
-import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save } from "lucide-react";
 import { useTheme } from "../../lib/theme-context";
+import { supabase } from "../../lib/supabase/client";
 
-type SettingsSection = "profile" | "notifications" | "privacy" | "billing" | "appearance";
+type SettingsSection = "profile" | "notifications" | "appearance" | "privacy" | "billing";
 
 const sidebarItems = [
-  { id: "profile" as SettingsSection, label: "Hồ sơ", icon: User },
-  { id: "notifications" as SettingsSection, label: "Thông báo", icon: Bell },
-  { id: "appearance" as SettingsSection, label: "Giao diện", icon: Moon },
-  { id: "privacy" as SettingsSection, label: "Quyền riêng tư", icon: Shield },
-  { id: "billing" as SettingsSection, label: "Gói dịch vụ", icon: CreditCard },
+  { id: "profile"       as SettingsSection, label: "Hồ sơ",          icon: User       },
+  { id: "notifications" as SettingsSection, label: "Thông báo",       icon: Bell       },
+  { id: "appearance"    as SettingsSection, label: "Giao diện",       icon: Moon       },
+  { id: "privacy"       as SettingsSection, label: "Quyền riêng tư",  icon: Shield     },
+  { id: "billing"       as SettingsSection, label: "Gói dịch vụ",     icon: CreditCard },
 ];
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -33,33 +34,123 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 export function Settings() {
   const { isDark, setDark, theme } = useTheme();
-  const [section, setSection] = useState<SettingsSection>("profile");
-  const [notifs, setNotifs] = useState({ email: true, push: true, weeklyReport: false, agentAlert: true });
+  const [section,  setSection]  = useState<SettingsSection>("profile");
   const [language, setLanguage] = useState("vi");
 
-  const cardBg = isDark ? "#131824" : "#fff";
-  const cardShadow = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08)";
+  // ── Real user data ─────────────────────────────────────────────────────────
+  const [loadingProfile, setLoadingProfile]   = useState(true);
+  const [savingProfile,  setSavingProfile]    = useState(false);
+  const [profileSaved,   setProfileSaved]     = useState(false);
+  const [profileError,   setProfileError]     = useState<string | null>(null);
+
+  const [email,    setEmail]    = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone,    setPhone]    = useState("");
+
+  const [notifs, setNotifs] = useState({
+    email:        true,
+    push:         true,
+    weeklyReport: false,
+    agentAlert:   true,
+  });
+
+  useEffect(() => { loadProfile(); }, []);
+
+  const loadProfile = async () => {
+    setLoadingProfile(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Email always comes from auth
+      setEmail(user.email ?? "");
+
+      // Full name from user_profiles table
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("full_name")
+        .eq("user_id", user.id)
+        .single();
+
+      setFullName(profile?.full_name ?? user.user_metadata?.full_name ?? "");
+
+      // Load notification settings
+      const { data: settings } = await supabase
+        .from("user_settings")
+        .select("email_digest, inbox_alerts")
+        .eq("user_id", user.id)
+        .single();
+
+      if (settings) {
+        setNotifs(prev => ({
+          ...prev,
+          email:      settings.email_digest ?? true,
+          agentAlert: settings.inbox_alerts  ?? true,
+        }));
+      }
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  const saveProfile = async () => {
+    setSavingProfile(true);
+    setProfileError(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from("user_profiles")
+        .update({ full_name: fullName.trim(), updated_at: new Date().toISOString() })
+        .eq("user_id", user.id);
+
+      if (error) { setProfileError(error.message); return; }
+
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2500);
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const saveNotifSettings = async (key: string, value: boolean) => {
+    setNotifs(prev => ({ ...prev, [key]: value }));
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const updates: Record<string, boolean> = {};
+    if (key === "email")      updates.email_digest  = value;
+    if (key === "agentAlert") updates.inbox_alerts  = value;
+    if (Object.keys(updates).length > 0) {
+      await supabase.from("user_settings").update(updates).eq("user_id", user.id);
+    }
+  };
+
+  const cardBg       = isDark ? "#131824" : "#fff";
+  const cardShadow   = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08)";
   const headingColor = theme.fg;
-  const labelColor = theme.fgMuted;
-  const subtleColor = theme.fgSubtle;
-  const borderColor = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.08)";
-  const inputBg = isDark ? "rgba(255,255,255,0.06)" : "#F5F5F7";
-  const inputBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(8,73,172,0.20)";
+  const labelColor   = theme.fgMuted;
+  const subtleColor  = theme.fgSubtle;
+  const borderColor  = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.08)";
+  const inputBg      = isDark ? "rgba(255,255,255,0.06)" : "#F5F5F7";
+  const inputBorder  = isDark ? "rgba(255,255,255,0.10)" : "rgba(8,73,172,0.20)";
+  const FONT         = "'Montserrat', system-ui, sans-serif";
 
   const plans = [
-    { id: "free", name: "Free", price: "0đ", period: "/tháng", features: ["5 agents tối đa", "500k tokens/ngày", "Watchlist 10 mã", "Daily Digest + Portfolio Health"] },
-    { id: "pro", name: "Pro", price: "199,000đ", period: "/tháng", features: ["20 agents", "5M tokens/ngày", "Watchlist 50 mã", "Tất cả 6 templates", "Deep Research", "Email digest"], popular: true },
-    { id: "proplus", name: "Pro+", price: "499,000đ", period: "/tháng", features: ["Không giới hạn agents", "20M tokens/ngày", "Watchlist 200 mã", "Priority support", "Custom tools", "API access"] },
+    { id: "free",    name: "Free",  price: "0đ",       period: "/tháng", features: ["5 agents tối đa", "500k tokens/ngày", "Watchlist 10 mã", "Daily Digest + Portfolio Health"] },
+    { id: "pro",     name: "Pro",   price: "199,000đ", period: "/tháng", features: ["20 agents", "5M tokens/ngày", "Watchlist 50 mã", "Tất cả 6 templates", "Deep Research", "Email digest"], popular: true },
+    { id: "proplus", name: "Pro+",  price: "499,000đ", period: "/tháng", features: ["Không giới hạn agents", "20M tokens/ngày", "Watchlist 200 mã", "Priority support", "Custom tools", "API access"] },
   ];
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px", fontFamily: FONT }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, color: headingColor, margin: "0 0 20px" }}>Settings</h1>
       <div style={{ display: "flex", gap: 20 }}>
+
         {/* Sidebar */}
         <div style={{ width: 200, flexShrink: 0 }}>
-          {sidebarItems.map((item) => {
-            const Icon = item.icon;
+          {sidebarItems.map(item => {
+            const Icon   = item.icon;
             const active = section === item.id;
             return (
               <button
@@ -71,8 +162,7 @@ export function Settings() {
                   background: active ? (isDark ? "rgba(77,143,232,0.18)" : "rgba(8,73,172,0.08)") : "transparent",
                   color: active ? theme.brand : labelColor,
                   fontSize: 14, fontWeight: active ? 700 : 400,
-                  fontFamily: "'Montserrat', system-ui, sans-serif",
-                  marginBottom: 2, textAlign: "left",
+                  fontFamily: FONT, marginBottom: 2, textAlign: "left",
                   transition: "all 120ms ease",
                 }}
               >
@@ -85,83 +175,139 @@ export function Settings() {
 
         {/* Content */}
         <div style={{ flex: 1 }}>
+
+          {/* ── Profile ─────────────────────────────────────────────────────── */}
           {section === "profile" && (
             <div style={{ background: cardBg, borderRadius: 14, padding: 24, boxShadow: cardShadow }}>
-              <h2 style={{ margin: "0 0 20px", fontSize: 17, fontWeight: 700, color: headingColor }}>Hồ sơ</h2>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: headingColor }}>Hồ sơ</h2>
+                {loadingProfile && <RefreshCw size={14} style={{ color: theme.brand, animation: "spin 1s linear infinite" }} />}
+              </div>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                {[
-                  { label: "Tên", value: "Nguyễn Văn An" },
-                  { label: "Email", value: "an.nguyen@email.com" },
-                  { label: "Số điện thoại", value: "+84 901 234 567" },
-                ].map((field) => (
-                  <div key={field.label}>
-                    <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: subtleColor, marginBottom: 6 }}>{field.label}</label>
-                    <input
-                      defaultValue={field.value}
-                      style={{
-                        width: "100%", padding: "10px 14px", borderRadius: 10,
-                        border: "0.5px solid " + inputBorder, background: inputBg,
-                        fontSize: 14, color: headingColor, outline: "none", boxSizing: "border-box",
-                        fontFamily: "'Montserrat', system-ui, sans-serif",
-                      }}
-                    />
-                  </div>
-                ))}
-                <button style={{
-                  padding: "10px 20px", borderRadius: 10, border: "none", background: theme.brand,
-                  color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start",
-                  fontFamily: "'Montserrat', system-ui, sans-serif",
-                }}>
-                  Lưu thay đổi
+                {/* Full name */}
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: subtleColor, marginBottom: 6 }}>Tên</label>
+                  <input
+                    value={fullName}
+                    onChange={e => setFullName(e.target.value)}
+                    placeholder={loadingProfile ? "Đang tải…" : "Nhập tên của bạn"}
+                    disabled={loadingProfile}
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "0.5px solid " + inputBorder, background: inputBg, fontSize: 14, color: headingColor, outline: "none", boxSizing: "border-box", fontFamily: FONT }}
+                  />
+                </div>
+
+                {/* Email — readonly, from auth */}
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: subtleColor, marginBottom: 6 }}>
+                    Email <span style={{ fontSize: 11, color: theme.fgDisabled, fontWeight: 400 }}>(không thể thay đổi)</span>
+                  </label>
+                  <input
+                    value={email}
+                    readOnly
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "0.5px solid " + inputBorder, background: isDark ? "rgba(255,255,255,0.03)" : "#F0F0F2", fontSize: 14, color: subtleColor, outline: "none", boxSizing: "border-box", fontFamily: FONT, cursor: "not-allowed" }}
+                  />
+                </div>
+
+                {/* Phone — local state only */}
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: subtleColor, marginBottom: 6 }}>Số điện thoại</label>
+                  <input
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder="+84 9xx xxx xxx"
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "0.5px solid " + inputBorder, background: inputBg, fontSize: 14, color: headingColor, outline: "none", boxSizing: "border-box", fontFamily: FONT }}
+                  />
+                </div>
+
+                {profileError && (
+                  <p style={{ margin: 0, fontSize: 12, color: "#FF3B30", padding: "8px 12px", background: "rgba(255,59,48,0.06)", borderRadius: 8 }}>
+                    ⚠ {profileError}
+                  </p>
+                )}
+
+                <button
+                  onClick={saveProfile}
+                  disabled={savingProfile || loadingProfile}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "10px 20px", borderRadius: 10, border: "none",
+                    background: profileSaved ? "#34C759" : theme.brand,
+                    color: "#fff", fontSize: 14, fontWeight: 600, cursor: savingProfile ? "not-allowed" : "pointer",
+                    alignSelf: "flex-start", fontFamily: FONT, transition: "background 200ms",
+                    opacity: savingProfile || loadingProfile ? 0.7 : 1,
+                  }}
+                >
+                  {savingProfile
+                    ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Đang lưu…</>
+                    : profileSaved
+                    ? <><Check size={14} /> Đã lưu</>
+                    : <><Save size={14} /> Lưu thay đổi</>
+                  }
                 </button>
               </div>
             </div>
           )}
 
+          {/* ── Notifications ────────────────────────────────────────────────── */}
           {section === "notifications" && (
             <div style={{ background: cardBg, borderRadius: 14, padding: 24, boxShadow: cardShadow }}>
               <h2 style={{ margin: "0 0 20px", fontSize: 17, fontWeight: 700, color: headingColor }}>Thông báo</h2>
+
+              {/* Email address info */}
+              {email && (
+                <div style={{ background: isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.04)", borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+                  <p style={{ margin: 0, fontSize: 12, color: subtleColor }}>
+                    Email thông báo sẽ gửi tới: <strong style={{ color: headingColor }}>{email}</strong>
+                  </p>
+                </div>
+              )}
+
               {[
-                { key: "email" as const, label: "Email digest", desc: "Nhận tóm tắt qua email" },
-                { key: "push" as const, label: "Push notification", desc: "Thông báo trên thiết bị" },
-                { key: "agentAlert" as const, label: "Agent alerts", desc: "Nhận alert khi agent chạy" },
-                { key: "weeklyReport" as const, label: "Báo cáo tuần", desc: "Email tổng kết mỗi thứ 2" },
-              ].map((item) => (
+                { key: "email"       as const, label: "Email digest",        desc: "Nhận tóm tắt từ agent qua email sau mỗi lần chạy" },
+                { key: "push"        as const, label: "Push notification",   desc: "Thông báo trên thiết bị" },
+                { key: "agentAlert"  as const, label: "Agent alerts",        desc: "Nhận alert khi agent hoàn thành — lưu vào Inbox" },
+                { key: "weeklyReport"as const, label: "Báo cáo tuần",        desc: "Email tổng kết mỗi thứ 2" },
+              ].map(item => (
                 <div key={item.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "0.5px solid " + borderColor }}>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: headingColor, marginBottom: 2 }}>{item.label}</div>
                     <div style={{ fontSize: 13, color: subtleColor }}>{item.desc}</div>
                   </div>
-                  <Toggle checked={notifs[item.key]} onChange={(v) => setNotifs((p) => ({ ...p, [item.key]: v }))} />
+                  <Toggle
+                    checked={notifs[item.key]}
+                    onChange={v => saveNotifSettings(item.key, v)}
+                  />
                 </div>
               ))}
             </div>
           )}
 
+          {/* ── Appearance ───────────────────────────────────────────────────── */}
           {section === "appearance" && (
             <div style={{ background: cardBg, borderRadius: 14, padding: 24, boxShadow: cardShadow }}>
               <h2 style={{ margin: "0 0 20px", fontSize: 17, fontWeight: 700, color: headingColor }}>Giao diện</h2>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "0.5px solid " + borderColor }}>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: headingColor }}>Dark Mode</div>
-                  <div style={{ fontSize: 13, color: subtleColor }}>Chế độ tối (theo hệ thống hoặc thủ công)</div>
+                  <div style={{ fontSize: 13, color: subtleColor }}>Chế độ tối</div>
                 </div>
                 <Toggle checked={isDark} onChange={setDark} />
               </div>
               <div style={{ padding: "14px 0" }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: headingColor, marginBottom: 10 }}>Ngôn ngữ</div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  {[{ id: "vi", label: "🇻🇳 Tiếng Việt" }, { id: "en", label: "🇺🇸 English" }].map((lang) => (
+                  {[{ id: "vi", label: "🇻🇳 Tiếng Việt" }, { id: "en", label: "🇺🇸 English" }].map(lang => (
                     <button
                       key={lang.id}
                       onClick={() => setLanguage(lang.id)}
                       style={{
-                        padding: "8px 16px", borderRadius: 10,
+                        padding: "8px 16px", borderRadius: 10, cursor: "pointer", fontFamily: FONT,
                         border: language === lang.id ? "1.5px solid " + theme.brand : "0.5px solid " + inputBorder,
                         background: language === lang.id ? (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.06)") : cardBg,
                         color: language === lang.id ? theme.brand : labelColor,
-                        fontSize: 13, fontWeight: 600, cursor: "pointer",
-                        fontFamily: "'Montserrat', system-ui, sans-serif",
+                        fontSize: 13, fontWeight: 600,
                       }}
                     >
                       {lang.label}
@@ -172,6 +318,7 @@ export function Settings() {
             </div>
           )}
 
+          {/* ── Privacy ──────────────────────────────────────────────────────── */}
           {section === "privacy" && (
             <div style={{ background: cardBg, borderRadius: 14, padding: 24, boxShadow: cardShadow }}>
               <h2 style={{ margin: "0 0 16px", fontSize: 17, fontWeight: 700, color: headingColor }}>Quyền riêng tư & Tuân thủ</h2>
@@ -181,13 +328,13 @@ export function Settings() {
                 </p>
               </div>
               {[
-                { label: "Xem dữ liệu của tôi", desc: "Tải xuống toàn bộ dữ liệu theo NĐ 13/2023" },
-                { label: "Xóa tài khoản", desc: "Xóa vĩnh viễn tài khoản và dữ liệu" },
-                { label: "Lịch sử hoạt động AI", desc: "Xem log phân tích AI trong 30 ngày" },
+                { label: "Xem dữ liệu của tôi",      desc: "Tải xuống toàn bộ dữ liệu theo NĐ 13/2023" },
+                { label: "Xóa tài khoản",             desc: "Xóa vĩnh viễn tài khoản và dữ liệu",         danger: true },
+                { label: "Lịch sử hoạt động AI",      desc: "Xem log phân tích AI trong 30 ngày" },
               ].map((item, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "0.5px solid " + borderColor, cursor: "pointer" }}>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: i === 1 ? "#FF3B30" : headingColor }}>{item.label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: (item as any).danger ? "#FF3B30" : headingColor }}>{item.label}</div>
                     <div style={{ fontSize: 13, color: subtleColor }}>{item.desc}</div>
                   </div>
                   <ChevronRight size={18} color={theme.fgDisabled} strokeWidth={1.5} />
@@ -196,54 +343,44 @@ export function Settings() {
             </div>
           )}
 
+          {/* ── Billing ──────────────────────────────────────────────────────── */}
           {section === "billing" && (
-            <div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-                {plans.map((plan) => (
-                  <div
-                    key={plan.id}
-                    style={{
-                      background: cardBg, borderRadius: 14, padding: 20,
-                      border: plan.popular ? "1.5px solid " + theme.brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)"),
-                      boxShadow: plan.popular ? cardShadow : cardShadow,
-                      position: "relative",
-                    }}
-                  >
-                    {plan.popular && (
-                      <span style={{
-                        position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)",
-                        background: theme.brand, color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99,
-                      }}>
-                        PHỔ BIẾN NHẤT
-                      </span>
-                    )}
-                    <div style={{ fontSize: 18, fontWeight: 700, color: headingColor, marginBottom: 4 }}>{plan.name}</div>
-                    <div style={{ marginBottom: 16 }}>
-                      <span style={{ fontSize: 24, fontWeight: 700, color: theme.brand }}>{plan.price}</span>
-                      <span style={{ fontSize: 13, color: subtleColor }}>{plan.period}</span>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-                      {plan.features.map((f) => (
-                        <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                          <Check size={14} color="#34C759" strokeWidth={2} style={{ marginTop: 2, flexShrink: 0 }} />
-                          <span style={{ fontSize: 12, color: labelColor }}>{f}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <button style={{
-                      width: "100%", padding: "10px 0", borderRadius: 10, border: "none",
-                      background: plan.id === "free" ? theme.bgAccent : plan.popular ? theme.brand : theme.bgAccent,
-                      color: plan.id === "free" ? subtleColor : plan.popular ? "#fff" : theme.brand,
-                      fontSize: 13, fontWeight: 700, cursor: "pointer",
-                      fontFamily: "'Montserrat', system-ui, sans-serif",
-                    }}>
-                      {plan.id === "free" ? "Gói hiện tại" : `Nâng cấp ${plan.name}`}
-                    </button>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              {plans.map(plan => (
+                <div
+                  key={plan.id}
+                  style={{
+                    background: cardBg, borderRadius: 14, padding: 20, position: "relative",
+                    border: plan.popular ? "1.5px solid " + theme.brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)"),
+                    boxShadow: cardShadow,
+                  }}
+                >
+                  {plan.popular && (
+                    <span style={{ position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", background: theme.brand, color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>
+                      PHỔ BIẾN NHẤT
+                    </span>
+                  )}
+                  <div style={{ fontSize: 18, fontWeight: 700, color: headingColor, marginBottom: 4 }}>{plan.name}</div>
+                  <div style={{ marginBottom: 16 }}>
+                    <span style={{ fontSize: 24, fontWeight: 700, color: theme.brand }}>{plan.price}</span>
+                    <span style={{ fontSize: 13, color: subtleColor }}>{plan.period}</span>
                   </div>
-                ))}
-              </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                    {plan.features.map(f => (
+                      <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                        <Check size={14} color="#34C759" strokeWidth={2} style={{ marginTop: 2, flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, color: labelColor }}>{f}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button style={{ width: "100%", padding: "10px 0", borderRadius: 10, border: "none", background: plan.id === "free" ? theme.bgAccent : plan.popular ? theme.brand : theme.bgAccent, color: plan.id === "free" ? subtleColor : plan.popular ? "#fff" : theme.brand, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
+                    {plan.id === "free" ? "Gói hiện tại" : `Nâng cấp ${plan.name}`}
+                  </button>
+                </div>
+              ))}
             </div>
           )}
+
         </div>
       </div>
     </div>

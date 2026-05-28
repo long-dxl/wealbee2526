@@ -14,6 +14,7 @@ import type { ContextCard } from "../types/cards";
 const ROUTE_PAGE: Record<string, string> = {
   "/app":               "dashboard",
   "/app/feed":          "feed",
+  "/app/tickers":       "tickers",
   "/app/inbox":         "inbox",
   "/app/agents":        "agents",
   "/app/agent-studio":  "agent-studio",
@@ -27,6 +28,7 @@ const ROUTE_PAGE: Record<string, string> = {
 const PAGE_ROUTE: Record<string, string> = {
   dashboard:       "/app",
   feed:            "/app/feed",
+  tickers:         "/app/tickers",
   inbox:           "/app/inbox",
   agents:          "/app/agents",
   "agent-studio":  "/app/agent-studio",

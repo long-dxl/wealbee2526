@@ -197,7 +197,7 @@ async function buildNewsContext(): Promise<string> {
 
 // ─── Send brief email via Resend ─────────────────────────────────────────────
 
-async function sendBriefEmail(toEmail: string, agentName: string, title: string, content: string): Promise<void> {
+async function sendBriefEmail(toEmail: string, userName: string, agentName: string, title: string, content: string): Promise<void> {
   if (!RESEND_API_KEY || !toEmail) return;
 
   const SF = "font-family:Helvetica,Arial,sans-serif;";
@@ -240,6 +240,8 @@ async function sendBriefEmail(toEmail: string, agentName: string, title: string,
 
   const logoSvg = `<img src="https://fkwsvyzguehtsjpwmttb.supabase.co/storage/v1/object/public/assets/logo-white.svg" width="44" height="44" alt="Wealbee" style="display:block;"/>`;
 
+  const greeting = userName ? `Xin chào ${userName},` : "Xin chào,";
+
   const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
 <body style="margin:0;padding:0;background:#f0f4fa;font-family:Helvetica,Arial,sans-serif;">
@@ -260,35 +262,40 @@ async function sendBriefEmail(toEmail: string, agentName: string, title: string,
       </td></tr>
       <!-- BODY -->
       <tr><td style="background:#ffffff;border:1px solid #e5e9f5;border-top:none;border-radius:0 0 12px 12px;padding:28px;">
-        <div style="font-size:18px;font-weight:700;color:#1a1a2e;margin:0 0 18px;font-family:Helvetica,Arial,sans-serif;line-height:1.3;"><span style="font-family:Helvetica,Arial,sans-serif;">${title}</span></div>
+        <p style="margin:0 0 16px;font-size:14px;color:#374151;font-family:Helvetica,Arial,sans-serif;">${greeting}</p>
+        <div style="font-size:18px;font-weight:700;color:#1a1a2e;margin:0 0 18px;font-family:Helvetica,Arial,sans-serif;line-height:1.3;">${title}</div>
         <div style="font-size:14px;line-height:1.8;color:#374151;font-family:Helvetica,Arial,sans-serif;">
-          <p style="margin:0 0 10px;font-family:Helvetica,Arial,sans-serif;"><span style="font-family:Helvetica,Arial,sans-serif;">${bodyHtml}</span></p>
+          <p style="margin:0 0 10px;font-family:Helvetica,Arial,sans-serif;">${bodyHtml}</p>
         </div>
       </td></tr>
       <!-- FOOTER -->
       <tr><td style="padding:16px 0;text-align:center;">
         <p style="margin:0;font-size:11px;color:#99a1af;font-family:Helvetica,Arial,sans-serif;">Wealbee Agent · Chỉ mang tính thông tin, không phải khuyến nghị đầu tư</p>
+        <p style="margin:4px 0 0;font-size:11px;color:#99a1af;font-family:Helvetica,Arial,sans-serif;">Email gửi tới: ${toEmail}</p>
       </td></tr>
     </table>
   </td></tr>
 </table>
 </body></html>`;
 
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: EMAIL_FROM,
-        to: [toEmail],
-        subject: `[Wealbee Agent] ${title}`,
-        html,
-      }),
-    });
-  } catch { /* non-critical — brief is already saved */ }
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: EMAIL_FROM,
+      to: [toEmail],
+      subject: `[Wealbee Agent] ${title}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("Resend error:", res.status, errText);
+    throw new Error(`Resend ${res.status}: ${errText}`);
+  }
 }
 
 // ─── Build portfolio context for user ────────────────────────────────────────
@@ -572,10 +579,31 @@ Deno.serve(async (req: Request) => {
 
         emit({ type: "step", step: "save", status: "done", label: "Đã lưu vào Inbox" });
 
-        if (enabledTools.includes("email_send") && user.email) {
-          emit({ type: "step", step: "email_send", status: "loading", label: "Đang gửi email..." });
-          await sendBriefEmail(user.email, agent.name, title, fullOutput);
-          emit({ type: "step", step: "email_send", status: "done", label: `Email gửi tới ${user.email}` });
+        // Send email if user has email + RESEND configured + user_settings.email_digest = true
+        if (RESEND_API_KEY && user.email) {
+          try {
+            const { data: userSettings } = await sb
+              .from("user_settings")
+              .select("email_digest")
+              .eq("user_id", user.id)
+              .single();
+
+            const shouldEmail = userSettings?.email_digest !== false; // default true
+
+            if (shouldEmail) {
+              // Get user's display name
+              const { data: userProfile } = await sb
+                .from("user_profiles")
+                .select("full_name")
+                .eq("user_id", user.id)
+                .single();
+              const userName = userProfile?.full_name ?? user.email?.split("@")[0] ?? "";
+
+              emit({ type: "step", step: "email_send", status: "loading", label: "Đang gửi email..." });
+              await sendBriefEmail(user.email, userName, agent.name, title, fullOutput);
+              emit({ type: "step", step: "email_send", status: "done", label: `Email gửi tới ${user.email}` });
+            }
+          } catch { /* non-critical */ }
         }
         emit({ type: "done", title, brief_id: brief?.id, run_id: run.id, tokens, duration_ms: durationMs });
 

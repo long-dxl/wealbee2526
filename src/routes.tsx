@@ -26,6 +26,7 @@ import {
   PortfolioRoute,
   SettingsRoute,
   MarketPulseRoute,
+  TickersRoute,
 } from "./pages/app/page-wrappers";
 
 // Agents page (has full run functionality with SSE)
@@ -64,6 +65,7 @@ export const router = createBrowserRouter([
       { path: "knowledge",       Component: KnowledgeBaseRoute },
       { path: "portfolio",       Component: PortfolioRoute    },
       { path: "settings",        Component: SettingsRoute     },
+      { path: "tickers",         Component: TickersRoute       },
       { path: "ticker/:symbol",  Component: TickerDetailPage  },
 
       // Legacy admin
