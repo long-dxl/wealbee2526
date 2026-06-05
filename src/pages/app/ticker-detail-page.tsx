@@ -176,11 +176,11 @@ type FinTab = "metrics" | "income" | "balance" | "cashflow";
 
 interface FinancialRow {
   year: number;
-  revenue: number | null; gross_profit: number | null;
+  revenue: number | null;
   net_profit: number | null; eps: number | null;
   pe_ratio: number | null; pb_ratio: number | null;
   roe: number | null; roa: number | null;
-  debt_to_equity: number | null; total_assets: number | null;
+  debt_to_equity: number | null;
 }
 
 interface RowDef { label: string; key: keyof FinancialRow; fmt: (v: number) => string; unit: string; }
@@ -189,32 +189,34 @@ const TAB_CONFIG: Record<FinTab, { icon: React.ElementType; label: string; rows:
   metrics: {
     icon: BarChart2, label: "Chỉ số", unit: "",
     rows: [
-      { label: "P/E Ratio",   key: "pe_ratio",       fmt: v => v.toFixed(2),           unit: "" },
-      { label: "P/B Ratio",   key: "pb_ratio",       fmt: v => v.toFixed(2),           unit: "" },
-      { label: "ROE",         key: "roe",            fmt: v => `${(v * 100).toFixed(2)}%`, unit: "%" },
-      { label: "ROA",         key: "roa",            fmt: v => `${(v * 100).toFixed(2)}%`, unit: "%" },
-      { label: "Nợ / Vốn",   key: "debt_to_equity", fmt: v => v.toFixed(2),           unit: "" },
+      { label: "P/E Ratio",  key: "pe_ratio",       fmt: v => v.toFixed(2),               unit: "" },
+      { label: "P/B Ratio",  key: "pb_ratio",       fmt: v => v.toFixed(2),               unit: "" },
+      { label: "ROE",        key: "roe",            fmt: v => `${(v * 100).toFixed(1)}%`, unit: "%" },
+      { label: "ROA",        key: "roa",            fmt: v => `${(v * 100).toFixed(2)}%`, unit: "%" },
+      { label: "Nợ / Vốn",  key: "debt_to_equity", fmt: v => v.toFixed(2),               unit: "" },
     ],
   },
   income: {
     icon: BookOpen, label: "Doanh thu", unit: "tỷ",
     rows: [
-      { label: "Doanh thu",          key: "revenue",      fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
-      { label: "Lợi nhuận gộp",      key: "gross_profit", fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
-      { label: "Lợi nhuận sau thuế", key: "net_profit",   fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
-      { label: "EPS (đồng)",         key: "eps",          fmt: v => fmtN(Math.round(v)),        unit: "đ" },
+      { label: "Doanh thu",          key: "revenue",    fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "Lợi nhuận sau thuế", key: "net_profit", fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "EPS (đồng)",         key: "eps",        fmt: v => fmtN(Math.round(v)),        unit: "đ" },
     ],
   },
   balance: {
-    icon: Scale, label: "Bảng cân đối", unit: "tỷ",
+    icon: Scale, label: "Bảng cân đối", unit: "",
     rows: [
-      { label: "Tổng tài sản",    key: "total_assets",   fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "Nợ / Vốn (D/E)", key: "debt_to_equity", fmt: v => v.toFixed(2), unit: "" },
+      { label: "ROE",             key: "roe",            fmt: v => `${(v * 100).toFixed(1)}%`, unit: "%" },
+      { label: "ROA",             key: "roa",            fmt: v => `${(v * 100).toFixed(2)}%`, unit: "%" },
     ],
   },
   cashflow: {
     icon: Banknote, label: "Dòng tiền", unit: "tỷ",
     rows: [
       { label: "Lợi nhuận sau thuế", key: "net_profit", fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "EPS (đồng)",         key: "eps",        fmt: v => fmtN(Math.round(v)),        unit: "đ" },
     ],
   },
 };
@@ -341,7 +343,7 @@ export function TickerDetailPage() {
   const [finTab,     setFinTab]     = useState<FinTab>("income");
   const [showVni,    setShowVni]    = useState(true);
   const [showHnx,    setShowHnx]    = useState(true);
-  const [mainTab,    setMainTab]    = useState<"chart" | "financials" | "dividends" | "insiders" | "news">("chart");
+  const [extraTab,   setExtraTab]   = useState<"dividends" | "insiders" | "news">("dividends");
 
   const sym = symbol?.toUpperCase() ?? "";
 
@@ -365,7 +367,7 @@ export function TickerDetailPage() {
       ] = await Promise.all([
         supabase.from("tickers").select("symbol,name,exchange,sector,in_vn30").eq("symbol", s).single(),
         supabase.from("prices_daily").select("date,open,high,low,close,volume").eq("symbol", s).order("date", { ascending: true }).limit(500),
-        supabase.from("financials_annual").select("year,revenue,gross_profit,net_profit,eps,pe_ratio,pb_ratio,roe,roa,debt_to_equity,total_assets").eq("symbol", s).order("year", { ascending: true }).limit(10),
+        supabase.from("financials_annual").select("year,revenue,net_profit,eps,pe_ratio,pb_ratio,roe,roa,debt_to_equity").eq("symbol", s).order("year", { ascending: true }).limit(10),
         supabase.from("dividends").select("id,ex_date,payment_date,dividend_type,amount").eq("symbol", s).order("ex_date", { ascending: false }).limit(10),
         supabase.from("insider_transactions").select("id,trade_date,insider_name,trade_type,volume").eq("symbol", s).order("trade_date", { ascending: false }).limit(10),
         supabase.from("market_news").select("title,published_at,impact_score,label,article_url").contains("affected_symbols", [s]).neq("label", "trash").not("label", "is", null).order("published_at", { ascending: false }).limit(10),
@@ -430,10 +432,15 @@ export function TickerDetailPage() {
   const STOCK_C = stockPeriodPct >= 0 ? GREEN : RED;
 
   const FIN_TABS: { id: FinTab; icon: React.ElementType; label: string }[] = [
-    { id: "metrics",  icon: BarChart2,  label: "Chỉ số" },
-    { id: "income",   icon: BookOpen,   label: "Doanh thu" },
-    { id: "balance",  icon: Scale,      label: "Bảng cân đối" },
-    { id: "cashflow", icon: Banknote,   label: "Dòng tiền" },
+    { id: "metrics",  icon: BarChart2, label: "Chỉ số" },
+    { id: "income",   icon: BookOpen,  label: "Doanh thu" },
+    { id: "balance",  icon: Scale,     label: "Bảng cân đối" },
+    { id: "cashflow", icon: Banknote,  label: "Dòng tiền" },
+  ];
+  const EXTRA_TABS: { id: "dividends" | "insiders" | "news"; icon: React.ElementType; label: string; count: number }[] = [
+    { id: "dividends", icon: Coins,     label: "Cổ tức",  count: dividends.length },
+    { id: "insiders",  icon: Users,     label: "Insider", count: insiders.length  },
+    { id: "news",      icon: Newspaper, label: "Tin tức", count: news.length      },
   ];
 
   // ── Loading / Error ────────────────────────────────────────────────────────
@@ -567,53 +574,10 @@ export function TickerDetailPage() {
             </div>
           </div>
 
-          {/* ── Main tabs ──────────────────────────────────────────────────── */}
+          {/* ── Price chart card (always visible) ─────────────────────────── */}
           <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, overflow: "hidden", marginBottom: 14 }}>
-            <div style={{ display: "flex", borderBottom: `1px solid ${tk.BORDER}`, padding: "0 8px", gap: 2 }}>
-              {[
-                { id: "chart",      icon: BarChart2, label: "Biểu đồ giá" },
-                { id: "financials", icon: BookOpen,  label: "Tài chính",  count: financials.length },
-                { id: "dividends",  icon: Coins,     label: "Cổ tức",     count: dividends.length  },
-                { id: "insiders",   icon: Users,     label: "Insider",    count: insiders.length   },
-                { id: "news",       icon: Newspaper, label: "Tin tức",    count: news.length       },
-              ].map(tab => {
-                const Icon   = tab.icon;
-                const active = mainTab === (tab.id as any);
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setMainTab(tab.id as any)}
-                    style={{
-                      flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                      gap: 4, padding: "12px 8px",
-                      border: "none", background: "transparent", cursor: "pointer", fontFamily: FONT,
-                      borderBottom: active ? `2px solid ${tk.ACCENT}` : "2px solid transparent",
-                      transition: "all 120ms", marginBottom: -1,
-                    }}
-                    onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = tk.ROW_HOV; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                  >
-                    <div style={{ width: 28, height: 28, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: active ? tk.ACCENT_HL : "transparent", transition: "background 120ms" }}>
-                      <Icon size={15} strokeWidth={1.8} color={active ? tk.ACCENT : tk.MUTED} />
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      <span style={{ fontSize: 11, fontWeight: active ? 700 : 500, color: active ? tk.ACCENT : tk.MUTED }}>{tab.label}</span>
-                      {"count" in tab && (tab as any).count > 0 && (
-                        <span style={{ fontSize: 10, fontWeight: 700, background: active ? tk.ACCENT_HL : "transparent", color: active ? tk.ACCENT : tk.MUTED2, padding: "1px 5px", borderRadius: 99 }}>
-                          {(tab as any).count}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
             <div style={{ padding: "22px 24px" }}>
-
-              {/* ─ Chart tab ─ */}
-              {mainTab === "chart" && (
-                <div>
+              <div>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
                     <div>
                       <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-1.5px", marginBottom: 6, color: tk.TEXT, fontFamily: "'IBM Plex Mono', monospace" }}>
@@ -692,40 +656,70 @@ export function TickerDetailPage() {
                     </button>
                   </div>
                 </div>
-              )}
+            </div>
+          </div>
 
-              {/* ─ Financials tab ─ */}
-              {mainTab === "financials" && (
-                <div>
-                  <div style={{ display: "flex", borderBottom: `1px solid ${tk.BORDER}`, marginBottom: 20, gap: 2 }}>
-                    {FIN_TABS.map(tab => {
-                      const Icon   = tab.icon;
-                      const active = finTab === tab.id;
-                      return (
-                        <button key={tab.id} onClick={() => setFinTab(tab.id)} style={{
-                          display: "flex", alignItems: "center", gap: 6,
-                          padding: "10px 16px", border: "none", background: "transparent",
-                          cursor: "pointer", fontFamily: FONT,
-                          borderBottom: active ? `2px solid ${tk.ACCENT}` : "2px solid transparent",
-                          color: active ? tk.ACCENT : tk.MUTED,
-                          fontSize: 13, fontWeight: active ? 700 : 500,
-                          transition: "all 120ms", marginBottom: -1,
-                        }}>
-                          <Icon size={14} strokeWidth={1.8} />
-                          {tab.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {financials.length === 0
-                    ? <EmptyState message={`Chưa có dữ liệu tài chính cho ${sym}`} />
-                    : <FinancialPanel key={finTab} data={financials} tab={finTab} />
-                  }
-                </div>
-              )}
+          {/* ── Financial section (always visible below chart) ─────────────── */}
+          <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, overflow: "hidden", marginBottom: 14 }}>
+            <div style={{ display: "flex", borderBottom: `1px solid ${tk.BORDER}`, padding: "0 8px", gap: 2 }}>
+              {FIN_TABS.map(tab => {
+                const Icon   = tab.icon;
+                const active = finTab === tab.id;
+                return (
+                  <button key={tab.id} onClick={() => setFinTab(tab.id)} style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "14px 16px", border: "none", background: "transparent",
+                    cursor: "pointer", fontFamily: FONT,
+                    borderBottom: active ? `2px solid ${tk.ACCENT}` : "2px solid transparent",
+                    color: active ? tk.ACCENT : tk.MUTED,
+                    fontSize: 13, fontWeight: active ? 700 : 500,
+                    transition: "all 120ms", marginBottom: -1,
+                  }}>
+                    <Icon size={14} strokeWidth={1.8} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ padding: "22px 24px" }}>
+              {financials.length === 0
+                ? <EmptyState message={`Chưa có dữ liệu tài chính cho ${sym}`} />
+                : <FinancialPanel key={finTab} data={financials} tab={finTab} />
+              }
+            </div>
+          </div>
 
-              {/* ─ Dividends tab ─ */}
-              {mainTab === "dividends" && (
+          {/* ── Cổ tức / Insider / Tin tức ────────────────────────────────── */}
+          <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, overflow: "hidden", marginBottom: 14 }}>
+            <div style={{ display: "flex", borderBottom: `1px solid ${tk.BORDER}`, padding: "0 8px", gap: 2 }}>
+              {EXTRA_TABS.map(tab => {
+                const Icon   = tab.icon;
+                const active = extraTab === tab.id;
+                return (
+                  <button key={tab.id} onClick={() => setExtraTab(tab.id)} style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "14px 16px", border: "none", background: "transparent",
+                    cursor: "pointer", fontFamily: FONT,
+                    borderBottom: active ? `2px solid ${tk.ACCENT}` : "2px solid transparent",
+                    color: active ? tk.ACCENT : tk.MUTED,
+                    fontSize: 13, fontWeight: active ? 700 : 500,
+                    transition: "all 120ms", marginBottom: -1,
+                  }}>
+                    <Icon size={14} strokeWidth={1.8} />
+                    {tab.label}
+                    {tab.count > 0 && (
+                      <span style={{ fontSize: 10, fontWeight: 700, background: active ? tk.ACCENT_HL : "transparent", color: active ? tk.ACCENT : tk.MUTED2, padding: "1px 5px", borderRadius: 99 }}>
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ padding: "22px 24px" }}>
+
+              {/* ─ Dividends ─ */}
+              {extraTab === "dividends" && (
                 dividends.length === 0 ? <EmptyState message={`Chưa có dữ liệu cổ tức cho ${sym}`} /> : (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -757,8 +751,8 @@ export function TickerDetailPage() {
                 )
               )}
 
-              {/* ─ Insiders tab ─ */}
-              {mainTab === "insiders" && (
+              {/* ─ Insiders ─ */}
+              {extraTab === "insiders" && (
                 insiders.length === 0 ? <EmptyState message={`Chưa có dữ liệu giao dịch nội bộ cho ${sym}`} /> : (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -790,8 +784,8 @@ export function TickerDetailPage() {
                 )
               )}
 
-              {/* ─ News tab ─ */}
-              {mainTab === "news" && (
+              {/* ─ News ─ */}
+              {extraTab === "news" && (
                 news.length === 0 ? <EmptyState message={`Chưa có tin tức liên quan đến ${sym}`} /> : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {news.map((n: any, i: number) => {

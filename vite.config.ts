@@ -80,5 +80,12 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    proxy: {
+      '/api/dnse-open': {
+        target: 'https://openapi.dnse.com.vn',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/dnse-open/, ''),
+      },
+    },
   },
 });

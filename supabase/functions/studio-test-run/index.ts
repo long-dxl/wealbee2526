@@ -285,20 +285,28 @@ async function buildFinancialsContext(symbol: string, registry: SourceRegistry):
       .limit(4);
 
     if (fins?.length) {
-      const ref = ` ${registry.add("BCTC", faUrl(sym))}`;
-      lines.push(`\n### Kết quả tài chính theo năm${ref}`);
-      lines.push("| Năm | Doanh thu (tỷ) | LNST (tỷ) | EPS | P/E | P/B | ROE | ROA | D/E |");
-      lines.push("|-----|---------------|-----------|-----|-----|-----|-----|-----|-----|");
-      for (const f of fins) {
-        const rev = f.revenue     != null ? (Number(f.revenue)    / 1e9).toFixed(0) : "—";
-        const np  = f.net_profit  != null ? (Number(f.net_profit) / 1e9).toFixed(0) : "—";
-        const eps = f.eps         != null ? Number(f.eps).toLocaleString("vi-VN")    : "—";
-        const pe  = f.pe_ratio    != null ? Number(f.pe_ratio).toFixed(1)            : "—";
-        const pb  = f.pb_ratio    != null ? Number(f.pb_ratio).toFixed(2)            : "—";
-        const roe = f.roe         != null ? (Number(f.roe) * 100).toFixed(1) + "%"   : "—";
-        const roa = f.roa         != null ? (Number(f.roa) * 100).toFixed(2) + "%"   : "—";
-        const de  = f.debt_to_equity != null ? Number(f.debt_to_equity).toFixed(2)   : "—";
-        lines.push(`| ${f.year} | ${rev} | ${np} | ${eps} | ${pe} | ${pb} | ${roe} | ${roa} | ${de} |`);
+      const countFields = (f: (typeof fins)[0]) =>
+        [f.revenue, f.net_profit, f.eps, f.pe_ratio, f.pb_ratio, f.roe, f.roa, f.debt_to_equity]
+          .filter(v => v != null).length;
+      const qualifiedRows = fins.filter(f => countFields(f) >= 3);
+      if (qualifiedRows.length === 0) {
+        lines.push(`\n*Không có số liệu tài chính chi tiết cho ${sym} trong hệ thống. Không được tự ước tính các chỉ số tài chính.*`);
+      } else {
+        const ref = ` ${registry.add("BCTC", faUrl(sym))}`;
+        lines.push(`\n### Kết quả tài chính theo năm${ref}`);
+        lines.push("| Năm | Doanh thu (tỷ) | LNST (tỷ) | EPS | P/E | P/B | ROE | ROA | D/E |");
+        lines.push("|-----|---------------|-----------|-----|-----|-----|-----|-----|-----|");
+        for (const f of qualifiedRows) {
+          const rev = f.revenue     != null ? (Number(f.revenue)    / 1e9).toFixed(0) : "—";
+          const np  = f.net_profit  != null ? (Number(f.net_profit) / 1e9).toFixed(0) : "—";
+          const eps = f.eps         != null ? Number(f.eps).toLocaleString("vi-VN")    : "—";
+          const pe  = f.pe_ratio    != null ? Number(f.pe_ratio).toFixed(1)            : "—";
+          const pb  = f.pb_ratio    != null ? Number(f.pb_ratio).toFixed(2)            : "—";
+          const roe = f.roe         != null ? (Number(f.roe) * 100).toFixed(1) + "%"   : "—";
+          const roa = f.roa         != null ? (Number(f.roa) * 100).toFixed(2) + "%"   : "—";
+          const de  = f.debt_to_equity != null ? Number(f.debt_to_equity).toFixed(2)   : "—";
+          lines.push(`| ${f.year} | ${rev} | ${np} | ${eps} | ${pe} | ${pb} | ${roe} | ${roa} | ${de} |`);
+        }
       }
     }
   } catch { /* ignore */ }
@@ -354,19 +362,29 @@ const GROUNDING_RULES = `
 **ĐỊNH DẠNG OUTPUT — BẮT BUỘC**
 - Chỉ dùng **Markdown thuần** (##, ###, -, **, *italic*)
 - TUYỆT ĐỐI KHÔNG dùng HTML tags (<div>, <span>, <a>, <ul>, <li>, <br>, <style>, v.v.)
+- TUYỆT ĐỐI KHÔNG dùng inline CSS hay style attributes
 - Nếu muốn link: dùng [label](url) — KHÔNG dùng <a href="...">
 
 **CHỈ VIẾT NHỮNG GÌ CÓ TRONG DỮ LIỆU — QUY TẮC CỐT LÕI**
 - Chỉ được đề cập đến thông tin, số liệu, sự kiện XUẤT HIỆN TRỰC TIẾP trong phần "NGUỒN DỮ LIỆU" bên dưới
-- Nếu một chủ đề KHÔNG có trong dữ liệu → **bỏ qua hoàn toàn**, không nhắc đến
+- Nếu một chủ đề KHÔNG có trong dữ liệu → **bỏ qua hoàn toàn**, không nhắc đến, không viết "Chưa có dữ liệu về X"
 - KHÔNG dùng kiến thức nền, KHÔNG ước tính, KHÔNG nội suy từ training data
+- Ví dụ: nếu không có dữ liệu insider VCB → không viết gì về insider VCB, bỏ hẳn mục đó
+- Nếu NGUỒN DỮ LIỆU ghi "*Không có số liệu tài chính*" → KHÔNG tạo bảng tài chính, bỏ hẳn mục đó
+
+**BẢNG DỮ LIỆU — GIỮ ĐÚNG ĐỊNH DẠNG NGUỒN**
+- KHÔNG được transpose, pivot, hay reformat lại bảng từ nguồn dữ liệu sang cấu trúc khác
+- Nếu nguồn có bảng "Năm | Doanh thu | LNST | ..." thì dùng ĐÚNG cấu trúc đó, không chuyển thành "Chỉ tiêu | 2023 | 2024 | ..."
+- Ô "—" trong bảng nghĩa là không có data — KHÔNG được điền số vào ô đó
 
 **TRÍCH DẪN NGUỒN — BẮT BUỘC VỚI MỌI SỐ LIỆU**
 - Mỗi con số, phần trăm, giá trị cụ thể PHẢI có token [ref:N] liền sau
-- Token [ref:N] đã có sẵn trong NGUỒN DỮ LIỆU — chỉ được dùng những ref đó
+- Token [ref:N] đã có sẵn trong NGUỒN DỮ LIỆU — chỉ được dùng những ref đó, KHÔNG tự bịa thêm
+- Ví dụ đúng: "VCB đóng cửa tại **64,200đ** phiên 2026-05-28 [ref:3]"
+- Ví dụ SAI: "VCB đóng cửa tại **64,200đ**" (thiếu ref) hoặc "ROE khoảng 20%" (không có trong data)
 
 **THỜI GIAN — CHÍNH XÁC**
-- Mỗi dòng giá có "phiên YYYY-MM-DD" — PHẢI dùng đúng ngày đó
+- Mỗi dòng giá có "phiên YYYY-MM-DD" — PHẢI dùng đúng ngày đó, không được viết "phiên gần nhất" hay "hôm nay"
 - Nếu dữ liệu giá ghi "Chưa có dữ liệu trong DB" → bỏ qua mục giá hoàn toàn
 
 **TUÂN THỦ PHÁP LÝ**
@@ -578,8 +596,71 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
           emit({ type: "reset_output", output: fullOutput });
         }
 
+        // Scan refs before validation (validation may strip [ref:N] tokens)
+        const preValidationRefs = new Set<number>();
+        for (const m of fullOutput.matchAll(/\[ref:(\d+)\]/g)) {
+          preValidationRefs.add(parseInt(m[1]));
+        }
+
+        // ── Pass 2: Validation (same logic as run-agent) ──────────────────────
+        emit({ type: "step", step: "validate", status: "loading", label: "Đang xác minh nguồn dữ liệu..." });
+        try {
+          // financialsCtx first so it's never truncated out
+          const sourceData = [financialsCtx, insiderCtx, priceCtx, newsCtx, technicalCtx]
+            .filter(Boolean).join("\n").substring(0, 25000);
+
+          const refPlaceholders: Record<string, string> = {};
+          const protectedOutput = fullOutput.replace(/\[ref:(\d+)\]/g, (_m, n) => {
+            const ph = `REFTOKEN${n}END`;
+            refPlaceholders[ph] = `[ref:${n}]`;
+            return ph;
+          });
+
+          const valSystem = `Bạn là công cụ kiểm tra tính xác thực của báo cáo phân tích tài chính.
+Nhiệm vụ duy nhất: nhận OUTPUT và NGUỒN DỮ LIỆU, trả về OUTPUT đã loại bỏ mọi câu chứa con số hoặc thông tin cụ thể KHÔNG xuất hiện trong NGUỒN DỮ LIỆU.
+
+QUY TẮC:
+1. Giữ nguyên 100% các token dạng REFTOKENxEND — không xóa, không sửa
+2. Xóa toàn bộ câu/mệnh đề chứa số liệu cụ thể (giá, %, tỷ đồng, điểm số) nếu số đó KHÔNG có trong NGUỒN DỮ LIỆU
+3. Giữ nguyên câu phân tích định tính thuần túy (không chứa số cụ thể)
+4. Giữ nguyên cấu trúc Markdown (##, ###, -, **)
+5. Nếu một mục (##, ###) bị xóa hết nội dung → xóa luôn tiêu đề mục đó
+6. KHÔNG thêm nội dung mới, KHÔNG giải thích — chỉ trả về text đã làm sạch
+7. TUYỆT ĐỐI KHÔNG thay đổi bất kỳ dòng nào trong bảng Markdown (dòng bắt đầu bằng |) — kể cả dòng header, dòng separator (|---|), và dòng dữ liệu. Giữ nguyên 100% cấu trúc và nội dung của toàn bộ bảng.
+8. KHÔNG thay thế nội dung ô bảng bằng "---" hay dấu gạch ngang — nếu muốn loại bỏ, xóa cả dòng, không bao giờ thay thế từng ô`;
+
+          const valUser = `NGUỒN DỮ LIỆU:\n${sourceData}\n\nOUTPUT CẦN KIỂM TRA:\n${protectedOutput}`;
+
+          const valRes = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "gpt-4o-mini",
+              messages: [{ role: "system", content: valSystem }, { role: "user", content: valUser }],
+              temperature: 0,
+              max_tokens: 2000,
+            }),
+          });
+
+          if (valRes.ok) {
+            const valJson = await valRes.json();
+            let validated = valJson.choices?.[0]?.message?.content?.trim() ?? "";
+            for (const [ph, ref] of Object.entries(refPlaceholders)) {
+              validated = validated.replaceAll(ph, ref);
+            }
+            const minLen = Math.max(50, fullOutput.length * 0.10);
+            if (validated && validated.length >= minLen && validated !== fullOutput) {
+              fullOutput = validated;
+              emit({ type: "reset_output", output: fullOutput });
+            }
+          }
+          emit({ type: "step", step: "validate", status: "done", label: "Đã xác minh nguồn dữ liệu" });
+        } catch {
+          emit({ type: "step", step: "validate", status: "done", label: "Xác minh (bỏ qua lỗi)" });
+        }
+
         const durationMs = Date.now() - startedAt;
-        const refs = registry.toArray().filter(r => fullOutput.includes(`[ref:${r.index}]`));
+        const refs = registry.toArray().filter(r => preValidationRefs.has(r.index));
 
         if (refs.length > 0) emit({ type: "ref_registry", refs });
 

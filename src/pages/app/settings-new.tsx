@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Plus } from "lucide-react";
+import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Plus, Link2, Unlink, Eye, EyeOff } from "lucide-react";
 import { useTheme } from "../../lib/theme-context";
 import { supabase } from "../../lib/supabase/client";
+import { useBrokerConfig, type BrokerConfig } from "../../lib/hooks/useBrokerConfig";
+import { discoverAccounts } from "../../lib/services/dnse";
 
-type SettingsSection = "profile" | "notifications" | "appearance" | "privacy" | "billing";
+type SettingsSection = "profile" | "notifications" | "appearance" | "privacy" | "billing" | "api";
 
 const sidebarItems = [
   { id: "profile"       as SettingsSection, label: "Hồ sơ",          icon: User       },
@@ -11,6 +13,7 @@ const sidebarItems = [
   { id: "appearance"    as SettingsSection, label: "Giao diện",       icon: Moon       },
   { id: "privacy"       as SettingsSection, label: "Quyền riêng tư",  icon: Shield     },
   { id: "billing"       as SettingsSection, label: "Gói dịch vụ",     icon: CreditCard },
+  { id: "api"           as SettingsSection, label: "Kết nối API",      icon: Link2      },
 ];
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -37,6 +40,51 @@ export function Settings() {
   const [section,  setSection]  = useState<SettingsSection>("profile");
   const [language, setLanguage] = useState("vi");
 
+  // ── Broker / API connection ────────────────────────────────────────────────
+  const { config: brokerConfig, saveConfig: saveBrokerConfig, clearConfig: clearBrokerConfig } = useBrokerConfig();
+  const [apiForm, setApiForm] = useState({ broker: "dnse" as BrokerConfig["broker"], apiKey: "", apiSecret: "", accountNo: "" });
+  const [showSecret, setShowSecret] = useState(false);
+  const [apiTesting, setApiTesting] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [apiSuccess, setApiSuccess] = useState(false);
+
+  useEffect(() => {
+    if (brokerConfig) {
+      setApiForm({
+        broker: brokerConfig.broker,
+        apiKey: brokerConfig.apiKey ?? brokerConfig.token ?? "",
+        apiSecret: brokerConfig.apiSecret ?? "",
+        accountNo: brokerConfig.accountNo ?? "",
+      });
+    }
+  }, [brokerConfig]);
+
+  const testAndSaveApi = async () => {
+    setApiTesting(true);
+    setApiError(null);
+    setApiSuccess(false);
+    try {
+      const { apiKey, apiSecret } = apiForm;
+      if (!apiKey.trim()) { setApiError("Vui lòng nhập API Key"); return; }
+      if (apiForm.broker === "dnse") {
+        let accountNo = apiForm.accountNo.trim();
+        if (!accountNo) {
+          const accounts = await discoverAccounts(apiKey.trim(), apiSecret.trim());
+          if (!accounts.length) { setApiError("Không tìm thấy tài khoản nào"); return; }
+          accountNo = accounts[0].accountNo;
+        }
+        saveBrokerConfig({ broker: "dnse", token: apiKey.trim(), apiKey: apiKey.trim(), apiSecret: apiSecret.trim(), accountNo, connectedAt: new Date().toISOString() });
+        setApiForm(prev => ({ ...prev, accountNo }));
+      }
+      setApiSuccess(true);
+      setTimeout(() => setApiSuccess(false), 3000);
+    } catch (err: any) {
+      setApiError(err?.message ?? "Lỗi kết nối API");
+    } finally {
+      setApiTesting(false);
+    }
+  };
+
   // ── Real user data ─────────────────────────────────────────────────────────
   const [loadingProfile, setLoadingProfile]   = useState(true);
   const [savingProfile,  setSavingProfile]    = useState(false);
@@ -54,7 +102,7 @@ export function Settings() {
     agentAlert:   true,
   });
 
-  // ── Bản tin buổi sáng — watch symbols ─────────────────────────────────────
+  // ── Bản tin hàng ngày — watch symbols ─────────────────────────────────────
   const [watchSymbols,  setWatchSymbols]  = useState<string[]>([]);
   const [symbolInput,   setSymbolInput]   = useState("");
   const [digestLoading, setDigestLoading] = useState(false);
@@ -332,10 +380,10 @@ export function Settings() {
                 </div>
               ))}
 
-              {/* ── Bản tin buổi sáng ─────────────────────────────────────── */}
+              {/* ── Bản tin hàng ngày ─────────────────────────────────────── */}
               <div style={{ paddingTop: 20, marginTop: 4 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: headingColor }}>Bản tin buổi sáng</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: headingColor }}>Bản tin hàng ngày</div>
                   {digestLoading && <RefreshCw size={13} style={{ color: theme.brand, animation: "spin 1s linear infinite" }} />}
                 </div>
                 <div style={{ fontSize: 13, color: subtleColor, marginBottom: 14 }}>
@@ -469,6 +517,153 @@ export function Settings() {
                   <ChevronRight size={18} color={theme.fgDisabled} strokeWidth={1.5} />
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ── API Connection ───────────────────────────────────────────────── */}
+          {section === "api" && (
+            <div style={{ background: cardBg, borderRadius: 14, padding: 24, boxShadow: cardShadow }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                <div>
+                  <h2 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 700, color: headingColor }}>Kết nối API Môi giới</h2>
+                  <p style={{ margin: 0, fontSize: 13, color: subtleColor }}>Liên kết tài khoản môi giới để xem danh mục thực tế</p>
+                </div>
+                {brokerConfig && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: "#34C759", background: "rgba(52,199,89,0.10)", padding: "5px 12px", borderRadius: 99 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#34C759", display: "inline-block" }} />
+                    Đã kết nối
+                  </span>
+                )}
+              </div>
+
+              {/* Broker selector */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: subtleColor, marginBottom: 8 }}>Môi giới</label>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {(["dnse", "ssi", "vps", "vcsc", "vnd"] as BrokerConfig["broker"][]).map(b => (
+                    <button
+                      key={b}
+                      onClick={() => setApiForm(prev => ({ ...prev, broker: b }))}
+                      disabled={b !== "dnse"}
+                      style={{
+                        padding: "8px 16px", borderRadius: 10, cursor: b === "dnse" ? "pointer" : "not-allowed",
+                        border: apiForm.broker === b ? "1.5px solid " + theme.brand : "0.5px solid " + inputBorder,
+                        background: apiForm.broker === b ? (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.06)") : cardBg,
+                        color: apiForm.broker === b ? theme.brand : b !== "dnse" ? subtleColor : labelColor,
+                        fontSize: 13, fontWeight: 600, fontFamily: FONT, opacity: b !== "dnse" ? 0.45 : 1,
+                      }}
+                    >
+                      {b.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: subtleColor, fontStyle: "italic" }}>Hiện tại hỗ trợ DNSE OpenAPI. Các môi giới khác sẽ ra mắt sớm.</p>
+              </div>
+
+              {/* API Key */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: subtleColor, marginBottom: 6 }}>API Key (X-API-Key)</label>
+                <input
+                  value={apiForm.apiKey}
+                  onChange={e => setApiForm(prev => ({ ...prev, apiKey: e.target.value }))}
+                  placeholder="Nhập API Key từ DNSE"
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "0.5px solid " + inputBorder, background: inputBg, fontSize: 14, color: headingColor, outline: "none", boxSizing: "border-box", fontFamily: FONT }}
+                />
+              </div>
+
+              {/* API Secret */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: subtleColor, marginBottom: 6 }}>API Secret (HMAC key)</label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type={showSecret ? "text" : "password"}
+                    value={apiForm.apiSecret}
+                    onChange={e => setApiForm(prev => ({ ...prev, apiSecret: e.target.value }))}
+                    placeholder="Nhập API Secret"
+                    style={{ width: "100%", padding: "10px 40px 10px 14px", borderRadius: 10, border: "0.5px solid " + inputBorder, background: inputBg, fontSize: 14, color: headingColor, outline: "none", boxSizing: "border-box", fontFamily: FONT }}
+                  />
+                  <button
+                    onClick={() => setShowSecret(v => !v)}
+                    style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", display: "flex", color: subtleColor, padding: 4 }}
+                  >
+                    {showSecret ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Account No */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: subtleColor, marginBottom: 6 }}>
+                  Số tài khoản <span style={{ fontWeight: 400, color: theme.fgDisabled }}>(tự động phát hiện nếu để trống)</span>
+                </label>
+                <input
+                  value={apiForm.accountNo}
+                  onChange={e => setApiForm(prev => ({ ...prev, accountNo: e.target.value }))}
+                  placeholder="VD: 0001179019"
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "0.5px solid " + inputBorder, background: inputBg, fontSize: 14, color: headingColor, outline: "none", boxSizing: "border-box", fontFamily: FONT }}
+                />
+              </div>
+
+              {apiError && (
+                <p style={{ margin: "0 0 14px", fontSize: 12, color: "#FF3B30", padding: "8px 12px", background: "rgba(255,59,48,0.06)", borderRadius: 8 }}>
+                  ⚠ {apiError}
+                </p>
+              )}
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={testAndSaveApi}
+                  disabled={apiTesting}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6, padding: "10px 20px",
+                    borderRadius: 10, border: "none", cursor: apiTesting ? "not-allowed" : "pointer",
+                    background: apiSuccess ? "#34C759" : theme.brand, color: "#fff",
+                    fontSize: 14, fontWeight: 600, fontFamily: FONT, transition: "background 200ms",
+                    opacity: apiTesting ? 0.7 : 1,
+                  }}
+                >
+                  {apiTesting
+                    ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Đang kiểm tra…</>
+                    : apiSuccess
+                    ? <><Check size={14} /> Đã kết nối</>
+                    : <><Link2 size={14} /> Kết nối & Lưu</>
+                  }
+                </button>
+
+                {brokerConfig && (
+                  <button
+                    onClick={() => { clearBrokerConfig(); setApiForm({ broker: "dnse", apiKey: "", apiSecret: "", accountNo: "" }); setApiError(null); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6, padding: "10px 16px",
+                      borderRadius: 10, border: "0.5px solid rgba(255,59,48,0.30)", cursor: "pointer",
+                      background: "rgba(255,59,48,0.06)", color: "#FF3B30",
+                      fontSize: 13, fontWeight: 600, fontFamily: FONT,
+                    }}
+                  >
+                    <Unlink size={14} /> Ngắt kết nối
+                  </button>
+                )}
+              </div>
+
+              {brokerConfig && (
+                <div style={{ marginTop: 20, padding: 14, background: isDark ? "rgba(52,199,89,0.06)" : "rgba(52,199,89,0.05)", borderRadius: 10, border: "0.5px solid rgba(52,199,89,0.20)" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#34C759", marginBottom: 6 }}>Thông tin kết nối</div>
+                  <div style={{ fontSize: 13, color: labelColor }}>Môi giới: <strong>{brokerConfig.broker.toUpperCase()}</strong></div>
+                  {brokerConfig.accountNo && <div style={{ fontSize: 13, color: labelColor, marginTop: 3 }}>Tài khoản: <strong>{brokerConfig.accountNo}</strong></div>}
+                  {brokerConfig.connectedAt && <div style={{ fontSize: 12, color: subtleColor, marginTop: 3 }}>Kết nối lúc: {new Date(brokerConfig.connectedAt).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}</div>}
+                </div>
+              )}
+
+              <div style={{ marginTop: 20, padding: 14, background: isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.04)", borderRadius: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: headingColor, marginBottom: 6 }}>Hướng dẫn lấy API Key DNSE</div>
+                <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: labelColor, lineHeight: 1.8 }}>
+                  <li>Đăng nhập vào <strong>app.dnse.com.vn</strong></li>
+                  <li>Vào <strong>Cài đặt → Bảo mật → OpenAPI</strong></li>
+                  <li>Tạo API Key mới, sao chép cả Key và Secret</li>
+                  <li>Dán vào form bên trên và nhấn <strong>Kết nối & Lưu</strong></li>
+                </ol>
+                <p style={{ margin: "8px 0 0", fontSize: 12, color: subtleColor, fontStyle: "italic" }}>Credentials được lưu cục bộ trên trình duyệt, không gửi lên server.</p>
+              </div>
             </div>
           )}
 

@@ -1,13 +1,18 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   ChevronLeft, Bot, Save, Play, Sparkles, ChevronDown, ChevronUp,
   Check, X, Plus, FileText, Wrench, BookOpen, TrendingUp,
-  Zap, Clock, RefreshCw, CheckCircle2, AlertTriangle, Eye,
+  Zap, Clock, CheckCircle2, AlertTriangle, Eye,
   Lightbulb, Mail, Inbox, Info, Settings,
 } from "lucide-react";
+import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
+import { MdContent } from "../../components/MdContent";
+import { supabase } from "../../lib/supabase/client";
+import { projectId } from "../../utils/supabase/info";
 
 interface StudioProps {
   onBack: () => void;
+  agentId?: string;
   isDark?: boolean;
 }
 
@@ -43,88 +48,23 @@ const TOOLS = [
   { id: "macd", name: "MACD", icon: TrendingUp },
 ];
 
-// ── Default prompt ──────────────────────────────────────────────────────────
-const DEFAULT_PROMPT = `## VAI TRÒ
-Bạn là **Wealbee Daily Digest Agent** — AI phân tích thị trường chứng khoán Việt Nam, cung cấp tóm tắt hàng ngày ngắn gọn, chính xác và dễ hiểu.
+// ── Default prompt — đồng bộ với DEFAULT_USER_PROMPT trong generate-brief.ts ──
+const DEFAULT_PROMPT = `Tôi muốn xem bản tin hàng ngày về danh mục của tôi theo thứ tự sau:
 
-## NHIỆM VỤ CHÍNH
-1. Thu thập giá cổ phiếu và chỉ số VN-Index, HNX-Index vào đầu phiên
-2. Xác định top 3 mã tăng/giảm mạnh nhất trong danh mục người dùng
-3. Lấy tin tức quan trọng ảnh hưởng đến danh mục từ CafeF và Vietstock
-4. Kiểm tra giao dịch nội bộ mới nhất của các mã trong danh mục
-5. Tổng hợp thành brief ngắn gọn với điểm cần theo dõi
+1. Đầu tiên cho tôi biết danh mục hôm nay: mã nào có tin tức, mã nào không có tin gì cả.
 
-## PHONG CÁCH GIAO TIẾP
-- Ngắn gọn, súc tích — không quá 300 từ mỗi brief
-- Dùng số liệu cụ thể thay vì nhận xét chung chung
-- Phân loại rõ: Tích cực / Cần theo dõi / Cảnh báo
+2. Nếu có bài báo ảnh hưởng đến từ 2 mã trở lên trong danh mục của tôi, hãy gom lại thành nhóm riêng. Đặt tiêu đề nhóm là "Tin ảnh hưởng nhiều cổ phiếu", rồi mỗi bài một card tin tức. Trong card đó nhớ hiển thị các mã cổ phiếu liên quan.
 
-## RÀNG BUỘC & TUÂN THỦ
-- Luôn kết thúc bằng disclaimer: "Thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019"
-- Không đưa ra khuyến nghị mua/bán cụ thể
-- Chỉ sử dụng dữ liệu từ nguồn được kết nối`;
+3. Sau đó, với từng mã có tin, tạo một tiêu đề là tên mã (ví dụ "VHM"), rồi liệt kê các tin của mã đó, mỗi tin một card. Những tin đã hiển thị ở nhóm trên thì không cần hiển thị lại.
 
-const OPTIMIZED_PROMPT = `## VAI TRÒ & CHUYÊN MÔN
-Bạn là **Wealbee Daily Digest Agent** — chuyên gia phân tích thị trường chứng khoán Việt Nam (HOSE/HNX/UPCoM). Nhiệm vụ: cung cấp brief hàng ngày chính xác, súc tích và có thể hành động được cho nhà đầu tư cá nhân.
-
-## NGỮ CẢNH ĐẦU VÀO
-Mỗi phiên giao dịch, bạn nhận được:
-- Dữ liệu giá và chỉ số realtime
-- Danh mục hiện tại của người dùng
-- Tin tức từ CafeF, Vietstock, HOSE Filing
-- Dữ liệu giao dịch nội bộ 24h gần nhất
-
-## NHIỆM VỤ THEO THỨ TỰ ƯU TIÊN
-1. **Tổng quan thị trường** (VN-Index, HNX, khối ngoại) — 2 câu
-2. **Điểm nổi bật danh mục** — liệt kê mã có biến động >2% hoặc có tin
-3. **Cảnh báo cần xử lý** — mã kích hoạt stop-loss hoặc có insider bán
-4. **Cơ hội ngắn hạn** — nếu có tín hiệu kỹ thuật + catalyst rõ ràng
-5. **Disclaimer bắt buộc** — một câu cuối
-
-## ĐỊNH DẠNG ĐẦU RA
-\`\`\`
-WEALBEE BRIEF · [Ngày]
-
-Thị trường: [1-2 câu]
-Danh mục: [bullet points theo mã]
-Cần chú ý: [nếu có]
-Tín hiệu: [nếu có]
-
-Thông tin phân tích · không phải tư vấn đầu tư
-\`\`\`
-
-## RÀNG BUỘC BẮT BUỘC
-- Tối đa 280 từ mỗi brief
-- Không dùng từ "nên mua", "nên bán", "khuyến nghị"
-- Luôn trích dẫn nguồn số liệu (CafeF, HOSE, FiinPro)
-- Nếu không có dữ liệu → ghi rõ "Không có dữ liệu" thay vì suy đoán`;
+4. Cuối cùng thêm dòng disclaimer pháp lý theo quy định.`;
 
 // ── Watchlist suggestions ───────────────────────────────────────────────────
 const POPULAR_STOCKS = ["VCB", "HPG", "FPT", "VIC", "TCB", "ACB", "MWG", "VNM", "MSN", "STB"];
 
-// ── Dry run mock output ─────────────────────────────────────────────────────
-const DRY_RUN_OUTPUT = `WEALBEE BRIEF · 15/05/2026 · 09:30
-
-**Thị trường:** VN-Index +0.42% (1,287.34đ) · Khối ngoại mua ròng +124 tỷ, tập trung HPG và VCB.
-
-**Danh mục của bạn:**
-• (+) HPG +4.10% — Giá thép HRC phục hồi · *lưu ý: insider đăng ký bán 500K cp*
-• (+) FPT +1.45% — ĐHCĐ chiều nay 14:00, dự kiến cổ tức 20%
-• (+) VCB +0.80% — Ổn định, khối ngoại mua ròng
-• (!) MWG -3.20% — Dưới ngưỡng cảnh báo (-8.7% YTD)
-• (~) VNM -0.43% — Giảm nhẹ, trong biên bình thường
-
-**Cần xử lý:**
-→ MWG đang test ngưỡng hỗ trợ 59,500. Nếu phá vỡ, cân nhắc điều chỉnh tỷ trọng.
-→ HPG: insider bán là tín hiệu theo dõi, chưa phải tín hiệu thoát.
-
-**Tín hiệu:** RSI HPG = 68 (tiệm cận vùng quá mua). MACD FPT vừa cắt lên — xu hướng tăng ngắn hạn còn tiếp diễn.
-
-*Nguồn: HOSE · CafeF · FiinPro · 09:28 ICT*
-Thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019, NĐ 155/2020/NĐ-CP`;
 
 // ══════════════════════════════════════════════════════════════════════════════
-export function AgentStudio({ onBack, isDark = false }: StudioProps) {
+export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
   const fgMuted = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.55)";
   const fgSubtle = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
@@ -137,7 +77,8 @@ export function AgentStudio({ onBack, isDark = false }: StudioProps) {
   const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.10)";
   const dividerFaint = isDark ? "rgba(255,255,255,0.05)" : "rgba(8,73,172,0.08)";
   const inputBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(8,73,172,0.18)";
-  const [agentName, setAgentName] = useState("Daily Market Digest");
+  const [agentName, setAgentName] = useState("Bản tin hàng ngày");
+  const [templateId, setTemplateId] = useState("daily_digest");
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [selectedModel, setSelectedModel] = useState("claude-sonnet");
   const [selectedKB, setSelectedKB] = useState<Set<string>>(new Set(["kb1", "kb2"]));
@@ -146,16 +87,16 @@ export function AgentStudio({ onBack, isDark = false }: StudioProps) {
   const [watchlist, setWatchlist] = useState<string[]>(["VCB", "HPG", "FPT", "MWG", "VNM"]);
   const [stockInput, setStockInput] = useState("");
 
-  // AI optimize
-  const [isOptimizing, setIsOptimizing] = useState(false);
-  const [showOptimized, setShowOptimized] = useState(false);
 
   // Collapsible sections (middle)
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(["model", "tools", "watchlist"]));
 
   // Test run
   const [isRunning, setIsRunning] = useState(false);
-  const [runResult, setRunResult] = useState<string | null>(null);
+  const [runResult, setRunResult] = useState<BriefOutput | null>(null);
+  const [runResultText, setRunResultText] = useState<string | null>(null);
+  const [runResultRefs, setRunResultRefs] = useState<Array<{ index: number; label: string; url: string }>>([]);
+  const [runError, setRunError] = useState<string | null>(null);
   const [runTime, setRunTime] = useState<number>(0);
   const [runTokens, setRunTokens] = useState<number>(0);
 
@@ -199,26 +140,95 @@ export function AgentStudio({ onBack, isDark = false }: StudioProps) {
     setStockInput("");
   };
 
-  const handleOptimize = () => {
-    setIsOptimizing(true);
-    setTimeout(() => { setIsOptimizing(false); setShowOptimized(true); }, 1600);
-  };
-
-  const handleRunTest = () => {
+  const handleRunTest = async () => {
     setIsRunning(true);
     setRunResult(null);
+    setRunResultText(null);
+    setRunResultRefs([]);
+    setRunError(null);
     const start = Date.now();
-    setTimeout(() => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const jwt = session?.access_token ?? "";
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/agent-dry-run`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${jwt}`,
+          },
+          body: JSON.stringify({
+            templateId,
+            systemPrompt: prompt,
+            watchSymbols: watchlist.length ? watchlist : undefined,
+          }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+      if (templateId === "daily_digest") {
+        setRunResult(json.brief as BriefOutput);
+      } else {
+        setRunResultText(json.output as string);
+        if (json.refs) setRunResultRefs(json.refs);
+      }
+      setRunTokens(json.tokensUsed ?? 0);
+    } catch (err: unknown) {
+      setRunError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRunTime(Math.round((Date.now() - start) / 100) / 10);
       setIsRunning(false);
-      setRunResult(DRY_RUN_OUTPUT);
-      setRunTime(Math.round((Date.now() - start) / 10) / 100);
-      setRunTokens(1842);
-    }, 2200);
+    }
   };
 
-  const handleSave = () => {
+  // Load agent data on mount if editing existing agent
+  useEffect(() => {
+    if (!agentId) return;
+    supabase.from("agents").select("*").eq("id", agentId).single().then(({ data }) => {
+      if (!data) return;
+      if (data.name) setAgentName(data.name === "Bản tin buổi sáng" ? "Bản tin hàng ngày" : data.name);
+      if (data.template_id) setTemplateId(data.template_id);
+      // For deep_research agents, always load the system_prompt as-is
+      const isDeepResearch = data.template_id === "deep_research";
+      // Reset old daily_digest template-style system prompt
+      const isOldSystemPrompt = !isDeepResearch && (data.system_prompt?.startsWith("Bạn là chuyên gia") || data.system_prompt?.startsWith("Bạn là AI"));
+      if (data.system_prompt && !isOldSystemPrompt) setPrompt(data.system_prompt);
+      if (data.model) setSelectedModel(data.model);
+      if (data.tools?.length) setSelectedTools(new Set(data.tools));
+      if (data.target_symbols?.length) setWatchlist(data.target_symbols);
+      if (data.email_notify != null) setNotifyEmail(data.email_notify);
+      if (data.schedule && data.schedule !== "manual") {
+        const parts = data.schedule.split(":");
+        if (parts[0] === "realtime") { setRunMode("realtime"); }
+        else if (parts.length >= 2) { setRunMode("scheduled"); setScheduleTime(parts.slice(1).join(":")); }
+      }
+    });
+  }, [agentId]);
+
+  const handleSave = async () => {
     setIsSaved(true);
-    setTimeout(() => onBack(), 1600);
+    const schedule = runMode === "realtime" ? "realtime" : `daily:${scheduleTime}`;
+    const payload = {
+      name: agentName,
+      system_prompt: prompt,
+      model: selectedModel,
+      tools: [...selectedTools],
+      target_symbols: watchlist,
+      email_notify: notifyEmail,
+      schedule,
+      status: "active",
+      updated_at: new Date().toISOString(),
+    };
+    try {
+      if (agentId) {
+        await supabase.from("agents").update(payload).eq("id", agentId);
+      } else {
+        const { data: { user } } = await supabase.auth.getUser();
+        await supabase.from("agents").insert({ ...payload, user_id: user!.id, template_id: "daily_digest" });
+      }
+    } catch { /* ignore — UI already shows saved */ }
+    setTimeout(() => onBack(), 1200);
   };
 
   return (
@@ -250,8 +260,8 @@ export function AgentStudio({ onBack, isDark = false }: StudioProps) {
         </button>
         <button
           onClick={handleSave}
-          disabled={!runResult || isSaved}
-          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: runResult && !isSaved ? brand : isDark ? "rgba(77,143,232,0.20)" : "rgba(8,73,172,0.20)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: runResult && !isSaved ? "pointer" : "not-allowed", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+          disabled={isSaved}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: !isSaved ? brand : isDark ? "rgba(77,143,232,0.20)" : "rgba(8,73,172,0.20)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: !isSaved ? "pointer" : "not-allowed", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
           {isSaved ? <><CheckCircle2 size={13} strokeWidth={2} /> Đã lưu!</> : <><Save size={13} strokeWidth={1.5} /> Lưu Agent</>}
         </button>
       </div>
@@ -263,46 +273,10 @@ export function AgentStudio({ onBack, isDark = false }: StudioProps) {
             LEFT — Prompt Editor
         ════════════════════════════════════════ */}
         <div style={{ width: 320, flexShrink: 0, borderRight: "0.5px solid " + divider, background: bgPanel, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ padding: "12px 16px 10px", borderBottom: "0.5px solid " + divider, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: fg, letterSpacing: "0.04em" }}>PERSONA & PROMPT</div>
-              <div style={{ fontSize: 11, color: fgDisabled, marginTop: 1 }}>{prompt.length} ký tự</div>
-            </div>
-            <button
-              onClick={handleOptimize}
-              disabled={isOptimizing}
-              style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 7, border: "none", background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)", color: brand, fontSize: 11, fontWeight: 700, cursor: isOptimizing ? "not-allowed" : "pointer", fontFamily: "'Montserrat', system-ui, sans-serif" }}
-            >
-              {isOptimizing
-                ? <><RefreshCw size={11} strokeWidth={2} style={{ animation: "spin 1s linear infinite" }} /> Đang tối ưu...</>
-                : <><Sparkles size={11} strokeWidth={1.5} /> Tối ưu với AI</>
-              }
-            </button>
+          <div style={{ padding: "12px 16px 10px", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: fg, letterSpacing: "0.04em" }}>USER PROMPT</div>
+            <div style={{ fontSize: 11, color: fgDisabled, marginTop: 1 }}>{prompt.length} ký tự · gửi thẳng vào agent-dry-run khi chạy thử</div>
           </div>
-
-          {/* AI optimized suggestion banner */}
-          {showOptimized && (
-            <div style={{ padding: "10px 14px", background: isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <Sparkles size={12} color={brand} strokeWidth={1.5} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>AI đã cải thiện prompt theo chuẩn prompt engineering tài chính</span>
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button
-                  onClick={() => { setPrompt(OPTIMIZED_PROMPT); setShowOptimized(false); }}
-                  style={{ flex: 1, padding: "6px 0", borderRadius: 7, border: "none", background: brand, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "'Montserrat', system-ui, sans-serif" }}
-                >
-                  Áp dụng
-                </button>
-                <button
-                  onClick={() => setShowOptimized(false)}
-                  style={{ padding: "6px 10px", borderRadius: 7, border: "0.5px solid " + divider, background: "transparent", color: fgMuted, fontSize: 11, cursor: "pointer", fontFamily: "'Montserrat', system-ui, sans-serif" }}
-                >
-                  Bỏ qua
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Prompt textarea */}
           <textarea
@@ -764,7 +738,7 @@ export function AgentStudio({ onBack, isDark = false }: StudioProps) {
         <div style={{ width: 340, flexShrink: 0, borderLeft: "0.5px solid " + divider, background: bgPanel, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ padding: "12px 16px 10px", borderBottom: "0.5px solid " + divider, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: fg, letterSpacing: "0.04em" }}>PREVIEW & DEBUG</div>
-            {runResult && (
+            {(runResult || runResultText) && (
               <div style={{ display: "flex", gap: 8 }}>
                 <span style={{ fontSize: 10, color: fgDisabled }}>{runTime}s</span>
                 <span style={{ fontSize: 10, color: fgDisabled }}>{runTokens.toLocaleString()} tokens</span>
@@ -773,7 +747,7 @@ export function AgentStudio({ onBack, isDark = false }: StudioProps) {
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
-            {!isRunning && !runResult && (
+            {!isRunning && !runResult && !runResultText && (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", gap: 12, padding: 24 }}>
                 <div style={{ width: 56, height: 56, borderRadius: 16, background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.06)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <Play size={26} color={isDark ? "rgba(77,143,232,0.50)" : "rgba(8,73,172,0.35)"} strokeWidth={1.5} />
@@ -816,27 +790,34 @@ export function AgentStudio({ onBack, isDark = false }: StudioProps) {
               </div>
             )}
 
-            {runResult && !isRunning && (
+            {runError && !isRunning && (
+              <div style={{ padding: "12px 14px", borderRadius: 9, background: "rgba(255,59,48,0.07)", border: "0.5px solid rgba(255,59,48,0.25)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <AlertTriangle size={13} color="#FF3B30" strokeWidth={2} />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#c0392b" }}>Lỗi khi chạy thử</span>
+                </div>
+                <span style={{ fontSize: 11, color: fgMuted }}>{runError}</span>
+              </div>
+            )}
+
+            {(runResult || runResultText) && !isRunning && (
               <>
                 {/* Success badge */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8, background: "rgba(52,199,89,0.08)", border: "0.5px solid rgba(52,199,89,0.20)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8, background: "rgba(52,199,89,0.08)", border: "0.5px solid rgba(52,199,89,0.20)", flexShrink: 0 }}>
                   <CheckCircle2 size={14} color="#34C759" strokeWidth={2} />
                   <span style={{ fontSize: 12, fontWeight: 700, color: "#1a7a3a" }}>Chạy thử thành công</span>
                   <span style={{ marginLeft: "auto", fontSize: 11, color: fgDisabled }}>{runTime}s · {runTokens.toLocaleString()} tok</span>
                 </div>
 
                 {/* Output */}
-                <div style={{ background: bgMuted, borderRadius: 12, padding: 14, flex: 1 }}>
+                <div style={{ background: bgMuted, borderRadius: 12, padding: 14 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>OUTPUT MẪU</div>
-                  <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.75, color: fg, whiteSpace: "pre-wrap", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                    {runResult.split("**").map((part, i) =>
-                      i % 2 === 1 ? <strong key={i}>{part}</strong> : part
-                    )}
-                  </pre>
+                  {runResult && <BriefRenderer brief={runResult} isDark={isDark} />}
+                  {runResultText && <MdContent text={runResultText} refs={runResultRefs} />}
                 </div>
 
                 {/* Stats */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, flexShrink: 0 }}>
                   {[
                     { label: "Thời gian", value: `${runTime}s` },
                     { label: "Tokens", value: runTokens.toLocaleString() },
@@ -850,29 +831,28 @@ export function AgentStudio({ onBack, isDark = false }: StudioProps) {
                 </div>
               </>
             )}
+
           </div>
 
           {/* Save button */}
           <div style={{ padding: "12px 14px", borderTop: "0.5px solid " + divider, flexShrink: 0 }}>
             <button
               onClick={handleSave}
-              disabled={!runResult || isSaved}
+              disabled={isSaved}
               style={{
                 width: "100%", padding: "12px 0", borderRadius: 12, border: "none",
-                background: isSaved ? "#34C759" : runResult ? brand : isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.15)",
-                color: "#fff", fontSize: 14, fontWeight: 700, cursor: runResult && !isSaved ? "pointer" : "not-allowed",
+                background: isSaved ? "#34C759" : brand,
+                color: "#fff", fontSize: 14, fontWeight: 700, cursor: !isSaved ? "pointer" : "not-allowed",
                 fontFamily: "'Montserrat', system-ui, sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 transition: "background 200ms ease",
               }}
             >
               {isSaved
                 ? <><CheckCircle2 size={16} strokeWidth={2} /> Agent đã lưu!</>
-                : runResult
-                ? <><Save size={15} strokeWidth={1.5} /> Lưu Agent tối ưu</>
-                : <><AlertTriangle size={14} strokeWidth={1.5} /> Chạy thử trước khi lưu</>
+                : <><Save size={15} strokeWidth={1.5} /> Lưu Agent</>
               }
             </button>
-            {runResult && !isSaved && (
+            {!isSaved && (
               <p style={{ margin: "6px 0 0", fontSize: 10, color: fgDisabled, textAlign: "center", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                 Agent sẽ bắt đầu chạy theo lịch sau khi lưu
               </p>

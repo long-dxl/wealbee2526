@@ -47,7 +47,7 @@ function NewLayoutInner() {
   const { theme, isDark } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [actionHubOpen, setActionHubOpen] = useState(true);
   const [hubWidth, setHubWidth] = useState(380);
   const [hubContextCards, setHubContextCards] = useState<ContextCard[]>([]);

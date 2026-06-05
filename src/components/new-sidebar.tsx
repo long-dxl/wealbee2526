@@ -30,7 +30,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: "dashboard", icon: House,      label: "Tổng quan" },
   { id: "feed",      icon: TrendingUp, label: "Thị trường" },
-  { id: "tickers",   icon: List,       label: "Cổ phiếu" },
+  // { id: "tickers",   icon: List,       label: "Cổ phiếu" },
   { id: "inbox",     icon: Inbox,      label: "Hộp thư" },
   { id: "agents",    icon: Bot,        label: "Agent của tôi" },
   { id: "portfolio", icon: Wallet,     label: "Danh mục" },

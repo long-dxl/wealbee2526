@@ -1,7 +1,12 @@
 import { useState, useEffect } from "react";
-import { Sparkles, Clock, AlertTriangle, ChevronRight, X, BookOpen, RefreshCw, GripVertical, ExternalLink } from "lucide-react";
+import {
+  Sparkles, Clock, ChevronRight, BookOpen,
+  RefreshCw, GripVertical, ArrowLeft, Download, Mail, Check,
+} from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
+import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
+import { MdContent } from "../../components/MdContent";
 
 function makeDragHandlers(card: ContextCard) {
   return {
@@ -15,198 +20,195 @@ function makeDragHandlers(card: ContextCard) {
   };
 }
 
-interface BriefSource {
-  type: "news" | "financial" | "insider" | "dividend" | "exchange";
-  title: string;
-  url: string | null;
-  date?: string;
-  source?: string;
-}
-interface RefEntry { index: number; label: string; url: string; }
-
 interface Brief {
   id: string;
-  type: "brief" | "alert";
   agentName: string;
   title: string;
   summary: string;
-  body: string;
+  rawContent: string;
+  parsedBrief: BriefOutput | null;
+  refs: Array<{ index: number; label: string; url: string }>;
   time: string;
+  date: string;
   symbol?: string;
   read: boolean;
-  severity?: "info" | "warn" | "critical";
-  refs?: RefEntry[];
-  sources?: BriefSource[];
 }
 
-
-// ── Simple markdown renderer ─────────────────────────────────────────────────
-
-function renderInline(text: string, refs?: RefEntry[]): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[ref:\d+\]|\[[^\]]+\]\([^)]+\))/g);
-  return parts.map((part, i) => {
-    if (part.startsWith("**") && part.endsWith("**"))
-      return <strong key={i} style={{ fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
-
-    if (part.startsWith("`") && part.endsWith("`"))
-      return <code key={i} style={{ fontFamily: "monospace", fontSize: "0.85em", background: "rgba(8,73,172,0.07)", padding: "1px 5px", borderRadius: 4, color: "#0849ac" }}>{part.slice(1, -1)}</code>;
-
-    const refMatch = part.match(/^\[ref:(\d+)\]$/);
-    if (refMatch) {
-      const entry = refs?.find(r => r.index === parseInt(refMatch[1]));
-      if (entry) return (
-        <a key={i} href={entry.url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "1px 7px", borderRadius: 4, marginLeft: 3, fontSize: "0.72em", fontWeight: 600, color: "#0849ac", background: "rgba(8,73,172,0.08)", border: "1px solid rgba(8,73,172,0.15)", textDecoration: "none", verticalAlign: "middle", lineHeight: 1.7, whiteSpace: "nowrap" }}>
-          {entry.label}<ExternalLink style={{ width: 8, height: 8 }} />
-        </a>
-      );
-      return null;
-    }
-
-    const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-    if (linkMatch) return (
-      <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "1px 7px", borderRadius: 4, marginLeft: 3, fontSize: "0.72em", fontWeight: 600, color: "#0849ac", background: "rgba(8,73,172,0.08)", border: "1px solid rgba(8,73,172,0.15)", textDecoration: "none", verticalAlign: "middle", lineHeight: 1.7, whiteSpace: "nowrap" }}>
-        {linkMatch[1]}<ExternalLink style={{ width: 8, height: 8 }} />
-      </a>
-    );
-
-    return part;
-  });
+function parseBriefContent(content: string): BriefOutput | null {
+  try {
+    const parsed = JSON.parse(content);
+    const candidate = (parsed.sections || parsed.time) ? parsed
+      : Object.values(parsed).find((v) =>
+          v !== null && typeof v === "object" && ("sections" in (v as object) || "time" in (v as object))
+        ) ?? null;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+    const brief = candidate as BriefOutput;
+    if (!Array.isArray(brief.sections)) return null;
+    return brief;
+  } catch {
+    return null;
+  }
 }
 
-function MarkdownBody({ body, fg, fgMuted, fgSubtle, divider, isDark, refs }: {
-  body: string; fg: string; fgMuted: string; fgSubtle: string; divider: string; isDark: boolean; refs?: RefEntry[];
-}) {
-  const lines = body.split("\n");
-  const elements: React.ReactNode[] = [];
+// ── HTML export ──────────────────────────────────────────────────────────────
+
+function inlineHtml(text: string, refs?: Array<{ index: number; label: string; url: string }>): string {
+  return text
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\*\*([^*]+)\*\*/g, '<strong style="font-weight:700;color:#1a1a2e;">$1</strong>')
+    .replace(/`([^`]+)`/g, '<code style="font-family:monospace;font-size:0.85em;background:rgba(8,73,172,0.07);padding:1px 5px;border-radius:4px;color:#0849ac;">$1</code>')
+    .replace(/\[ref:(\d+)\]/g, (_m, n) => {
+      const entry = refs?.find(r => r.index === parseInt(n));
+      if (!entry) return "";
+      return `<a href="${entry.url}" target="_blank" style="display:inline;padding:1px 7px;border-radius:4px;margin-left:3px;font-size:0.7em;font-weight:700;color:#0849ac;background:rgba(8,73,172,0.08);border:1px solid rgba(8,73,172,0.2);text-decoration:none;white-space:nowrap;">${entry.label} ↗</a>`;
+    })
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="display:inline;padding:1px 7px;border-radius:4px;margin-left:3px;font-size:0.7em;font-weight:700;color:#0849ac;background:rgba(8,73,172,0.08);border:1px solid rgba(8,73,172,0.2);text-decoration:none;white-space:nowrap;">$1 ↗</a>');
+}
+
+function mdToHtmlBody(text: string, refs?: Array<{ index: number; label: string; url: string }>): string {
+  let stripped = text.replace(/^```[^\n]*\n?([\s\S]*?)```\s*$/m, "$1").trim();
+  const lines = stripped.split("\n");
+  const parts: string[] = [];
   let i = 0;
-  let key = 0;
-
   while (i < lines.length) {
-    const raw = lines[i];
-    const line = raw.trim();
-
-    if (line === "") { i++; continue; }
-
-    // H2
-    if (line.startsWith("## ")) {
-      elements.push(
-        <h2 key={key++} style={{ margin: "0 0 14px", fontSize: 20, fontWeight: 800, color: fg, letterSpacing: "-0.02em" }}>
-          {line.slice(3)}
-        </h2>
-      );
-      i++; continue;
-    }
-
-    // H3
-    if (line.startsWith("### ")) {
-      elements.push(
-        <h3 key={key++} style={{ margin: "18px 0 8px", fontSize: 13, fontWeight: 700, color: fgSubtle, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-          {line.slice(4)}
-        </h3>
-      );
-      i++; continue;
-    }
-
-    // HR
-    if (line === "---") {
-      elements.push(<div key={key++} style={{ height: "0.5px", background: divider, margin: "16px 0" }} />);
-      i++; continue;
-    }
-
-    // Italic paragraph (*text*)
-    if (line.startsWith("*") && line.endsWith("*") && !line.startsWith("**")) {
-      elements.push(
-        <p key={key++} style={{ margin: "10px 0 0", fontSize: 12, color: fgSubtle, fontStyle: "italic", lineHeight: 1.6 }}>
-          {line.slice(1, -1)}
-        </p>
-      );
-      i++; continue;
-    }
-
-    // Table
-    if (line.startsWith("|")) {
-      const rows: string[][] = [];
-      while (i < lines.length && lines[i].trim().startsWith("|")) {
-        const cells = lines[i].trim().split("|").filter(Boolean).map((c) => c.trim());
-        if (!cells.every((c) => /^[-:\s]+$/.test(c))) rows.push(cells);
-        i++;
+    const trim = lines[i].trim();
+    // Table block
+    if (trim.startsWith("|") && trim.endsWith("|")) {
+      const tbl: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) {
+        tbl.push(lines[i].trim()); i++;
       }
-      if (rows.length > 0) {
-        const thBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(8,73,172,0.04)";
-        elements.push(
-          <div key={key++} style={{ overflowX: "auto", margin: "12px 0" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: thBg }}>
-                  {rows[0].map((cell, j) => (
-                    <th key={j} style={{ textAlign: "left", padding: "8px 12px", borderBottom: `1px solid ${divider}`, fontWeight: 700, color: fg, whiteSpace: "nowrap" }}>
-                      {cell}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.slice(1).map((row, j) => (
-                  <tr key={j} style={{ borderBottom: `0.5px solid ${divider}` }}>
-                    {row.map((cell, k) => (
-                      <td key={k} style={{ padding: "8px 12px", color: fgMuted, verticalAlign: "middle" }}>
-                        {renderInline(cell, refs)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
+      const dataRows = tbl.filter(l => !l.replace(/[\s|:-]/g, "").match(/^-+$/));
+      if (dataRows.length) {
+        const parseRow = (row: string) => row.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+        const [header, ...body] = dataRows;
+        let tblHtml = `<div style="overflow-x:auto;margin:14px 0;border-radius:10px;border:1px solid rgba(8,73,172,0.12);">`;
+        tblHtml += `<table style="width:100%;border-collapse:collapse;font-size:13px;">`;
+        tblHtml += `<thead><tr>${parseRow(header).map(h => `<th style="padding:9px 14px;background:rgba(8,73,172,0.06);color:#0849ac;font-weight:700;text-align:left;border-bottom:2px solid rgba(8,73,172,0.12);white-space:nowrap;">${inlineHtml(h, refs)}</th>`).join("")}</tr></thead>`;
+        tblHtml += `<tbody>${body.map((row, ri) => `<tr style="background:${ri % 2 === 0 ? "#fff" : "rgba(8,73,172,0.018)"};">${parseRow(row).map(cell => `<td style="padding:8px 14px;border-bottom:1px solid rgba(8,73,172,0.06);color:#374151;">${inlineHtml(cell, refs)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+        tblHtml += `</table></div>`;
+        parts.push(tblHtml);
       }
       continue;
     }
-
-    // Unordered list
-    if (line.startsWith("- ") || line.startsWith("* ")) {
-      const items: string[] = [];
-      while (i < lines.length && (lines[i].trim().startsWith("- ") || lines[i].trim().startsWith("* "))) {
-        items.push(lines[i].trim().slice(2));
-        i++;
-      }
-      elements.push(
-        <ul key={key++} style={{ margin: "6px 0 10px", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
-          {items.map((item, j) => (
-            <li key={j} style={{ fontSize: 14, color: fgMuted, lineHeight: 1.65 }}>{renderInline(item, refs)}</li>
-          ))}
-        </ul>
-      );
-      continue;
+    if (/^---+$/.test(trim)) { parts.push(`<hr style="border:none;border-top:1px solid rgba(8,73,172,0.12);margin:16px 0;">`); i++; continue; }
+    if (!trim) { parts.push(`<div style="height:6px;"></div>`); i++; continue; }
+    if (trim.startsWith("# ") && !trim.startsWith("## ")) {
+      parts.push(`<div style="display:flex;align-items:center;gap:10px;margin:20px 0 10px;padding-bottom:8px;border-bottom:2px solid rgba(8,73,172,0.12);"><div style="width:4px;height:20px;border-radius:2px;background:#0849ac;flex-shrink:0;"></div><h2 style="margin:0;font-family:'Segoe UI',system-ui,sans-serif;font-size:17px;font-weight:800;color:#1a1a2e;">${inlineHtml(trim.slice(2), refs)}</h2></div>`);
+      i++; continue;
     }
-
-    // Ordered list
-    if (/^\d+\. /.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\d+\. /.test(lines[i].trim())) {
-        items.push(lines[i].trim().replace(/^\d+\. /, ""));
-        i++;
-      }
-      elements.push(
-        <ol key={key++} style={{ margin: "6px 0 10px", paddingLeft: 20, display: "flex", flexDirection: "column", gap: 4 }}>
-          {items.map((item, j) => (
-            <li key={j} style={{ fontSize: 14, color: fgMuted, lineHeight: 1.65 }}>{renderInline(item, refs)}</li>
-          ))}
-        </ol>
-      );
-      continue;
+    if (trim.startsWith("## ") && !trim.startsWith("### ")) {
+      parts.push(`<div style="display:flex;align-items:center;gap:8px;margin:16px 0 8px;"><div style="width:3px;height:16px;border-radius:2px;background:#0849ac;flex-shrink:0;"></div><h3 style="margin:0;font-family:'Segoe UI',system-ui,sans-serif;font-size:15px;font-weight:700;color:#0849ac;">${inlineHtml(trim.slice(3), refs)}</h3></div>`);
+      i++; continue;
     }
-
-    // Regular paragraph
-    elements.push(
-      <p key={key++} style={{ margin: "0 0 10px", fontSize: 14, color: fgMuted, lineHeight: 1.75 }}>
-        {renderInline(line, refs)}
-      </p>
-    );
+    if (trim.startsWith("### ") && !trim.startsWith("#### ")) {
+      parts.push(`<h4 style="margin:12px 0 5px;font-size:14px;font-weight:700;color:#374151;border-left:3px solid rgba(8,73,172,0.2);padding-left:8px;">${inlineHtml(trim.slice(4), refs)}</h4>`);
+      i++; continue;
+    }
+    if (trim.startsWith("> ")) {
+      parts.push(`<blockquote style="margin:8px 0;padding:8px 14px;border-left:3px solid #0849ac;background:rgba(8,73,172,0.04);border-radius:0 8px 8px 0;color:#374151;font-style:italic;">${inlineHtml(trim.slice(2), refs)}</blockquote>`);
+      i++; continue;
+    }
+    if (trim.startsWith("- ") || trim.startsWith("• ") || trim.startsWith("· ")) {
+      parts.push(`<div style="display:flex;gap:10px;margin-bottom:6px;align-items:flex-start;"><span style="color:#0849ac;flex-shrink:0;margin-top:5px;font-size:8px;font-weight:700;">●</span><span style="line-height:1.7;color:#374151;font-size:13.5px;">${inlineHtml(trim.slice(2), refs)}</span></div>`);
+      i++; continue;
+    }
+    const numMatch = trim.match(/^(\d+)\.\s(.+)/);
+    if (numMatch) {
+      parts.push(`<div style="display:flex;gap:10px;margin-bottom:6px;align-items:flex-start;"><span style="color:#0849ac;flex-shrink:0;font-weight:700;min-width:22px;font-size:13.5px;line-height:1.7;">${numMatch[1]}.</span><span style="line-height:1.7;color:#374151;font-size:13.5px;">${inlineHtml(numMatch[2], refs)}</span></div>`);
+      i++; continue;
+    }
+    if (trim.startsWith("*") && trim.endsWith("*") && !trim.startsWith("**")) {
+      parts.push(`<p style="margin:8px 0 0;font-size:12px;color:#99a1af;font-style:italic;line-height:1.6;">${inlineHtml(trim.slice(1, -1), refs)}</p>`);
+      i++; continue;
+    }
+    parts.push(`<p style="margin:0 0 8px;line-height:1.75;color:#374151;font-size:13.5px;">${inlineHtml(trim, refs)}</p>`);
     i++;
   }
+  return parts.join("\n");
+}
 
-  return <>{elements}</>;
+function briefToHtml(brief: Brief): string {
+  const LABEL_MAP: Record<string, string> = {
+    very_positive: "Rất tích cực", positive: "Tích cực",
+    negative: "Tiêu cực", very_negative: "Rất tiêu cực",
+  };
+  let body = "";
+  if (brief.parsedBrief) {
+    for (const sec of brief.parsedBrief.sections) {
+      if (sec.type === "portfolio_chips") {
+        body += `<div class="chips-row"><b>Có tin:</b> ${sec.has_news.map(s => `<span class="chip green">${s}</span>`).join("")}`;
+        if (sec.no_news.length) body += ` &nbsp;<b>Không tin:</b> ${sec.no_news.map(s => `<span class="chip gray">${s}</span>`).join("")}`;
+        body += `</div>`;
+      } else if (sec.type === "section_header") {
+        body += `<h2 class="sec-header">${sec.title}</h2>`;
+      } else if (sec.type === "text_block") {
+        body += `<p class="text-block">${sec.content}</p>`;
+      } else if (sec.type === "alert_banner") {
+        const cls = sec.level === "critical" ? "alert-red" : sec.level === "warning" ? "alert-orange" : "alert-blue";
+        body += `<div class="alert ${cls}">${sec.message}</div>`;
+      } else if (sec.type === "news_card") {
+        const label = LABEL_MAP[sec.label] ?? sec.label;
+        body += `<div class="card">
+          <div class="card-meta"><span class="badge ${sec.label}">${label}</span> <span class="src">${sec.source}</span> ${sec.affected_symbols.map(s => `<span class="sym">${s}</span>`).join("")}</div>
+          <div class="card-title">${sec.title}</div>
+          ${sec.url ? `<a href="${sec.url}" class="card-link">Đọc bài báo gốc →</a>` : ""}
+          ${sec.summary.length ? `<ul>${sec.summary.map(l => `<li>${l}</li>`).join("")}</ul>` : ""}
+          ${sec.reasoning.length ? `<div class="reasoning-hd">AI REASONING</div><ul>${sec.reasoning.map(l => `<li>${l}</li>`).join("")}</ul>` : ""}
+        </div>`;
+      } else if (sec.type === "summary_list") {
+        body += `<div class="sum-list">`;
+        if (sec.title) body += `<div class="sum-title">${sec.title}</div>`;
+        for (const item of sec.items) {
+          body += `<div class="sum-item">${item.symbol ? `<span class="sym">${item.symbol}</span>` : ""}${item.label ? `<span class="lbl">${LABEL_MAP[item.label] ?? item.label}</span>` : ""}<span>${item.headline}</span>${item.source ? `<span class="src-sm">${item.source}</span>` : ""}</div>`;
+        }
+        body += `</div>`;
+      } else if (sec.type === "comparison_table") {
+        body += `<table><thead><tr>${sec.columns.map(c => `<th>${c}</th>`).join("")}</tr></thead><tbody>${sec.rows.map(r => `<tr>${sec.columns.map(c => `<td>${r[c] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+      }
+    }
+  } else {
+    body = mdToHtmlBody(brief.rawContent, brief.refs);
+  }
+
+  return `<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8"><title>${brief.title}</title>
+<style>
+  body{font-family:'Segoe UI',system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 24px;color:#1a1a2e;line-height:1.6;background:#f5f7fb;}
+  .wrapper{background:#fff;border-radius:14px;padding:32px;box-shadow:0 2px 12px rgba(8,73,172,0.07);}
+  h1{font-size:22px;font-weight:800;margin:0 0 4px;color:#1a1a2e;}
+  .meta{color:#99a1af;font-size:13px;margin-bottom:24px;}
+  .chips-row{margin-bottom:16px}.chip{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:700;margin:2px}
+  .chip.green{background:#e6f9ed;color:#1a7a3a}.chip.gray{background:#f0f0f0;color:#888}
+  h2.sec-header{font-size:17px;font-weight:800;margin:28px 0 10px;padding-bottom:6px;border-bottom:2px solid #eef}
+  .card{border:1px solid #e5e9f5;border-radius:12px;padding:16px;margin-bottom:14px}
+  .card-meta{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+  .badge{padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700}
+  .badge.positive,.badge.very_positive{background:#e6f9ed;color:#1a7a3a}
+  .badge.negative,.badge.very_negative{background:#feeaea;color:#c0392b}
+  .card-title{font-size:15px;font-weight:700;margin-bottom:8px}
+  .card-link{font-size:13px;color:#0849ac;text-decoration:none}
+  ul{margin:8px 0;padding-left:18px}li{font-size:13px;margin-bottom:4px}
+  .reasoning-hd{font-size:10px;font-weight:700;color:#0849ac;letter-spacing:.06em;margin:10px 0 4px}
+  .src{font-size:11px;color:#888}.sym{background:#ebf3ff;color:#0849ac;font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px}
+  .sum-list{border:1px solid #e5e9f5;border-radius:10px;overflow:hidden;margin-bottom:16px}
+  .sum-title{padding:8px 14px;font-weight:700;font-size:13px;background:#f7f9ff;border-bottom:1px solid #e5e9f5}
+  .sum-item{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid #f0f0f0;font-size:13px;flex-wrap:wrap}
+  .lbl{font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px;background:#e6f9ed;color:#1a7a3a}
+  .src-sm{margin-left:auto;color:#aaa;font-size:11px}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px}
+  th{text-align:left;padding:8px 12px;background:rgba(8,73,172,0.06);color:#0849ac;border-bottom:2px solid rgba(8,73,172,0.12);font-weight:700}
+  td{padding:8px 12px;border-bottom:1px solid rgba(8,73,172,0.06)}
+  .alert{padding:12px 16px;border-radius:10px;margin-bottom:14px;font-size:14px;font-weight:600}
+  .alert-blue{background:#ebf3ff;color:#0849ac}.alert-orange{background:#fff4e6;color:#c05000}.alert-red{background:#feeaea;color:#c0392b}
+  .text-block{font-size:12px;color:#888;text-align:center;margin-top:24px}
+</style></head><body>
+<div class="wrapper">
+<h1>${brief.title}</h1>
+<div class="meta">${brief.date} · ${brief.time} · ${brief.agentName}</div>
+${body}
+</div>
+</body></html>`;
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
@@ -219,37 +221,41 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
   const brand    = isDark ? "#4D8FE8" : "#0849AC";
   const divider  = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
   const bgPage   = isDark ? "#0B0D18" : "#F5F5F7";
-  const modalBg  = isDark ? "#1a2030" : "#ffffff";
 
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [loadingBriefs, setLoadingBriefs] = useState(true);
-  const [selected, setSelected]  = useState<Brief | null>(null);
+  const [selected, setSelected] = useState<Brief | null>(null);
   const [filter, setFilter] = useState<"all" | "brief" | "alert">("all");
+  const [emailSent, setEmailSent] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
 
-  // ── Load real briefs from Supabase ────────────────────────────────────────
   const fetchBriefs = async () => {
     setLoadingBriefs(true);
     const { data, error } = await supabase
       .from("briefs")
-      .select("id, type, title, summary, content, is_read, created_at, tickers, impact_score, agent_id, refs, sources")
+      .select("id, type, title, summary, content, is_read, created_at, tickers, agent_id, refs")
       .order("created_at", { ascending: false })
       .limit(50);
 
     if (!error && data) {
-      const mapped: Brief[] = data.map(row => ({
-        id: row.id,
-        type: "brief" as const,
-        agentName: row.type ?? "Agent",
-        title: row.title ?? "Untitled",
-        summary: row.summary ?? "",
-        body: row.content ?? "",
-        time: new Date(row.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
-        symbol: row.tickers?.[0],
-        read: row.is_read ?? false,
-        severity: row.impact_score != null && row.impact_score < -3 ? "warn" : "info",
-        refs: row.refs ?? [],
-        sources: row.sources ?? [],
-      }));
+      const mapped: Brief[] = data.map(row => {
+        const rawContent = row.content ?? "";
+        const parsedBrief = parseBriefContent(rawContent);
+        const createdAt = new Date(row.created_at);
+        return {
+          id: row.id,
+          agentName: row.type ?? "Agent",
+          title: row.title ?? "Untitled",
+          summary: row.summary ?? "",
+          rawContent,
+          parsedBrief,
+          refs: Array.isArray(row.refs) ? row.refs : [],
+          time: createdAt.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
+          date: createdAt.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" }),
+          symbol: row.tickers?.[0],
+          read: row.is_read ?? false,
+        };
+      });
       setBriefs(mapped);
     } else {
       setBriefs([]);
@@ -259,31 +265,157 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
 
   useEffect(() => {
     fetchBriefs();
-
-    // Real-time subscription for new briefs
     const ch = supabase.channel("inbox-realtime")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "briefs" }, () => {
-        fetchBriefs();
-      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "briefs" }, () => fetchBriefs())
       .subscribe();
-
     return () => { supabase.removeChannel(ch); };
   }, []);
 
-  const filtered    = briefs.filter((b) => filter === "all" || b.type === filter);
-  const unreadCount = briefs.filter((b) => !b.read).length;
+  const filtered    = filter === "all" ? briefs : briefs.filter(b => b.agentName === filter);
+  const unreadCount = briefs.filter(b => !b.read).length;
 
   const open = async (brief: Brief) => {
     setSelected(brief);
-    setBriefs((prev) => prev.map((b) => b.id === brief.id ? { ...b, read: true } : b));
-    // Mark as read in Supabase
-    await supabase.from("briefs").update({ is_read: true }).eq("id", brief.id);
+    setEmailSent(false);
+    if (!brief.read) {
+      setBriefs(prev => prev.map(b => b.id === brief.id ? { ...b, read: true } : b));
+      await supabase.from("briefs").update({ is_read: true }).eq("id", brief.id);
+    }
   };
 
+  const handleDownload = () => {
+    if (!selected) return;
+    const html = briefToHtml(selected);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${selected.title.replace(/[^a-zA-Z0-9À-ɏ]/g, "_")}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSendEmail = async () => {
+    if (!selected || sendingEmail) return;
+    setSendingEmail(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const jwt = session?.access_token ?? "";
+      await fetch(
+        `https://${(await import("../../utils/supabase/info")).projectId}.supabase.co/functions/v1/resend-brief`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${jwt}` },
+          body: JSON.stringify({ briefId: selected.id }),
+        }
+      );
+      setEmailSent(true);
+    } catch { /* ignore */ } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  // ── Detail page view ─────────────────────────────────────────────────────────
+  if (selected) {
+    return (
+      <div style={{ minHeight: "100vh", background: bgPage, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+
+        {/* Detail top bar */}
+        <div style={{
+          position: "sticky", top: 0, zIndex: 10,
+          background: isDark ? "#131824" : "#fff",
+          borderBottom: `0.5px solid ${divider}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0 24px", height: 52,
+        }}>
+          <button
+            onClick={() => setSelected(null)}
+            style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: fgMuted, fontSize: 13, fontFamily: "'Montserrat', system-ui, sans-serif" }}
+          >
+            <ArrowLeft size={16} strokeWidth={1.5} /> Inbox
+          </button>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Download HTML */}
+            <button
+              onClick={handleDownload}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "7px 14px",
+                borderRadius: 8, border: `0.5px solid ${divider}`,
+                background: isDark ? "rgba(255,255,255,0.05)" : "#fff",
+                color: fgMuted, fontSize: 13, fontWeight: 600,
+                cursor: "pointer", fontFamily: "'Montserrat', system-ui, sans-serif",
+              }}
+            >
+              <Download size={13} strokeWidth={1.5} /> Tải về HTML
+            </button>
+
+            {/* Send email */}
+            <button
+              onClick={handleSendEmail}
+              disabled={sendingEmail || emailSent}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "7px 14px",
+                borderRadius: 8, border: "none",
+                background: emailSent ? "#34C759" : brand,
+                color: "#fff", fontSize: 13, fontWeight: 700,
+                cursor: sendingEmail || emailSent ? "not-allowed" : "pointer",
+                opacity: sendingEmail ? 0.7 : 1,
+                fontFamily: "'Montserrat', system-ui, sans-serif",
+                transition: "background 200ms ease",
+              }}
+            >
+              {emailSent
+                ? <><Check size={13} strokeWidth={2} /> Đã gửi!</>
+                : sendingEmail
+                ? "Đang gửi..."
+                : <><Mail size={13} strokeWidth={1.5} /> Gửi về mail</>
+              }
+            </button>
+          </div>
+        </div>
+
+        {/* Detail content */}
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px 80px" }}>
+          {/* Meta */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 20,
+              background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", color: brand,
+            }}>
+              <BookOpen size={10} strokeWidth={2} /> {selected.agentName}
+            </span>
+            <span style={{ fontSize: 12, color: fgSubtle }}>{selected.date}</span>
+            <span style={{ fontSize: 12, color: fgSubtle }}>·</span>
+            <span style={{ fontSize: 12, color: fgSubtle }}>{selected.time}</span>
+          </div>
+
+          {/* Title */}
+          <h1 style={{ margin: "0 0 28px", fontSize: 24, fontWeight: 800, color: fg, letterSpacing: "-0.025em", lineHeight: 1.3 }}>
+            {selected.title}
+          </h1>
+
+          {/* Brief content */}
+          {selected.parsedBrief ? (
+            <div style={{ background: isDark ? "#131824" : "#fff", borderRadius: 16, border: `1px solid ${divider}`, overflow: "hidden" }}>
+              <BriefRenderer brief={selected.parsedBrief} isDark={isDark} />
+            </div>
+          ) : (
+            <div style={{ background: isDark ? "#131824" : "#fff", borderRadius: 16, border: `1px solid ${divider}`, padding: "20px 24px" }}>
+              <MdContent text={selected.rawContent} refs={selected.refs} />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── List view ─────────────────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: 760, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: fg, letterSpacing: "-0.025em" }}>Inbox</h1>
@@ -301,10 +433,10 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
 
         {/* Filter tabs */}
         <div style={{ display: "flex", gap: 2 }}>
-          {(["all", "brief", "alert"] as const).map((f) => {
+          {(["all", "daily_digest"] as const).map((f) => {
             const active = filter === f;
             return (
-              <button key={f} onClick={() => setFilter(f)} style={{
+              <button key={f} onClick={() => setFilter(f as any)} style={{
                 padding: "7px 16px", borderRadius: 22, border: "none", cursor: "pointer",
                 fontSize: 13, fontWeight: active ? 700 : 400,
                 color: active ? brand : fgMuted,
@@ -312,19 +444,18 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                 fontFamily: "'Montserrat', system-ui, sans-serif",
                 transition: "all 120ms",
               }}>
-                {f === "all" ? "Tất cả" : f === "brief" ? "Briefs" : "Alerts"}
+                {f === "all" ? "Tất cả" : "Daily Digest"}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Subtitle */}
       <p style={{ margin: "0 0 20px", fontSize: 13, color: fgSubtle }}>
         {filtered.length} mục{unreadCount > 0 ? ` · ${unreadCount} chưa đọc` : ""}
       </p>
 
-      {/* ── List surface ── */}
+      {/* List */}
       <div style={{
         background: cardBg, borderRadius: 16,
         border: `1px solid ${divider}`,
@@ -337,23 +468,20 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
               <Sparkles size={22} color={brand} strokeWidth={1.5} />
             </div>
             <div>
-              <p style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                Chưa có brief nào
-              </p>
+              <p style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif" }}>Chưa có brief nào</p>
               <p style={{ margin: 0, fontSize: 13, color: fgMuted, fontFamily: "'Montserrat', system-ui, sans-serif", lineHeight: 1.6 }}>
                 Kích hoạt agent để tự động nhận phân tích<br />và cảnh báo thị trường hàng ngày
               </p>
             </div>
           </div>
         )}
+
         {filtered.map((brief, idx) => {
-          const isAlert = brief.type === "alert";
-          const accentColor = isAlert ? "#FF9500" : brand;
           const dragCard: ContextCard = {
             id: `inbox-${brief.id}`,
-            type: isAlert ? "news" : "report",
+            type: "report",
             label: brief.title.length > 40 ? brief.title.slice(0, 40) + "…" : brief.title,
-            badge: isAlert ? "Alert" : brief.agentName,
+            badge: brief.agentName,
             summary: brief.summary,
           };
 
@@ -365,7 +493,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
               style={{
                 display: "flex", alignItems: "stretch",
                 borderBottom: idx < filtered.length - 1 ? `1px solid ${divider}` : "none",
-                cursor: "grab", position: "relative",
+                cursor: "pointer", position: "relative",
                 transition: "background 120ms",
               }}
               onMouseEnter={(e) => {
@@ -382,67 +510,49 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
               {/* Unread accent bar */}
               <div style={{
                 width: 3, flexShrink: 0,
-                background: brief.read ? "transparent" : accentColor,
+                background: brief.read ? "transparent" : brand,
                 borderRadius: idx === 0 ? "16px 0 0 0" : idx === filtered.length - 1 ? "0 0 0 16px" : 0,
               }} />
 
               {/* Content */}
-              <div style={{ flex: 1, padding: "16px 16px 16px 16px", minWidth: 0 }}>
-                {/* Meta row */}
+              <div style={{ flex: 1, padding: "16px", minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                    {/* Type badge */}
                     <span style={{
                       display: "inline-flex", alignItems: "center", gap: 4,
                       fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
-                      background: isAlert ? "rgba(255,149,0,0.10)" : (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)"),
-                      color: accentColor,
+                      background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)",
+                      color: brand,
                     }}>
-                      {isAlert
-                        ? <AlertTriangle size={10} strokeWidth={2} />
-                        : <BookOpen size={10} strokeWidth={2} />}
-                      {isAlert ? "Alert" : "Brief"}
+                      <BookOpen size={10} strokeWidth={2} />
+                      {brief.agentName === "daily_digest" ? "Daily Digest" : brief.agentName}
                     </span>
-
-                    <span style={{ fontSize: 12, color: fgSubtle }}>{brief.agentName}</span>
-
                     {brief.symbol && (
                       <span
                         onClick={(e) => { e.stopPropagation(); onSelectTicker?.(brief.symbol!); }}
                         style={{
                           fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 5,
                           background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
-                          color: brand,
-                          cursor: onSelectTicker ? "pointer" : "default",
-                          textDecoration: onSelectTicker ? "underline" : "none",
+                          color: brand, cursor: onSelectTicker ? "pointer" : "default",
                         }}
-                        title={onSelectTicker ? `Xem chi tiết ${brief.symbol}` : undefined}
                       >
                         {brief.symbol}
                       </span>
                     )}
+                    {!brief.read && (
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: brand, flexShrink: 0 }} />
+                    )}
                   </div>
-
                   <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
                     <Clock size={11} color={fgSubtle} strokeWidth={1.5} />
                     <span style={{ fontSize: 12, color: fgSubtle }}>{brief.time}</span>
                   </div>
                 </div>
 
-                {/* Title */}
-                <div style={{
-                  fontSize: 15, fontWeight: brief.read ? 500 : 700,
-                  color: fg, marginBottom: 4, lineHeight: 1.4,
-                  letterSpacing: brief.read ? 0 : "-0.01em",
-                }}>
+                <div style={{ fontSize: 15, fontWeight: brief.read ? 500 : 700, color: fg, marginBottom: 4, lineHeight: 1.4, letterSpacing: brief.read ? 0 : "-0.01em" }}>
                   {brief.title}
                 </div>
-
-                {/* Summary */}
-                <div style={{
-                  fontSize: 13, color: fgSubtle, lineHeight: 1.5,
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>
+                <div style={{ fontSize: 13, color: fgSubtle, lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {brief.summary}
                 </div>
               </div>
@@ -453,8 +563,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                   display: "flex", alignItems: "center", gap: 3,
                   background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)",
                   borderRadius: 6, padding: "3px 7px",
-                  opacity: 0, transition: "opacity 150ms ease",
-                  pointerEvents: "none",
+                  opacity: 0, transition: "opacity 150ms ease", pointerEvents: "none",
                 }}>
                   <GripVertical size={10} color={brand} strokeWidth={2} />
                   <span style={{ fontSize: 10, fontWeight: 700, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>Kéo vào AI</span>
@@ -466,115 +575,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
         })}
       </div>
 
-      {/* ── Detail modal ── */}
-      {selected && (
-        <div
-          style={{
-            position: "fixed", inset: 0,
-            background: isDark ? "rgba(0,0,0,0.65)" : "rgba(26,26,46,0.40)",
-            backdropFilter: "blur(4px)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 200, padding: 24,
-          }}
-          onClick={(e) => { if (e.target === e.currentTarget) setSelected(null); }}
-        >
-          <div style={{
-            background: modalBg, borderRadius: 20, width: "100%", maxWidth: 660,
-            maxHeight: "85vh", display: "flex", flexDirection: "column",
-            boxShadow: isDark
-              ? "0 24px 64px rgba(0,0,0,0.70)"
-              : "0 24px 64px rgba(8,73,172,0.14), 0 4px 16px rgba(0,0,0,0.08)",
-            border: `1px solid ${divider}`,
-          }}>
-
-            {/* Modal header */}
-            <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${divider}`, flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {/* Meta */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
-                    <span style={{
-                      display: "inline-flex", alignItems: "center", gap: 4,
-                      fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 20,
-                      background: selected.type === "alert" ? "rgba(255,149,0,0.10)" : (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)"),
-                      color: selected.type === "alert" ? "#FF9500" : brand,
-                    }}>
-                      {selected.type === "alert"
-                        ? <AlertTriangle size={10} strokeWidth={2} />
-                        : <Sparkles size={10} strokeWidth={2} />}
-                      {selected.type === "alert" ? "Alert" : "Brief"}
-                    </span>
-                    <span style={{ fontSize: 12, color: fgSubtle }}>{selected.agentName}</span>
-                    <span style={{ fontSize: 12, color: fgSubtle }}>·</span>
-                    <span style={{ fontSize: 12, color: fgSubtle }}>{selected.time}</span>
-                  </div>
-                  {/* Title */}
-                  <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: fg, letterSpacing: "-0.02em", lineHeight: 1.3 }}>
-                    {selected.title}
-                  </h2>
-                </div>
-                <button
-                  onClick={() => setSelected(null)}
-                  style={{
-                    marginLeft: 16, flexShrink: 0, width: 32, height: 32,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
-                    border: "none", borderRadius: 8, cursor: "pointer", color: fgSubtle,
-                  }}
-                >
-                  <X size={16} strokeWidth={1.8} />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal body */}
-            <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1 }}>
-              <MarkdownBody
-                body={selected.body}
-                fg={fg} fgMuted={fgMuted} fgSubtle={fgSubtle}
-                divider={divider} isDark={isDark}
-                refs={selected.refs}
-              />
-
-              {/* Sources panel */}
-              {selected.sources && selected.sources.length > 0 && (
-                <div style={{ marginTop: 20, padding: "12px 14px", background: isDark ? "rgba(255,255,255,0.03)" : "rgba(8,73,172,0.03)", border: `1px solid ${divider}`, borderRadius: 10 }}>
-                  <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: fgSubtle, letterSpacing: "0.07em" }}>NGUỒN DỮ LIỆU</p>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                    {selected.sources.map((s, idx) => (
-                      <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: 7 }}>
-                        <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.07)", color: brand, fontWeight: 700, flexShrink: 0, marginTop: 1, whiteSpace: "nowrap" }}>
-                          {s.type === "news" ? "Tin" : s.type === "financial" ? "BCTC" : s.type === "insider" ? "Nội bộ" : s.type === "dividend" ? "Cổ tức" : "Sàn"}
-                        </span>
-                        {s.url ? (
-                          <a href={s.url} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 13, color: fgMuted, textDecoration: "none", lineHeight: 1.4, flex: 1, display: "flex", alignItems: "center", gap: 4 }}>
-                            <span>{s.title}{s.date && <span style={{ marginLeft: 5, fontSize: 11, color: fgSubtle }}>{s.date}</span>}</span>
-                            <ExternalLink style={{ width: 10, height: 10, flexShrink: 0, color: fgSubtle }} />
-                          </a>
-                        ) : (
-                          <span style={{ fontSize: 13, color: fgMuted, lineHeight: 1.4 }}>{s.title}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Modal footer */}
-            <div style={{
-              padding: "12px 24px", borderTop: `1px solid ${divider}`,
-              background: isDark ? "rgba(255,255,255,0.02)" : "rgba(8,73,172,0.02)",
-              borderRadius: "0 0 20px 20px", flexShrink: 0,
-            }}>
-              <p style={{ margin: 0, fontSize: 11, color: fgSubtle, lineHeight: 1.6 }}>
-                Wealbee AI tổng hợp từ dữ liệu công khai · Không phải tư vấn đầu tư theo Luật Chứng khoán 2019, NĐ 155/2020/NĐ-CP
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
     </div>
   );
 }

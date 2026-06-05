@@ -1,3 +1,4 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+@source "./";
 @import "./styles/globals.css";
 @import "./styles/theme.css";

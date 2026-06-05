@@ -1,11 +1,13 @@
-import { useState, useEffect } from "react";
-import { Plus, Pencil, Trash2, ArrowUpRight, RefreshCw, X, Activity, GripVertical } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Plus, Pencil, Trash2, ArrowUpRight, RefreshCw, X, Activity, GripVertical, Link2, AlertCircle } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from "recharts";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
+import { useBrokerConfig } from "../../lib/hooks/useBrokerConfig";
+import { fetchPositions, fetchCashBalance, type DnsePosition, type DnseCashBalance } from "../../lib/services/dnse";
 
 interface Holding {
   id?: string;          // portfolio_holdings.id
@@ -140,6 +142,65 @@ export function Portfolio({
   const [chartDataReal,   setChartDataReal]   = useState<ChartPoint[]>([]);
   const [chartLoading,    setChartLoading]    = useState(false);
   const [lastAgentRun,    setLastAgentRun]    = useState<string | null>(null);
+
+  // ── DNSE live data ────────────────────────────────────────────────────────
+  const { config: brokerConfig } = useBrokerConfig();
+  const [dnsePositions,  setDnsePositions]  = useState<DnsePosition[]>([]);
+  const [dnseCash,       setDnseCash]       = useState<DnseCashBalance | null>(null);
+  const [dnseLoading,    setDnseLoading]    = useState(false);
+  const [dnseError,      setDnseError]      = useState<string | null>(null);
+  const [dnseCountdown,  setDnseCountdown]  = useState(0);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const isMarketOpen = (): boolean => {
+    const now = new Date();
+    const ict = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+    const day = ict.getDay(); // 0=Sun, 6=Sat
+    if (day === 0 || day === 6) return false;
+    const h = ict.getHours(), m = ict.getMinutes();
+    const mins = h * 60 + m;
+    return (mins >= 540 && mins < 690) || (mins >= 780 && mins < 885); // 9:00-11:30 or 13:00-14:45
+  };
+
+  const loadDnseData = useCallback(async () => {
+    if (!brokerConfig?.apiKey || !brokerConfig.accountNo) return;
+    setDnseLoading(true);
+    setDnseError(null);
+    try {
+      const [positions, cash] = await Promise.all([
+        fetchPositions(brokerConfig.accountNo, brokerConfig.apiKey, brokerConfig.apiSecret ?? ""),
+        fetchCashBalance(brokerConfig.accountNo, brokerConfig.apiKey, brokerConfig.apiSecret ?? ""),
+      ]);
+      setDnsePositions(positions);
+      setDnseCash(cash);
+    } catch (err: any) {
+      setDnseError(err?.message ?? "Lỗi kết nối DNSE");
+    } finally {
+      setDnseLoading(false);
+    }
+  }, [brokerConfig]);
+
+  // Auto-refresh every 60s during market hours
+  useEffect(() => {
+    if (!brokerConfig?.apiKey) return;
+    loadDnseData();
+
+    const INTERVAL = 60;
+    setDnseCountdown(INTERVAL);
+    countdownRef.current = setInterval(() => {
+      setDnseCountdown(prev => {
+        if (prev <= 1) {
+          if (isMarketOpen()) loadDnseData();
+          return INTERVAL;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, [brokerConfig, loadDnseData]);
 
   // ── Load portfolio_holdings + enrich with latest prices ─────────────────
   const loadHoldings = async () => {
@@ -506,6 +567,126 @@ export function Portfolio({
           </button>
         </div>
       </div>
+
+      {/* ── DNSE Live Portfolio ── */}
+      {brokerConfig?.apiKey && (
+        <div style={{ background: cardBg, borderRadius: 14, padding: "18px 22px", boxShadow: cardShadow, marginBottom: 16, border: `0.5px solid ${isDark ? "rgba(52,199,89,0.20)" : "rgba(52,199,89,0.30)"}` }}>
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#34C759", flexShrink: 0, boxShadow: "0 0 0 3px rgba(52,199,89,0.20)" }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: fg }}>Danh mục thực tế — {brokerConfig.broker.toUpperCase()}</span>
+              <span style={{ fontSize: 11, color: fgSubtle, fontFamily: FONT }}>TK: {brokerConfig.accountNo}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {isMarketOpen() && !dnseLoading && (
+                <span style={{ fontSize: 11, color: fgSubtle }}>làm mới sau {dnseCountdown}s</span>
+              )}
+              <button
+                onClick={loadDnseData}
+                disabled={dnseLoading}
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.12)" : "rgba(8,73,172,0.20)"), background: "transparent", cursor: dnseLoading ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 600, color: brand, fontFamily: FONT, opacity: dnseLoading ? 0.6 : 1 }}
+              >
+                <RefreshCw size={13} strokeWidth={1.5} style={{ animation: dnseLoading ? "spin 1s linear infinite" : "none" }} /> Làm mới
+              </button>
+            </div>
+          </div>
+
+          {dnseError && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "rgba(255,59,48,0.06)", borderRadius: 10, marginBottom: 12 }}>
+              <AlertCircle size={14} color="#FF3B30" strokeWidth={1.5} />
+              <span style={{ fontSize: 13, color: "#FF3B30" }}>{dnseError}</span>
+            </div>
+          )}
+
+          {/* Cash balance */}
+          {dnseCash && (
+            <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+              {[
+                { label: "Số dư tiền", value: dnseCash.cashBalance },
+                { label: "Tiền có thể dùng", value: dnseCash.availableCash },
+                { label: "Tiền đang giữ", value: dnseCash.holdCash },
+              ].map(item => (
+                <div key={item.label} style={{ flex: "1 1 140px", background: isDark ? "rgba(255,255,255,0.04)" : "#F5F5F7", borderRadius: 10, padding: "10px 14px" }}>
+                  <div style={{ fontSize: 11, color: fgSubtle, marginBottom: 3 }}>{item.label}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: fg }}>{item.value.toLocaleString("vi-VN")} đ</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Positions table */}
+          {dnsePositions.length > 0 && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "72px 80px 90px 90px 100px 90px", padding: "8px 12px", background: isDark ? "#0f1220" : "#F5F5F7", borderRadius: "8px 8px 0 0" }}>
+                {["Mã", "SL CP", "Giá TB", "Giá TT", "Giá trị TT", "P&L"].map(col => (
+                  <div key={col} style={{ fontSize: 11, fontWeight: 700, color: fgSubtle, letterSpacing: "0.05em", textTransform: "uppercase" }}>{col}</div>
+                ))}
+              </div>
+              {dnsePositions.map((pos, i) => {
+                const pnlColor = (pos.pnl ?? 0) >= 0 ? GREEN : RED;
+                return (
+                  <div
+                    key={pos.symbol}
+                    style={{
+                      display: "grid", gridTemplateColumns: "72px 80px 90px 90px 100px 90px",
+                      padding: "10px 12px", alignItems: "center",
+                      borderBottom: i < dnsePositions.length - 1 ? "0.5px solid " + divider : "none",
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(77,143,232,0.07)" : "rgba(8,73,172,0.04)"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                  >
+                    <span
+                      style={{ fontWeight: 700, fontSize: 13, color: brand, cursor: "pointer" }}
+                      onClick={() => onSelectTicker?.(pos.symbol)}
+                    >
+                      {pos.symbol}
+                    </span>
+                    <span style={{ fontSize: 13, color: fg }}>{pos.quantity.toLocaleString("vi-VN")}</span>
+                    <span style={{ fontSize: 13, color: fgMuted }}>{pos.averagePrice.toLocaleString("vi-VN")}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: fg }}>{pos.marketPrice != null ? pos.marketPrice.toLocaleString("vi-VN") : "—"}</span>
+                    <span style={{ fontSize: 13, color: fg }}>{pos.marketValue != null ? (pos.marketValue / 1_000_000).toFixed(1) + "M" : "—"}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: pnlColor }}>
+                      {pos.pnl != null ? `${pos.pnl >= 0 ? "+" : ""}${pos.pnl.toLocaleString("vi-VN")}` : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {!dnseLoading && !dnseError && dnsePositions.length === 0 && (
+            <div style={{ textAlign: "center", padding: "20px 0", color: fgSubtle, fontSize: 13 }}>
+              Chưa có vị thế nào trong tài khoản
+            </div>
+          )}
+
+          <div style={{ marginTop: 10, fontSize: 11, color: fgSubtle, fontStyle: "italic" }}>
+            Dữ liệu từ {brokerConfig.broker.toUpperCase()} OpenAPI • {isMarketOpen() ? "Thị trường đang mở" : "Thị trường đóng cửa"}
+          </div>
+        </div>
+      )}
+
+      {/* ── Kết nối broker CTA nếu chưa kết nối ── */}
+      {!brokerConfig?.apiKey && (
+        <div
+          onClick={() => onNavigate("settings")}
+          style={{
+            background: isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)",
+            border: `0.5px dashed ${isDark ? "rgba(77,143,232,0.30)" : "rgba(8,73,172,0.25)"}`,
+            borderRadius: 14, padding: "16px 22px", marginBottom: 16,
+            display: "flex", alignItems: "center", gap: 12, cursor: "pointer",
+            transition: "background 120ms",
+          }}
+        >
+          <Link2 size={18} color={brand} strokeWidth={1.5} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: brand }}>Kết nối tài khoản môi giới</div>
+            <div style={{ fontSize: 12, color: fgSubtle }}>Liên kết DNSE để xem danh mục thực tế theo thời gian thực</div>
+          </div>
+          <ArrowUpRight size={15} color={brand} strokeWidth={1.5} />
+        </div>
+      )}
 
       {/* ── Portfolio performance chart — draggable ── */}
       <div

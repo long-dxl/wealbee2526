@@ -6,3 +6,7 @@ dist/
 __pycache__/
 *.pyc
 toolcrawldata/logs/
+build/
+
+.vercel
+.claude/

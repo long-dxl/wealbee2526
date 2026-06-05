@@ -2,11 +2,12 @@ import {
   Bot, Play, Pause, Clock, Zap,
   BarChart3, Mail, TrendingUp, Search, Globe, Plus,
   RefreshCw, AlertCircle, Inbox, Settings2, ArrowLeft,
-  CheckCircle, Loader2, Database, Bell,
+  CheckCircle, Loader2, Database, Bell, ExternalLink,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useLocation } from "react-router";
 import { supabase } from "../../lib/supabase/client";
+import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ interface UserAgent {
   last_run_at: string | null;
   run_count: number;
   system_prompt?: string;
+  target_symbols?: string[];
 }
 
 interface RunStep {
@@ -38,9 +40,20 @@ interface RunStep {
   label: string;
 }
 
+interface AgentSource {
+  type: "news" | "financial" | "insider" | "dividend" | "exchange";
+  title: string;
+  url: string | null;
+  date?: string;
+  source?: string;
+}
+
+interface RefEntry { index: number; label: string; url: string; }
+
 interface RunPanelState {
   agentId: string;
   agentName: string;
+  templateId?: string;
   steps: RunStep[];
   output: string;
   done: boolean;
@@ -49,6 +62,10 @@ interface RunPanelState {
   tokens?: number;
   error?: string;
   targetSymbol?: string;
+  targetSymbols?: string[];
+  sources?: AgentSource[];
+  refs?: RefEntry[];
+  brief?: BriefOutput;
 }
 
 // ─── Icon + color map ─────────────────────────────────────────────────────────
@@ -72,6 +89,7 @@ const STEP_ICONS: Record<string, React.ElementType> = {
   news_feed:   Search,
   financials:  Database,
   portfolio:   TrendingUp,
+  kb:          Bell,
   gpt:         Zap,
   save:        Inbox,
   email_send:  Mail,
@@ -79,6 +97,26 @@ const STEP_ICONS: Record<string, React.ElementType> = {
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SYM_PREFIX   = "__TARGET_SYMBOL__: ";
+
+function formatSchedule(schedule: string): string {
+  if (!schedule || schedule === "manual") return "Thủ công";
+  try {
+    const cfg = JSON.parse(schedule);
+    if (cfg.mode === "realtime") return "Realtime · khi có tín hiệu";
+    if (cfg.mode !== "scheduled") return "Thủ công";
+    const freqLabel: Record<string, string> = {
+      daily:    "Hàng ngày",
+      weekdays: "Ngày giao dịch",
+      weekly:   "Hàng tuần",
+      custom:   "Tùy chọn",
+    };
+    const freq = freqLabel[cfg.frequency] ?? cfg.frequency;
+    const time = cfg.time ? ` · ${cfg.time} ICT` : "";
+    return `${freq}${time}`;
+  } catch {
+    return schedule;
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -99,34 +137,113 @@ function StatusBadge({ status }: { status: UserAgent["status"] }) {
 
 // ─── Symbol Picker Modal ──────────────────────────────────────────────────────
 
-function SymbolPickerModal({ onConfirm, onCancel }: { onConfirm: (symbol: string) => void; onCancel: () => void }) {
-  const [value, setValue] = useState("");
-  const suggestions = ["VCB", "TCB", "HPG", "VNM", "MWG", "FPT", "VIC", "VHM", "ACB", "BID", "CTG", "MSN", "MBB", "SSI", "VPB"];
+const SYMBOL_SUGGESTIONS = [
+  "VCB","TCB","HPG","VNM","MWG","FPT","VIC","VHM",
+  "ACB","BID","CTG","MSN","MBB","SSI","VPB","STB",
+  "SHB","NVL","PDR","DXG","VJC","KBC","GMD","REE",
+];
+
+function SymbolPickerModal({ onConfirm, onCancel }: { onConfirm: (symbols: string[]) => void; onCancel: () => void }) {
+  const [input,    setInput]    = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const FONT = "'Montserrat',sans-serif";
+
+  const addSymbol = (sym: string) => {
+    const s = sym.trim().toUpperCase();
+    if (!s || selected.includes(s) || selected.length >= 5) return;
+    setSelected(prev => [...prev, s]);
+    setInput("");
+  };
+
+  const toggle = (sym: string) => {
+    setSelected(prev =>
+      prev.includes(sym) ? prev.filter(s => s !== sym) : prev.length < 5 ? [...prev, sym] : prev
+    );
+  };
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-      <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: 380, boxShadow: "0 20px 60px rgba(0,0,0,0.15)" }}>
-        <h3 style={{ fontFamily: "'Montserrat',sans-serif", fontSize: "1rem", fontWeight: 700, color: "#1a1a2e", marginBottom: 6 }}>Chọn mã cổ phiếu</h3>
-        <p style={{ fontSize: "0.75rem", color: "#99a1af", marginBottom: 16 }}>Agent sẽ phân tích chuyên sâu mã CP này</p>
-        <input
-          autoFocus value={value}
-          onChange={e => setValue(e.target.value.toUpperCase())}
-          onKeyDown={e => { if (e.key === "Enter" && value.trim()) onConfirm(value.trim()); if (e.key === "Escape") onCancel(); }}
-          placeholder="Nhập mã CP, VD: VCB"
-          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid rgba(8,73,172,0.25)", fontSize: "0.9375rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "inherit", outline: "none", boxSizing: "border-box", letterSpacing: "0.05em" }}
-        />
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
-          {suggestions.map(s => (
-            <button key={s} onClick={() => setValue(s)}
-              style={{ padding: "4px 10px", borderRadius: 7, border: "1px solid rgba(8,73,172,0.15)", background: value === s ? "rgba(8,73,172,0.1)" : "transparent", color: "#0849ac", fontSize: "0.6875rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-              {s}
-            </button>
-          ))}
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.40)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(2px)" }}>
+      <div style={{ background: "#fff", borderRadius: 18, padding: "28px 28px 24px", width: 440, boxShadow: "0 24px 64px rgba(0,0,0,0.18)", fontFamily: FONT }}>
+
+        {/* Header */}
+        <div style={{ marginBottom: 18 }}>
+          <h3 style={{ margin: 0, fontSize: "1.0625rem", fontWeight: 800, color: "#1a1a2e" }}>Chọn mã cổ phiếu để phân tích</h3>
+          <p style={{ margin: "5px 0 0", fontSize: "0.75rem", color: "#99a1af" }}>
+            Chọn tối đa 5 mã · Deep Research sẽ phân tích từng mã một
+          </p>
         </div>
-        <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-          <button onClick={onCancel} style={{ flex: 1, padding: "9px 0", borderRadius: 10, border: "1px solid rgba(8,73,172,0.15)", background: "transparent", color: "#6a7282", cursor: "pointer", fontSize: "0.8125rem", fontFamily: "inherit" }}>Hủy</button>
-          <button onClick={() => value.trim() && onConfirm(value.trim())} disabled={!value.trim()}
-            style={{ flex: 2, padding: "9px 0", borderRadius: 10, border: "none", background: value.trim() ? "#8b5cf6" : "#e5e7eb", color: value.trim() ? "#fff" : "#99a1af", cursor: value.trim() ? "pointer" : "not-allowed", fontSize: "0.8125rem", fontWeight: 700, fontFamily: "inherit" }}>
-            Phân tích {value || "..."}
+
+        {/* Selected chips */}
+        {selected.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14, padding: "10px 12px", background: "rgba(139,92,246,0.05)", borderRadius: 10, border: "1px solid rgba(139,92,246,0.15)" }}>
+            {selected.map(s => (
+              <span key={s} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 99, background: "#8b5cf6", color: "#fff", fontSize: "0.8125rem", fontWeight: 700 }}>
+                {s}
+                <button onClick={() => toggle(s)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.8)", padding: 0, display: "flex", alignItems: "center", fontSize: 14, lineHeight: 1 }}>×</button>
+              </span>
+            ))}
+            <span style={{ fontSize: "0.6875rem", color: "#8b5cf6", alignSelf: "center", marginLeft: 4 }}>{selected.length}/5 mã</span>
+          </div>
+        )}
+
+        {/* Input */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input
+            autoFocus
+            value={input}
+            onChange={e => setInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+            onKeyDown={e => {
+              if (e.key === "Enter" && input.trim()) addSymbol(input);
+              if (e.key === "Escape") onCancel();
+            }}
+            placeholder="Nhập mã và Enter (VD: HPG)"
+            maxLength={5}
+            style={{ flex: 1, padding: "9px 14px", borderRadius: 9, border: "1.5px solid rgba(8,73,172,0.20)", fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", fontFamily: FONT, outline: "none", letterSpacing: "0.05em" }}
+          />
+          <button
+            onClick={() => addSymbol(input)}
+            disabled={!input.trim() || selected.length >= 5}
+            style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: input.trim() && selected.length < 5 ? "#8b5cf6" : "#e5e7eb", color: input.trim() && selected.length < 5 ? "#fff" : "#99a1af", cursor: "pointer", fontWeight: 700, fontFamily: FONT, fontSize: "0.8125rem" }}
+          >
+            Thêm
+          </button>
+        </div>
+
+        {/* Quick-pick grid */}
+        <p style={{ margin: "0 0 8px", fontSize: "0.6875rem", fontWeight: 700, color: "#99a1af", textTransform: "uppercase", letterSpacing: "0.06em" }}>Hoặc chọn nhanh:</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 20 }}>
+          {SYMBOL_SUGGESTIONS.map(s => {
+            const sel = selected.includes(s);
+            const disabled = !sel && selected.length >= 5;
+            return (
+              <button
+                key={s}
+                onClick={() => toggle(s)}
+                disabled={disabled}
+                style={{
+                  padding: "4px 10px", borderRadius: 7, cursor: disabled ? "not-allowed" : "pointer",
+                  border: sel ? "1.5px solid #8b5cf6" : "1px solid rgba(8,73,172,0.15)",
+                  background: sel ? "rgba(139,92,246,0.12)" : "transparent",
+                  color: sel ? "#8b5cf6" : disabled ? "#c4c9d4" : "#0849ac",
+                  fontSize: "0.6875rem", fontWeight: sel ? 700 : 500, fontFamily: FONT,
+                  transition: "all 100ms",
+                }}
+              >
+                {sel && "✓ "}{s}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "1px solid rgba(8,73,172,0.15)", background: "transparent", color: "#6a7282", cursor: "pointer", fontSize: "0.8125rem", fontFamily: FONT }}>Hủy</button>
+          <button
+            onClick={() => selected.length > 0 && onConfirm(selected)}
+            disabled={selected.length === 0}
+            style={{ flex: 2, padding: "10px 0", borderRadius: 10, border: "none", background: selected.length > 0 ? "#8b5cf6" : "#e5e7eb", color: selected.length > 0 ? "#fff" : "#99a1af", cursor: selected.length > 0 ? "pointer" : "not-allowed", fontSize: "0.8125rem", fontWeight: 700, fontFamily: FONT }}
+          >
+            {selected.length === 0 ? "Chọn ít nhất 1 mã" : `Phân tích ${selected.length} mã: ${selected.join(", ")}`}
           </button>
         </div>
       </div>
@@ -134,57 +251,210 @@ function SymbolPickerModal({ onConfirm, onCancel }: { onConfirm: (symbol: string
   );
 }
 
-// ─── Markdown renderer (reused from inbox) ────────────────────────────────────
+// ─── Markdown renderer ────────────────────────────────────────────────────────
 
-function renderInline(text: string): React.ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((p, i) =>
-    p.startsWith("**") && p.endsWith("**")
-      ? <strong key={i} style={{ fontWeight: 700 }}>{p.slice(2, -2)}</strong>
-      : <span key={i}>{p}</span>
-  );
+function renderInline(text: string, refs?: RefEntry[]): React.ReactNode[] {
+  // Parse: **bold**, `code`, [label](url), [ref:N]
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[ref:\d+\]|\[[^\]]+\]\([^)]+\))/g);
+  return parts.map((p, i) => {
+    if (p.startsWith("**") && p.endsWith("**"))
+      return <strong key={i} style={{ fontWeight: 700, color: "#1a1a2e" }}>{p.slice(2, -2)}</strong>;
+    if (p.startsWith("`") && p.endsWith("`"))
+      return <code key={i} style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: "0.8em", background: "rgba(8,73,172,0.07)", padding: "1px 5px", borderRadius: 4, color: "#0849ac" }}>{p.slice(1, -1)}</code>;
+
+    // Numbered reference [ref:N] → resolve to real link
+    const refMatch = p.match(/^\[ref:(\d+)\]$/);
+    if (refMatch && refs) {
+      const n = parseInt(refMatch[1]);
+      const entry = refs.find(r => r.index === n);
+      if (entry) {
+        return (
+          <a key={i} href={entry.url} target="_blank" rel="noopener noreferrer"
+            style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "1px 6px", borderRadius: 4, marginLeft: 3, fontSize: "0.6875em", fontWeight: 600, color: "#0849ac", background: "rgba(8,73,172,0.08)", border: "1px solid rgba(8,73,172,0.15)", textDecoration: "none", verticalAlign: "middle", lineHeight: 1.6, whiteSpace: "nowrap" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(8,73,172,0.16)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "rgba(8,73,172,0.08)"; }}
+          >
+            {entry.label}<ExternalLink style={{ width: 8, height: 8 }} />
+          </a>
+        );
+      }
+      return null; // ref not found, hide it
+    }
+
+    // Inline markdown link [label](url)
+    const linkMatch = p.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (linkMatch) {
+      const [, label, url] = linkMatch;
+      return (
+        <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+          style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "1px 6px", borderRadius: 4, marginLeft: 3, fontSize: "0.6875em", fontWeight: 600, color: "#0849ac", background: "rgba(8,73,172,0.08)", border: "1px solid rgba(8,73,172,0.15)", textDecoration: "none", verticalAlign: "middle", lineHeight: 1.6, whiteSpace: "nowrap" }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(8,73,172,0.16)"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "rgba(8,73,172,0.08)"; }}
+        >
+          {label}<ExternalLink style={{ width: 8, height: 8 }} />
+        </a>
+      );
+    }
+    return <span key={i}>{p}</span>;
+  });
 }
 
-function MdTable({ lines }: { lines: string[] }) {
+function MdTable({ lines, refs }: { lines: string[]; refs?: RefEntry[] }) {
   const dataRows = lines.filter(l => !l.replace(/[\s|:-]/g, "").match(/^-+$/));
   if (!dataRows.length) return null;
   const parseRow = (row: string) => row.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
   const [header, ...body] = dataRows;
   return (
-    <div style={{ overflowX: "auto", margin: "12px 0", borderRadius: 10, border: "1px solid rgba(8,73,172,0.1)" }}>
+    <div style={{ overflowX: "auto", margin: "14px 0", borderRadius: 10, border: "1px solid rgba(8,73,172,0.10)", boxShadow: "0 1px 4px rgba(8,73,172,0.04)" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" }}>
-        <thead><tr>{parseRow(header).map((h, i) => <th key={i} style={{ padding: "8px 12px", background: "rgba(8,73,172,0.07)", color: "#1a1a2e", fontWeight: 700, textAlign: "left", borderBottom: "2px solid rgba(8,73,172,0.12)", whiteSpace: "nowrap" }}>{renderInline(h)}</th>)}</tr></thead>
-        <tbody>{body.map((row, ri) => <tr key={ri} style={{ background: ri % 2 === 0 ? "#fff" : "rgba(8,73,172,0.02)" }}>{parseRow(row).map((cell, ci) => <td key={ci} style={{ padding: "7px 12px", borderBottom: "1px solid rgba(8,73,172,0.06)", color: "#374151" }}>{renderInline(cell)}</td>)}</tr>)}</tbody>
+        <thead><tr>{parseRow(header).map((h, i) => (
+          <th key={i} style={{ padding: "9px 14px", background: "rgba(8,73,172,0.06)", color: "#0849ac", fontWeight: 700, textAlign: "left", borderBottom: "2px solid rgba(8,73,172,0.10)", whiteSpace: "nowrap", fontFamily: "'Montserrat',sans-serif" }}>
+            {renderInline(h, refs)}
+          </th>
+        ))}</tr></thead>
+        <tbody>{body.map((row, ri) => (
+          <tr key={ri} style={{ background: ri % 2 === 0 ? "#fff" : "rgba(8,73,172,0.018)" }}>
+            {parseRow(row).map((cell, ci) => (
+              <td key={ci} style={{ padding: "8px 14px", borderBottom: "1px solid rgba(8,73,172,0.06)", color: "#374151" }}>{renderInline(cell, refs)}</td>
+            ))}
+          </tr>
+        ))}</tbody>
       </table>
     </div>
   );
 }
 
-function MdContent({ text }: { text: string }) {
-  const lines = text.split("\n");
+function MdContent({ text, refs }: { text: string; refs?: RefEntry[] }) {
+  // Strip outermost code fence if present (LLM wraps output in ```)
+  let stripped = text.replace(/^```[^\n]*\n?([\s\S]*?)```\s*$/m, "$1").trim();
+
+  // If output still contains HTML, convert to markdown
+  if (stripped.includes("<div") || stripped.includes("<span") || stripped.includes("<a ")) {
+    stripped = stripped
+      .replace(/<a\s+(?:[^>]*?\s+)?href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)")
+      .replace(/<(?:strong|b)>([\s\S]*?)<\/(?:strong|b)>/gi, "**$1**")
+      .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+  const lines = stripped.split("\n");
   const nodes: React.ReactNode[] = [];
   let i = 0;
+
   while (i < lines.length) {
-    const raw = lines[i]; const trim = raw.trim();
+    const raw = lines[i];
+    const trim = raw.trim();
+
+    // Table
     if (trim.startsWith("|") && trim.endsWith("|")) {
       const tbl: string[] = [];
       while (i < lines.length && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) { tbl.push(lines[i].trim()); i++; }
-      nodes.push(<MdTable key={`t${i}`} lines={tbl} />); continue;
+      nodes.push(<MdTable key={`t${i}`} lines={tbl} refs={refs} />); continue;
     }
-    if (/^---+$/.test(trim)) { nodes.push(<hr key={i} style={{ border: "none", borderTop: "1px solid rgba(8,73,172,0.1)", margin: "12px 0" }} />); i++; continue; }
-    if (!trim) { nodes.push(<div key={i} style={{ height: 5 }} />); i++; continue; }
-    if (trim.startsWith("# "))  { nodes.push(<h2 key={i} style={{ fontFamily: "'Montserrat',sans-serif", fontSize: "1.0625rem", fontWeight: 800, color: "#1a1a2e", margin: "16px 0 8px", borderBottom: "2px solid rgba(8,73,172,0.1)", paddingBottom: 5 }}>{trim.slice(2)}</h2>); i++; continue; }
-    if (trim.startsWith("## ")) { nodes.push(<h3 key={i} style={{ fontFamily: "'Montserrat',sans-serif", fontSize: "0.9375rem", fontWeight: 700, color: "#0849ac", margin: "14px 0 6px" }}>{trim.slice(3)}</h3>); i++; continue; }
-    if (trim.startsWith("### ")){ nodes.push(<h4 key={i} style={{ fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", margin: "10px 0 4px" }}>{trim.slice(4)}</h4>); i++; continue; }
-    if (trim.startsWith("- ") || trim.startsWith("• ")) {
-      nodes.push(<div key={i} style={{ display: "flex", gap: 9, marginBottom: 5, alignItems: "flex-start" }}><span style={{ color: "#0849ac", flexShrink: 0, marginTop: 3, fontSize: "0.625rem" }}>●</span><span style={{ lineHeight: 1.65 }}>{renderInline(trim.slice(2))}</span></div>); i++; continue;
+
+    // Code block (nested)
+    if (trim.startsWith("```")) {
+      const fence = trim.slice(3);
+      i++;
+      const codeLines: string[] = [];
+      while (i < lines.length && !lines[i].trim().startsWith("```")) { codeLines.push(lines[i]); i++; }
+      i++; // skip closing ```
+      nodes.push(
+        <pre key={`code${i}`} style={{ background: "#F0F4FF", border: "1px solid rgba(8,73,172,0.10)", borderRadius: 10, padding: "12px 16px", overflowX: "auto", margin: "10px 0", fontSize: "0.8125rem", lineHeight: 1.7, color: "#1a1a2e", fontFamily: "'IBM Plex Mono',monospace" }}>
+          {fence && <span style={{ fontSize: "0.625rem", fontWeight: 700, color: "#0849ac", textTransform: "uppercase", display: "block", marginBottom: 6 }}>{fence}</span>}
+          {codeLines.join("\n")}
+        </pre>
+      );
+      continue;
     }
+
+    // HR
+    if (/^---+$/.test(trim)) { nodes.push(<hr key={i} style={{ border: "none", borderTop: "1px solid rgba(8,73,172,0.10)", margin: "16px 0" }} />); i++; continue; }
+
+    // Empty line
+    if (!trim) { nodes.push(<div key={i} style={{ height: 6 }} />); i++; continue; }
+
+    // H1
+    if (trim.startsWith("# ") && !trim.startsWith("## ")) {
+      nodes.push(
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, margin: "20px 0 10px", paddingBottom: 8, borderBottom: "2px solid rgba(8,73,172,0.12)" }}>
+          <div style={{ width: 4, height: 20, borderRadius: 2, background: "#0849ac", flexShrink: 0 }} />
+          <h2 style={{ margin: 0, fontFamily: "'Montserrat',sans-serif", fontSize: "1.0625rem", fontWeight: 800, color: "#1a1a2e" }}>{trim.slice(2)}</h2>
+        </div>
+      ); i++; continue;
+    }
+
+    // H2
+    if (trim.startsWith("## ") && !trim.startsWith("### ")) {
+      nodes.push(
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, margin: "16px 0 8px" }}>
+          <div style={{ width: 3, height: 16, borderRadius: 2, background: "#0849ac", flexShrink: 0 }} />
+          <h3 style={{ margin: 0, fontFamily: "'Montserrat',sans-serif", fontSize: "0.9375rem", fontWeight: 700, color: "#0849ac" }}>{trim.slice(3)}</h3>
+        </div>
+      ); i++; continue;
+    }
+
+    // H3
+    if (trim.startsWith("### ") && !trim.startsWith("#### ")) {
+      nodes.push(
+        <h4 key={i} style={{ margin: "12px 0 5px", fontSize: "0.875rem", fontWeight: 700, color: "#374151", fontFamily: "'Montserrat',sans-serif", borderLeft: "3px solid rgba(8,73,172,0.18)", paddingLeft: 8 }}>
+          {trim.slice(4)}
+        </h4>
+      ); i++; continue;
+    }
+
+    // H4
+    if (trim.startsWith("#### ")) {
+      nodes.push(<h5 key={i} style={{ margin: "10px 0 4px", fontSize: "0.8125rem", fontWeight: 700, color: "#6a7282", fontFamily: "'Montserrat',sans-serif" }}>{trim.slice(5)}</h5>); i++; continue;
+    }
+
+    // Blockquote
+    if (trim.startsWith("> ")) {
+      nodes.push(
+        <blockquote key={i} style={{ margin: "8px 0", padding: "8px 14px", borderLeft: "3px solid #0849ac", background: "rgba(8,73,172,0.04)", borderRadius: "0 8px 8px 0", color: "#374151", fontStyle: "italic" }}>
+          {renderInline(trim.slice(2), refs)}
+        </blockquote>
+      ); i++; continue;
+    }
+
+    // Bullet list
+    if (trim.startsWith("- ") || trim.startsWith("• ") || trim.startsWith("→ ") || trim.startsWith("· ")) {
+      const content = trim.startsWith("→ ") ? trim.slice(2) : trim.slice(2);
+      const isArrow = trim.startsWith("→ ");
+      nodes.push(
+        <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+          <span style={{ color: isArrow ? "#FF9500" : "#0849ac", flexShrink: 0, marginTop: 4, fontSize: isArrow ? "0.75rem" : "0.5rem", fontWeight: 700 }}>{isArrow ? "→" : "●"}</span>
+          <span style={{ lineHeight: 1.7, color: "#374151", fontSize: "0.875rem" }}>{renderInline(content, refs)}</span>
+        </div>
+      ); i++; continue;
+    }
+
+    // Ordered list
     if (/^\d+\.\s/.test(trim)) {
       const m = trim.match(/^(\d+)\.\s(.+)/);
-      if (m) { nodes.push(<div key={i} style={{ display: "flex", gap: 9, marginBottom: 5, alignItems: "flex-start" }}><span style={{ color: "#0849ac", flexShrink: 0, fontWeight: 700, minWidth: 20, fontSize: "0.8125rem" }}>{m[1]}.</span><span style={{ lineHeight: 1.65 }}>{renderInline(m[2])}</span></div>); i++; continue; }
+      if (m) {
+        nodes.push(
+          <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+            <span style={{ color: "#0849ac", flexShrink: 0, fontWeight: 700, minWidth: 22, fontSize: "0.8125rem", lineHeight: 1.7 }}>{m[1]}.</span>
+            <span style={{ lineHeight: 1.7, color: "#374151", fontSize: "0.875rem" }}>{renderInline(m[2], refs)}</span>
+          </div>
+        ); i++; continue;
+      }
     }
-    nodes.push(<p key={i} style={{ margin: "0 0 6px", lineHeight: 1.75, color: "#374151" }}>{renderInline(trim)}</p>); i++;
+
+    // Italic disclaimer (*text*)
+    if (trim.startsWith("*") && trim.endsWith("*") && !trim.startsWith("**")) {
+      nodes.push(<p key={i} style={{ margin: "8px 0 0", fontSize: "0.75rem", color: "#99a1af", fontStyle: "italic", lineHeight: 1.6 }}>{trim.slice(1, -1)}</p>); i++; continue;
+    }
+
+    // Regular paragraph
+    nodes.push(<p key={i} style={{ margin: "0 0 8px", lineHeight: 1.75, color: "#374151", fontSize: "0.875rem" }}>{renderInline(trim, refs)}</p>);
+    i++;
   }
-  return <div style={{ fontSize: "0.875rem", color: "#1a1a2e", lineHeight: 1.75 }}>{nodes}</div>;
+
+  return <div style={{ fontFamily: "'Montserrat',system-ui,sans-serif" }}>{nodes}</div>;
 }
 
 // ─── Run Panel ────────────────────────────────────────────────────────────────
@@ -219,13 +489,18 @@ function RunPanel({ panel, onClose, onInbox, onViewTicker }: {
         </div>
         {panel.done && !panel.error && (
           <div style={{ display: "flex", gap: 8 }}>
-            {panel.targetSymbol && onViewTicker && (
-              <button
-                onClick={() => onViewTicker(panel.targetSymbol!)}
-                style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "1px solid rgba(139,92,246,0.3)", background: "rgba(139,92,246,0.08)", color: "#8b5cf6", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}
-              >
-                <BarChart3 style={{ width: 13, height: 13 }} />{panel.targetSymbol}
-              </button>
+            {(panel.targetSymbols?.length ?? (panel.targetSymbol ? 1 : 0)) > 0 && onViewTicker && (
+              <div style={{ display: "flex", gap: 5 }}>
+                {(panel.targetSymbols ?? (panel.targetSymbol ? [panel.targetSymbol] : [])).map(sym => (
+                  <button
+                    key={sym}
+                    onClick={() => onViewTicker(sym)}
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(139,92,246,0.3)", background: "rgba(139,92,246,0.08)", color: "#8b5cf6", cursor: "pointer", fontSize: "0.75rem", fontWeight: 700, fontFamily: "inherit" }}
+                  >
+                    <BarChart3 style={{ width: 12, height: 12 }} />{sym}
+                  </button>
+                ))}
+              </div>
             )}
             <button onClick={onInbox} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "none", background: "#0849ac", color: "#fff", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}>
               <Inbox style={{ width: 13, height: 13 }} />Xem trong Inbox
@@ -271,20 +546,24 @@ function RunPanel({ panel, onClose, onInbox, onViewTicker }: {
             </div>
           ) : (
             <>
-              {panel.output && (
-                <div style={{ background: "#fff", border: "1px solid rgba(8,73,172,0.08)", borderRadius: 14, padding: "20px 24px", boxShadow: "0 1px 4px rgba(8,73,172,0.04)" }}>
-                  {panel.done
-                    ? <MdContent text={panel.output} />
-                    : (
-                      <div>
-                        <MdContent text={panel.output} />
-                        <span style={{ display: "inline-block", width: 2, height: "1em", background: "#0849ac", animation: "blink 1s step-start infinite", verticalAlign: "text-bottom", marginLeft: 2 }} />
-                      </div>
-                    )
-                  }
+              {/* Daily Market Digest → BriefRenderer */}
+              {panel.done && panel.brief && (
+                <div style={{ background: "#fff", border: "1px solid rgba(8,73,172,0.08)", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(8,73,172,0.04)" }}>
+                  <BriefRenderer brief={panel.brief} isDark={false} />
                 </div>
               )}
-              {!panel.output && !panel.done && (
+
+              {/* Other agents → streaming markdown */}
+              {(!panel.brief) && panel.output && (
+                <div style={{ background: "#fff", border: "1px solid rgba(8,73,172,0.08)", borderRadius: 14, padding: "22px 26px", boxShadow: "0 1px 4px rgba(8,73,172,0.04)" }}>
+                  <MdContent text={panel.output} refs={panel.refs} />
+                  {!panel.done && (
+                    <span style={{ display: "inline-block", width: 2, height: "1em", background: "#0849ac", animation: "blink 1s step-start infinite", verticalAlign: "text-bottom", marginLeft: 2 }} />
+                  )}
+                </div>
+              )}
+
+              {!panel.brief && !panel.output && !panel.done && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#99a1af", padding: "20px 0" }}>
                   <Loader2 style={{ width: 16, height: 16, animation: "spin 1s linear infinite" }} />
                   <span style={{ fontSize: "0.875rem" }}>Đang chuẩn bị dữ liệu…</span>
@@ -328,20 +607,28 @@ export function AgentsPage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (quiet = false) => {
+    if (!userId) return;          // wait until userId is ready
+    if (!quiet) setLoading(true); // skeleton only on first load
     const [{ data: tmpl }, { data: ags }] = await Promise.all([
       supabase.from("agent_templates").select("*").eq("is_active", true).order("sort_order"),
-      userId
-        ? supabase.from("agents").select("*").eq("user_id", userId).order("created_at")
-        : Promise.resolve({ data: [] }),
+      supabase.from("agents").select("*").eq("user_id", userId).order("created_at"),
     ]);
     setTemplates((tmpl ?? []) as AgentTemplate[]);
     setAgents((ags ?? []) as UserAgent[]);
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [userId]);
+  // Reload when userId becomes available; quiet refresh on subsequent navigations
+  useEffect(() => {
+    if (userId) load();
+  }, [userId]);
+
+  // Refresh agents list silently when navigating back to this page
+  const location = useLocation();
+  useEffect(() => {
+    if (userId && agents.length > 0) load(true);
+  }, [location.key]);
 
   const activateTemplate = async (tmpl: AgentTemplate) => {
     if (!userId) return;
@@ -374,28 +661,38 @@ export function AgentsPage() {
 
   // ── Run agent with SSE streaming ──────────────────────────────────────────
 
-  const runAgent = async (agent: UserAgent, targetSymbol?: string) => {
+  const runAgent = async (agent: UserAgent, targetSymbols?: string[]) => {
     if (!authToken || runPanel) return;
 
+    // Resolve symbols: override > saved target_symbols > legacy SYM_PREFIX in prompt
     const firstLine = agent.system_prompt?.split("\n")[0] ?? "";
     const savedSym  = firstLine.startsWith(SYM_PREFIX) ? firstLine.slice(SYM_PREFIX.length).trim() : null;
+    const savedSymbols = agent.target_symbols?.length ? agent.target_symbols
+                        : savedSym ? [savedSym]
+                        : [];
 
-    if (agent.template_id === "deep_research" && !targetSymbol && !savedSym) {
+    // If deep_research with no symbols anywhere → show picker
+    if (agent.template_id === "deep_research" && (!targetSymbols?.length) && !savedSymbols.length) {
       setSymbolPicker({ agentId: agent.id });
       return;
     }
 
-    const sym = targetSymbol || savedSym || undefined;
+    const syms = targetSymbols?.length ? targetSymbols : savedSymbols.length ? savedSymbols : undefined;
+    const displaySym = syms?.join(", ");
 
-    setRunPanel({ agentId: agent.id, agentName: agent.name, steps: [], output: "", done: false, targetSymbol: sym });
+    setRunPanel({
+      agentId: agent.id, agentName: agent.name, templateId: agent.template_id, steps: [], output: "", done: false,
+      targetSymbol: syms?.[0], targetSymbols: syms,
+    });
 
     let res: Response;
     try {
       res = await fetch(`${SUPABASE_URL}/functions/v1/run-agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
-        body: JSON.stringify({ agent_id: agent.id, target_symbol: sym }),
+        body: JSON.stringify({ agent_id: agent.id, target_symbols: syms }),
       });
+      void displaySym;
     } catch (err) {
       setRunPanel(prev => prev ? { ...prev, done: true, error: String(err) } : null);
       return;
@@ -436,8 +733,15 @@ export function AgentsPage() {
             }));
           } else if (ev.type === "chunk") {
             updatePanel(prev => ({ ...prev, output: prev.output + ev.text }));
+          } else if (ev.type === "reset_output") {
+            // LLM output HTML — server cleaned it, replace entirely
+            updatePanel(prev => ({ ...prev, output: ev.output }));
+          } else if (ev.type === "ref_registry") {
+            updatePanel(prev => ({ ...prev, refs: ev.refs }));
+          } else if (ev.type === "sources") {
+            updatePanel(prev => ({ ...prev, sources: ev.sources }));
           } else if (ev.type === "done") {
-            updatePanel(prev => ({ ...prev, done: true, title: ev.title, briefId: ev.brief_id, tokens: ev.tokens }));
+            updatePanel(prev => ({ ...prev, done: true, title: ev.title, briefId: ev.brief_id, tokens: ev.tokens, brief: ev.brief ?? undefined }));
             setAgents(prev => prev.map(a =>
               a.id === agent.id ? { ...a, last_run_at: new Date().toISOString(), run_count: (a.run_count ?? 0) + 1 } : a
             ));
@@ -477,10 +781,10 @@ export function AgentsPage() {
     <div style={{ padding: 24 }}>
       {symbolPicker && (
         <SymbolPickerModal
-          onConfirm={(symbol) => {
+          onConfirm={(symbols) => {
             const agent = agents.find(a => a.id === symbolPicker.agentId);
             setSymbolPicker(null);
-            if (agent) runAgent(agent, symbol);
+            if (agent) runAgent(agent, symbols);
           }}
           onCancel={() => setSymbolPicker(null)}
         />
@@ -509,17 +813,42 @@ export function AgentsPage() {
               const Icon = ICON_MAP[tmpl.icon] || Bot;
               const colors = TEMPLATE_COLORS[tmpl.id] || { bg: "rgba(8,73,172,0.1)", color: "#0849ac" };
               const alreadyAdded = agents.some(a => a.template_id === tmpl.id);
+              const READY_TEMPLATES = ["deep_research", "daily_digest"];
+              const isReady = READY_TEMPLATES.includes(tmpl.id);
+              const disabled = alreadyAdded || !isReady;
               return (
-                <div key={tmpl.id} style={{ background: "#fff", border: "1px solid rgba(8,73,172,0.1)", borderRadius: 12, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start", opacity: alreadyAdded ? 0.5 : 1 }}>
+                <div key={tmpl.id} style={{
+                  background: "#fff", borderRadius: 12, padding: "14px 16px",
+                  display: "flex", gap: 12, alignItems: "flex-start",
+                  border: `1px solid ${isReady ? "rgba(8,73,172,0.1)" : "rgba(0,0,0,0.06)"}`,
+                  opacity: isReady ? 1 : 0.5,
+                  filter: isReady ? "none" : "grayscale(60%)",
+                  position: "relative",
+                }}>
                   <div style={{ width: 36, height: 36, borderRadius: 9, background: colors.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon style={{ width: 16, height: 16, color: colors.color }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#1a1a2e" }}>{tmpl.name}</p>
-                    <p style={{ fontSize: "0.6875rem", color: "#6a7282", marginTop: 3, lineHeight: 1.4 }}>{tmpl.description}</p>
-                    <button onClick={() => !alreadyAdded && activateTemplate(tmpl)} disabled={alreadyAdded}
-                      style={{ marginTop: 8, padding: "4px 10px", borderRadius: 7, border: "none", background: alreadyAdded ? "#e5e7eb" : colors.color, color: alreadyAdded ? "#99a1af" : "#fff", fontSize: "0.6875rem", fontWeight: 600, cursor: alreadyAdded ? "not-allowed" : "pointer" }}>
-                      {alreadyAdded ? "Đã thêm" : "Thêm agent này"}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                      <p style={{ fontSize: "0.8125rem", fontWeight: 700, color: isReady ? "#1a1a2e" : "#99a1af" }}>{tmpl.name}</p>
+                      {!isReady && (
+                        <span style={{ fontSize: "0.5625rem", fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "rgba(153,161,175,0.15)", color: "#99a1af", letterSpacing: "0.03em" }}>
+                          Sắp ra mắt
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ fontSize: "0.6875rem", color: "#6a7282", marginTop: 0, lineHeight: 1.4 }}>{tmpl.description}</p>
+                    <button
+                      onClick={() => !disabled && activateTemplate(tmpl)}
+                      disabled={disabled}
+                      style={{
+                        marginTop: 8, padding: "4px 10px", borderRadius: 7, border: "none",
+                        background: alreadyAdded ? "#e5e7eb" : isReady ? colors.color : "#e5e7eb",
+                        color: disabled ? "#99a1af" : "#fff",
+                        fontSize: "0.6875rem", fontWeight: 600,
+                        cursor: disabled ? "not-allowed" : "pointer",
+                      }}>
+                      {alreadyAdded ? "Đã thêm" : isReady ? "Thêm agent này" : "Chưa sẵn sàng"}
                     </button>
                   </div>
                 </div>
@@ -556,17 +885,22 @@ export function AgentsPage() {
                       <StatusBadge status={agent.status} />
                     </div>
                     <p style={{ fontSize: "0.75rem", color: "#6a7282", marginTop: 4, lineHeight: 1.4 }}>{agent.description}</p>
-                    {savedSym && (
-                      <span style={{ display: "inline-block", marginTop: 5, padding: "2px 8px", borderRadius: 6, background: "rgba(99,102,241,0.08)", color: "#6366f1", fontSize: "0.625rem", fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace" }}>
-                        {savedSym}
-                      </span>
+                    {/* Show saved symbols */}
+                    {(agent.target_symbols?.length ? agent.target_symbols : savedSym ? [savedSym] : []).length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                        {(agent.target_symbols?.length ? agent.target_symbols : [savedSym!]).map(s => (
+                          <span key={s} style={{ padding: "2px 8px", borderRadius: 5, background: "rgba(99,102,241,0.09)", color: "#6366f1", fontSize: "0.625rem", fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace" }}>
+                            {s}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
                   <Clock style={{ width: 11, height: 11, color: "#99a1af" }} />
-                  <span style={{ fontSize: "0.6875rem", color: "#99a1af" }}>{agent.schedule}</span>
+                  <span style={{ fontSize: "0.6875rem", color: "#99a1af" }}>{formatSchedule(agent.schedule)}</span>
                   {agent.run_count > 0 && <span style={{ fontSize: "0.6875rem", color: "#c4c9d4" }}>· Đã chạy {agent.run_count} lần</span>}
                 </div>
                 {agent.last_run_at && <div style={{ fontSize: "0.625rem", color: "#c4c9d4", marginBottom: 14 }}>Lần cuối: {new Date(agent.last_run_at).toLocaleString("vi-VN")}</div>}
