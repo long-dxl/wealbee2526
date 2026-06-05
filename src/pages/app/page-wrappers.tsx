@@ -2,7 +2,7 @@
  * Route wrapper components that connect new UI pages to the NewLayout outlet context.
  * Each wrapper calls useOutletContext() to get navigation and theme props.
  */
-import { useOutletContext, useNavigate } from "react-router";
+import { useOutletContext, useNavigate, useSearchParams } from "react-router";
 import type { Theme } from "../../lib/theme-context";
 import type { ContextCard } from "../../types/cards";
 
@@ -51,7 +51,11 @@ export function InboxRoute() {
 
 export function AgentStudioRoute() {
   const { onNavigate, isDark } = useApp();
-  return <AgentStudio onBack={() => onNavigate("agents")} isDark={isDark} />;
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const agentId = searchParams.get("agent_id") ?? undefined;
+  void onNavigate;
+  return <AgentStudio onBack={() => navigate("/app/agents")} agentId={agentId} isDark={isDark} />;
 }
 
 export function TemplatesRoute() {

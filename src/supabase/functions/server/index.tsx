@@ -543,4 +543,111 @@ app.delete("/make-server-aa51327d/conversations/:id", async (c) => {
   }
 });
 
+// ─── POST /make-server-aa51327d/agent-dry-run ────────────────────────────────
+// Fetch real news from market_news → call OpenAI (gpt-4.1-mini) → return brief
+app.post("/make-server-aa51327d/agent-dry-run", async (c) => {
+  try {
+    const { userId, supabase } = await verifyAuth(c.req.header("Authorization"));
+    if (!userId || !supabase) return c.json({ error: "Unauthorized" }, 401);
+
+    const { systemPrompt } = await c.req.json();
+
+    const openaiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!openaiKey) return c.json({ error: "OPENAI_API_KEY chưa được cấu hình." }, 500);
+
+    // 1. Get user's watch_symbols
+    const { data: sub } = await supabase
+      .from("digest_subscribers")
+      .select("watch_symbols")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const watchSymbols: string[] = sub?.watch_symbols ?? [];
+    if (watchSymbols.length === 0) {
+      return c.json({ error: "Chưa có mã cổ phiếu theo dõi nào." }, 400);
+    }
+
+    // 2. Fetch recent labeled news (48h, non-trash) — same as email_notifier
+    const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const { data: news } = await supabase
+      .from("market_news")
+      .select("title,content_summary,label,impact_score,impact_reasoning,symbol,affected_symbols,source,published_at,news_type")
+      .in("label", ["very_positive", "positive", "negative", "very_negative"])
+      .gte("published_at", since)
+      .order("published_at", { ascending: false })
+      .limit(80);
+
+    // 3. Filter relevant to watch_symbols (direct symbol OR in affected_symbols)
+    const relevant = (news ?? []).filter((n: any) => {
+      const sym: string = n.symbol ?? "";
+      const affected: string[] = n.affected_symbols ?? [];
+      return watchSymbols.includes(sym) || affected.some((s: string) => watchSymbols.includes(s));
+    });
+
+    // 4. Group by symbol, sort by |impact_score| desc (same as email_notifier)
+    const bySymbol: Record<string, any[]> = {};
+    for (const sym of watchSymbols) bySymbol[sym] = [];
+    for (const item of relevant) {
+      const sym: string = item.symbol ?? "";
+      const affected: string[] = item.affected_symbols ?? [];
+      const targets = watchSymbols.filter(s => s === sym || affected.includes(s));
+      for (const t of targets) {
+        if (!bySymbol[t]) bySymbol[t] = [];
+        if (!bySymbol[t].find((x: any) => x.title === item.title)) bySymbol[t].push(item);
+      }
+    }
+    for (const sym of watchSymbols) {
+      bySymbol[sym].sort((a: any, b: any) => Math.abs(b.impact_score ?? 0) - Math.abs(a.impact_score ?? 0));
+    }
+
+    // 5. Build news context (same structure as pipeline_runner user_text)
+    let newsContext = `Ngày: ${new Date().toLocaleDateString("vi-VN")}\nMã theo dõi: ${watchSymbols.join(", ")}\n\n`;
+    newsContext += "=== TIN TỨC 48H (đã label bởi AI) ===\n\n";
+    for (const sym of watchSymbols) {
+      const items = bySymbol[sym] ?? [];
+      if (items.length === 0) continue;
+      newsContext += `## ${sym}\n`;
+      for (const n of items.slice(0, 5)) {
+        const score = n.impact_score != null ? ` [score: ${n.impact_score > 0 ? "+" : ""}${n.impact_score}]` : "";
+        newsContext += `[${(n.label ?? "").toUpperCase()}${score}] ${n.title}\n`;
+        if (n.content_summary) newsContext += `Tóm tắt: ${n.content_summary}\n`;
+        if (n.impact_reasoning) newsContext += `Reasoning: ${n.impact_reasoning}\n`;
+        newsContext += `Nguồn: ${n.source ?? "N/A"} | ${(n.published_at ?? "").slice(0, 10)}\n\n`;
+      }
+    }
+    if (relevant.length === 0) newsContext += "(Không có tin tức liên quan trong 48h qua)\n";
+
+    // 6. Call OpenAI gpt-4.1-mini (same model as pipeline_runner)
+    const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        max_tokens: 1024,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: newsContext },
+        ],
+      }),
+    });
+
+    if (!openaiRes.ok) {
+      const errText = await openaiRes.text();
+      return c.json({ error: `OpenAI API error: ${openaiRes.status}`, details: errText }, 500);
+    }
+
+    const openaiData = await openaiRes.json();
+    const brief: string = openaiData.choices?.[0]?.message?.content ?? "";
+    const tokensUsed: number = openaiData.usage?.total_tokens ?? 0;
+
+    return c.json({ brief, tokensUsed, newsCount: relevant.length, symbols: watchSymbols, model: "gpt-4.1-mini" });
+  } catch (error) {
+    console.log("agent-dry-run error:", error);
+    return c.json({ error: "Failed to run agent", details: String(error) }, 500);
+  }
+});
+
 Deno.serve(app.fetch);

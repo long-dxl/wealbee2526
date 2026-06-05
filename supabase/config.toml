@@ -1,2 +1,14 @@
 [functions.resend-webhook]
 verify_jwt = false
+
+[functions.studio-test-run]
+verify_jwt = false
+
+[functions.studio-optimize]
+verify_jwt = false
+
+[functions.studio-save-agent]
+verify_jwt = false
+
+[functions.agent-scheduler]
+verify_jwt = false

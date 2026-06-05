@@ -82,7 +82,7 @@ NEWS_TYPE_VI = {
 
 
 def fetch_subscribers(sb) -> list[dict]:
-    result = sb.table('subscribers').select('email,holdings').execute()
+    result = sb.table('digest_subscribers').select('email,watch_symbols').eq('is_paused', False).execute()
     return result.data or []
 
 
@@ -455,13 +455,11 @@ def _multi_news_item_html(news: dict, user_symbols: set) -> str:
         </tr>"""
 
 
-def build_email_html(email: str, holdings: list[dict], news_by_symbol: dict) -> str:
+def build_email_html(email: str, symbols: list[str], news_by_symbol: dict) -> str:
     from zoneinfo import ZoneInfo
     vn_now     = datetime.now(ZoneInfo('Asia/Ho_Chi_Minh'))
     today_str  = vn_now.strftime('%d/%m/%Y')
     now_str    = vn_now.strftime('%H:%M')
-    weekday_vi = ['Thu Hai','Thu Ba','Thu Tu','Thu Nam','Thu Sau','Thu Bay','Chu Nhat']
-    weekday    = weekday_vi[vn_now.weekday()]
 
     weekday_full = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật']
     weekday_display = weekday_full[vn_now.weekday()]
@@ -475,11 +473,10 @@ def build_email_html(email: str, holdings: list[dict], news_by_symbol: dict) -> 
         buoi = 'buổi chiều'
     else:
         buoi = 'buổi tối'
-    buoi_cap = buoi.capitalize()
 
     # Phân loại cổ phiếu có / không có tin
-    symbols_with_news    = [h.get('symbol') for h in holdings if h.get('symbol') and news_by_symbol.get(h.get('symbol'))]
-    symbols_without_news = [h.get('symbol') for h in holdings if h.get('symbol') and not news_by_symbol.get(h.get('symbol'))]
+    symbols_with_news    = [s for s in symbols if s and news_by_symbol.get(s)]
+    symbols_without_news = [s for s in symbols if s and not news_by_symbol.get(s)]
 
     # Block tổng quan danh mục
     with_news_html = ''
@@ -547,7 +544,7 @@ def build_email_html(email: str, holdings: list[dict], news_by_symbol: dict) -> 
         </tr>"""
 
     # ── Phát hiện bài ảnh hưởng ≥2 cổ phiếu user đang giữ ──────────────────────
-    user_symbols_set = {h.get('symbol') for h in holdings if h.get('symbol')}
+    user_symbols_set = set(s for s in symbols if s)
     article_to_user_syms: dict = {}
     article_by_id: dict        = {}
     for _sym in user_symbols_set:
@@ -588,9 +585,9 @@ def build_email_html(email: str, holdings: list[dict], news_by_symbol: dict) -> 
 
     # ── Per-symbol sections (loại bỏ bài đã hiển thị trong multi_block) ─────────
     per_symbol_blocks = ''
-    for holding in holdings:
-        symbol    = holding.get('symbol', '')
-        quantity  = holding.get('quantity', 0)
+    for symbol in symbols:
+        if not symbol:
+            continue
         news_list = [n for n in news_by_symbol.get(symbol, []) if n['id'] not in multi_ids]
         if not news_list:
             continue
@@ -602,7 +599,6 @@ def build_email_html(email: str, holdings: list[dict], news_by_symbol: dict) -> 
               <tr>
                 <td>
                   <span style="color:#030213;font-size:18px;font-weight:700;">{symbol}</span>
-                  <span style="color:#717182;font-size:14px;margin-left:8px;">{quantity:,} cổ phiếu</span>
                 </td>
               </tr>
             </table>
@@ -619,7 +615,7 @@ def build_email_html(email: str, holdings: list[dict], news_by_symbol: dict) -> 
 
     # Nếu không có tin nào → block thông báo
     if not holding_blocks:
-        symbol_list = ' · '.join(f'<strong>{s}</strong>' for s in symbols_without_news) if symbols_without_news else 'các cổ phiếu trong danh mục'
+        symbol_list = ' · '.join(f'<strong>{s}</strong>' for s in symbols_without_news) if symbols_without_news else 'các mã bạn đang theo dõi'
         holding_blocks = f"""
         <tr>
           <td class="pw" style="background:#ffffff;padding:8px 32px 24px;">
@@ -793,7 +789,11 @@ def send_email(to: str, subject: str, html: str) -> bool:
         return False
 
 
-def run(test_email=None):
+def run(test_email=None, manual_email=None):
+    """
+    manual_email: chỉ gửi cho 1 người khi user ấn chạy thủ công trên platform.
+    test_email: dùng để test (override email đích).
+    """
     if not RESEND_API_KEY:
         log.error('Thieu RESEND_API_KEY trong .env')
         return
@@ -804,16 +804,20 @@ def run(test_email=None):
 
     log.info('[1] Load subscribers...')
     subscribers = fetch_subscribers(sb)
-    if test_email:
+    if manual_email:
+        # Chạy thủ công → chỉ gửi cho đúng người đó
+        subscribers = [s for s in subscribers if s['email'] == manual_email]
+        log.info(f'  -> Chế độ thủ công: {manual_email}')
+    elif test_email:
         allowed = {test_email} if isinstance(test_email, str) else set(test_email)
         subscribers = [s for s in subscribers if s['email'] in allowed]
     log.info(f'  -> {len(subscribers):,} subscribers')
 
     all_symbols = set()
     for sub in subscribers:
-        for h in (sub.get('holdings') or []):
-            if h.get('symbol'):
-                all_symbols.add(h['symbol'])
+        for sym in (sub.get('watch_symbols') or []):
+            if sym:
+                all_symbols.add(sym)
 
     log.info(f'[2] Fetch tin tuc cho {len(all_symbols)} symbols...')
     news_by_symbol = {}
@@ -839,13 +843,13 @@ def run(test_email=None):
         _buoi = 'Buổi Tối'
 
     for sub in subscribers:
-        email    = sub.get('email', '')
-        holdings = sub.get('holdings') or []
-        if not holdings:
-            log.info(f'  Skip {email} (khong co holdings)')
+        email   = sub.get('email', '')
+        symbols = sub.get('watch_symbols') or []
+        if not symbols:
+            log.info(f'  Skip {email} (khong co watch_symbols)')
             skip += 1
             continue
-        html = build_email_html(email, holdings, news_by_symbol)
+        html = build_email_html(email, symbols, news_by_symbol)
         if not html:
             log.info(f'  Skip {email} (html rong)')
             skip += 1

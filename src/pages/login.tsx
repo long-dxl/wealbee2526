@@ -42,7 +42,7 @@ export function Login() {
         // Liên kết user_id vào subscribers nếu chưa có (account cũ subscribe qua /start)
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          await supabase.from('subscribers')
+          await supabase.from('digest_subscribers')
             .update({ user_id: user.id })
             .eq('email', email)
             .is('user_id', null);
@@ -53,8 +53,8 @@ export function Login() {
         // Lấy user vừa tạo để có uid, upsert subscribers với user_id
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          await supabase.from('subscribers').upsert(
-            { email, name, user_id: user.id },
+          await supabase.from('digest_subscribers').upsert(
+            { email, watch_symbols: [], user_id: user.id },
             { onConflict: 'email' }
           );
         }

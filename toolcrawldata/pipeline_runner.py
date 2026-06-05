@@ -15,6 +15,7 @@ Chạy qua GitHub Actions (7h sáng mỗi ngày):
 
 import sys
 import time
+import math
 import logging
 from datetime import datetime, date, timedelta
 from pathlib import Path
@@ -51,22 +52,57 @@ def step_header(step: int, title: str):
     log.info('=' * 55)
 
 
+# ── Incremental crawl state ────────────────────────────────────────────────────
+
+def get_last_crawled_at() -> datetime:
+    """Lấy thời điểm crawl cuối từ crawl_state. Fallback: 24h trước."""
+    try:
+        from supabase_writer import get_client
+        sb = get_client()
+        r  = sb.table('crawl_state').select('last_crawled_at').eq('id', 'singleton').execute()
+        ts = (r.data or [{}])[0].get('last_crawled_at')
+        if ts:
+            dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            return dt.replace(tzinfo=None)
+    except Exception as e:
+        log.warning(f'  get_last_crawled_at error: {e}')
+    return datetime.now() - timedelta(hours=24)
+
+
+def update_last_crawled_at():
+    """Cập nhật last_crawled_at = now() sau khi crawl xong."""
+    try:
+        from supabase_writer import get_client
+        sb  = get_client()
+        now = datetime.now().isoformat()
+        sb.table('crawl_state').upsert(
+            {'id': 'singleton', 'last_crawled_at': now, 'updated_at': now}
+        ).execute()
+    except Exception as e:
+        log.warning(f'  update_last_crawled_at error: {e}')
+
+
 # ── Bước 1: Crawl ──────────────────────────────────────────────────────────────
 
-def run_crawl() -> list[str]:
+def run_crawl(since_dt: datetime = None) -> list[str]:
     """
-    Crawl Vietstock + Markettimes + ThoiBaoTaiChinhVN + BaoDauTu + KinhTeChungKhoan trong 24h gần nhất.
+    Incremental crawl: chỉ kéo từ since_dt → now() thay vì toàn bộ 24h.
     Upsert theo article_url → không trùng lặp.
-    Trả về list ID các bài vừa được INSERT mới (không phải update).
+    Trả về list URL các bài vừa được INSERT mới.
     """
-    step_header(1, 'CRAWL TIN TỨC (24h)')
+    if since_dt is None:
+        since_dt = datetime.now() - timedelta(hours=24)
+
+    hours_elapsed = max(0.0, (datetime.now() - since_dt).total_seconds() / 3600)
+    lookback_days = max(1, math.ceil(hours_elapsed / 24))
+
+    step_header(1, f'CRAWL TIN TỨC (delta={hours_elapsed:.1f}h → lookback={lookback_days}d)')
 
     from supabase_writer import get_client
     sb = get_client()
 
-    # Lấy set article_url đã tồn tại TRƯỚC khi crawl
-    # published_at lưu giờ VN (UTC+7) → dùng giờ local thay vì UTC
-    since = (datetime.now() - timedelta(hours=24)).isoformat()
+    # Lấy set article_url đã tồn tại trong khoảng thời gian cần crawl (+ 1h buffer tránh miss)
+    since = (since_dt - timedelta(hours=1)).isoformat()
     existing_urls = set()
     offset = 0
     while True:
@@ -91,7 +127,7 @@ def run_crawl() -> list[str]:
         mod  = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        mod.START_DATE = date.today() - timedelta(days=1)
+        mod.START_DATE = date.today() - timedelta(days=lookback_days)
 
         articles = mod.scrape_article_list()
         if articles:
@@ -132,7 +168,7 @@ def run_crawl() -> list[str]:
         mod  = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        articles = mod.scrape_all_channels(lookback_days=2)
+        articles = mod.scrape_all_channels(lookback_days=lookback_days)
         if articles:
             articles = mod.enrich_content(articles)
             cutoff = datetime.now() - timedelta(hours=28)
@@ -159,7 +195,7 @@ def run_crawl() -> list[str]:
         mod  = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        mod.LOOKBACK_DAYS = 1
+        mod.LOOKBACK_DAYS = lookback_days
         mod.WORKERS       = 4
         # thoibaotaichinhvietnam không có pagination → MAX_PAGES không áp dụng
 
@@ -184,7 +220,7 @@ def run_crawl() -> list[str]:
         mod  = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        mod.LOOKBACK_DAYS = 1
+        mod.LOOKBACK_DAYS = lookback_days
         mod.MAX_PAGES     = 5
         mod.WORKERS       = 4
 
@@ -209,7 +245,7 @@ def run_crawl() -> list[str]:
         mod  = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        mod.LOOKBACK_DAYS = 1
+        mod.LOOKBACK_DAYS = lookback_days
         mod.WORKERS       = 4
         # kinhtechungkhoan dùng JS "Xem thêm" → không có URL pagination
 
@@ -234,7 +270,7 @@ def run_crawl() -> list[str]:
         mod  = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        mod.LOOKBACK_DAYS = 1
+        mod.LOOKBACK_DAYS = lookback_days
         mod.WORKERS       = 4
 
         articles = mod.scrape_all()
@@ -256,7 +292,7 @@ def run_crawl() -> list[str]:
         mod  = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        mod.LOOKBACK_DAYS = 1
+        mod.LOOKBACK_DAYS = lookback_days
         mod.WORKERS       = 4
 
         articles = mod.scrape_all()
@@ -280,7 +316,7 @@ def run_crawl() -> list[str]:
         mod  = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        mod.LOOKBACK_DAYS = 1
+        mod.LOOKBACK_DAYS = lookback_days
         mod.WORKERS       = 4
 
         articles = mod.scrape_all()
@@ -304,7 +340,7 @@ def run_crawl() -> list[str]:
         mod  = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        mod.LOOKBACK_DAYS = 1
+        mod.LOOKBACK_DAYS = lookback_days
         mod.WORKERS       = 4
 
         articles = mod.scrape_all()
@@ -769,12 +805,12 @@ Nếu không trash:
 
 # ── Bước 3: Email ──────────────────────────────────────────────────────────────
 
-def run_email(test_email: str = None):
-    """Gửi email. Nếu test_email được truyền vào, chỉ gửi cho địa chỉ đó."""
+def run_email(test_email: str = None, manual_email: str = None):
+    """Gửi email. manual_email: chỉ gửi cho 1 người khi chạy thủ công."""
     step_header(3, 'GỬI EMAIL THÔNG BÁO')
     try:
         from email_notifier import run
-        run(test_email=test_email)
+        run(test_email=test_email, manual_email=manual_email)
     except Exception as e:
         log.error(f'  Email lỗi: {e}')
 
@@ -782,19 +818,34 @@ def run_email(test_email: str = None):
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description='Wealbee Pipeline Runner')
+    parser.add_argument('--test-email',    metavar='EMAIL', help='Test: gửi email cho địa chỉ này')
+    parser.add_argument('--manual-email',  metavar='EMAIL', help='Chạy thủ công: chỉ gửi cho user này')
+    args = parser.parse_args()
+
     start = time.time()
 
     log.info('=' * 55)
     log.info(f'  WEALBEE PIPELINE — {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
+    if args.manual_email:
+        log.info(f'  CHẾ ĐỘ THỦ CÔNG → gửi cho: {args.manual_email}')
     log.info('=' * 55)
 
-    new_urls = run_crawl()
+    since_dt = get_last_crawled_at()
+    log.info(f'  Last crawled: {since_dt.strftime("%d/%m/%Y %H:%M:%S")}')
+
+    new_urls = run_crawl(since_dt)
+    update_last_crawled_at()
     time.sleep(2)
 
     n_labeled = run_label_and_score(new_urls)
     time.sleep(2)
 
-    run_email()
+    run_email(
+        test_email=args.test_email,
+        manual_email=args.manual_email,
+    )
 
     elapsed = time.time() - start
     log.info('=' * 55)

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Sparkles, Clock, AlertTriangle, ChevronRight, X, BookOpen, RefreshCw, GripVertical } from "lucide-react";
+import { Sparkles, Clock, AlertTriangle, ChevronRight, X, BookOpen, RefreshCw, GripVertical, ExternalLink } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 
@@ -15,6 +15,15 @@ function makeDragHandlers(card: ContextCard) {
   };
 }
 
+interface BriefSource {
+  type: "news" | "financial" | "insider" | "dividend" | "exchange";
+  title: string;
+  url: string | null;
+  date?: string;
+  source?: string;
+}
+interface RefEntry { index: number; label: string; url: string; }
+
 interface Brief {
   id: string;
   type: "brief" | "alert";
@@ -26,124 +35,46 @@ interface Brief {
   symbol?: string;
   read: boolean;
   severity?: "info" | "warn" | "critical";
+  refs?: RefEntry[];
+  sources?: BriefSource[];
 }
 
-const mockBriefs: Brief[] = [
-  {
-    id: "1", type: "alert", agentName: "Portfolio Health",
-    title: "MWG dưới ngưỡng cảnh báo -3%",
-    summary: "MWG giảm -3.20% xuống 62,100đ, dưới ngưỡng cảnh báo đã thiết lập (-3%)",
-    body: `## Cảnh báo: MWG [-3.20%]
-
-**Mobile World (MWG)** đã giảm xuống còn **62,100đ** (-3.20%), vượt ngưỡng cảnh báo -3% bạn đã thiết lập.
-
-### Chi tiết:
-- Giá hiện tại: 62,100đ
-- Ngưỡng cảnh báo: 64,100đ (-3.0%)
-- Mức giảm so với giá TB của bạn: -8.7%
-- Khối lượng hôm nay: 8.1M cp (cao hơn TB 30 ngày 42%)
-
-### Nguyên nhân có thể:
-- Tin tức tiêu cực về ngành bán lẻ
-- Áp lực bán kỹ thuật
-
-### Lưu ý:
-Thông tin này chỉ mang tính tham khảo. Quyết định đầu tư cần được thực hiện dựa trên phân tích toàn diện và tham vấn chuyên gia có chứng chỉ.`,
-    time: "07:55", symbol: "MWG", read: false, severity: "warn",
-  },
-  {
-    id: "2", type: "brief", agentName: "Insider Tracker",
-    title: "HPG: Phó TGĐ đăng ký bán 500,000 cp",
-    summary: "Filing HOSE 07:20 - Phó TGĐ Hoà Phát đăng ký bán 500,000 cp từ 16-30/5",
-    body: `## Insider Filing: HPG
-
-**Người nội bộ:** Phó TGĐ Công ty CP Tập đoàn Hoà Phát
-**Số lượng đăng ký bán:** 500,000 cp
-**Thời gian giao dịch:** 16/05/2026 – 30/05/2026
-**Mục đích:** Nhu cầu cá nhân (theo công bố)
-
-### Phân tích:
-Insider bán trong bối cảnh cổ phiếu tăng +4.1% hôm nay có thể là:
-1. Chốt lời sau đà tăng mạnh
-2. Nhu cầu thanh khoản cá nhân
-3. Tín hiệu nhận định giá cao
-
-Khối lượng 500,000 cp ≈ **13.25 tỷ VND** theo giá hiện tại — không nhỏ nhưng chưa ở mức đáng lo ngại so với sở hữu tổng.
-
-### Lưu ý tuân thủ:
-Đây là thông tin phân tích từ dữ liệu công khai. Không phải khuyến nghị mua/bán theo Luật Chứng khoán 2019, NĐ 155/2020.`,
-    time: "07:30", symbol: "HPG", read: false, severity: "info",
-  },
-  {
-    id: "3", type: "brief", agentName: "Daily Market Digest",
-    title: "Tóm tắt thị trường sáng 15/05",
-    summary: "VN-Index +0.42% · HPG dẫn đầu +4.1% · Khối ngoại mua ròng +124 tỷ · FPT ĐHCĐ chiều nay",
-    body: `## Tóm tắt thị trường · Thứ Năm 15/05/2026
-
-**VN-INDEX:** 1,287.34 (+5.41 · +0.42%)
-**HNX-INDEX:** 232.18 (-0.25 · -0.11%)
-**Tổng thanh khoản:** 9,360 tỷ VND (+18% so TB 30 ngày)
-
-### Điểm nổi bật:
-1. **HPG +4.1%** — Giá thép HRC châu Á phục hồi tuần này hỗ trợ nhóm thép VN. Lưu ý: Insider bán 500k cp.
-2. **Khối ngoại mua ròng +124 tỷ** — Tập trung HPG (+48 tỷ), VCB (+31 tỷ). Phiên mua ròng liên tiếp thứ 3.
-3. **FPT ĐHCĐ lúc 14:00** — Kỳ vọng công bố kế hoạch cổ tức và định hướng AI năm 2026.
-
-### Nhóm hưởng lợi:
-Thép, IT/Tech, Ngân hàng
-
-### Nhóm chịu áp lực:
-BĐS, Bán lẻ (MWG -3.2%, DXG -2.9%)
-
-### Macro:
-CPI tháng 4: **3.7%** (dưới mục tiêu 4%). NHNN duy trì lãi suất điều hành → tích cực cho thị trường trái phiếu và nhóm vay vốn.
-
----
-
-*Thông tin tổng hợp từ dữ liệu công khai. Không phải tư vấn đầu tư.*`,
-    time: "08:00", read: true, severity: "info",
-  },
-  {
-    id: "4", type: "brief", agentName: "Portfolio Health",
-    title: "Báo cáo sức khỏe danh mục · Thứ Năm",
-    summary: "Danh mục +0.67% hôm nay · VCB, FPT, HPG tích cực · MWG cần chú ý",
-    body: `## Báo cáo sức khỏe danh mục · 15/05/2026
-
-**Giá trị danh mục:** 1,247,500,000 đ
-**Thay đổi hôm nay:** +8,340,000 đ (+0.67%)
-**Tổng P&L:** +65,150,000 đ (+5.5% vs giá vốn)
-
-### Trạng thái từng mã:
-| Mã | Giá HT | Thay đổi | P&L | Trạng thái |
-|---|---|---|---|---|
-| VCB | 91,200 | +0.80% | +7.3% | Ổn định |
-| HPG | 26,500 | +4.10% | +20.5% | Tốt |
-| MWG | 62,100 | -3.20% | -8.7% | Cần chú ý |
-| FPT | 128,400 | +1.45% | +16.7% | Tốt |
-| VNM | 68,900 | -0.43% | -4.3% | Theo dõi |
-
-### Khuyến cáo:
-MWG đang dưới ngưỡng cảnh báo. Theo dõi diễn biến phiên chiều.
-
-*Không phải tư vấn đầu tư theo Luật Chứng khoán 2019.*`,
-    time: "09:15", read: true, severity: "info",
-  },
-];
 
 // ── Simple markdown renderer ─────────────────────────────────────────────────
 
-function renderInline(text: string): React.ReactNode {
-  const parts = text.split(/(\*\*.*?\*\*)/g);
+function renderInline(text: string, refs?: RefEntry[]): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[ref:\d+\]|\[[^\]]+\]\([^)]+\))/g);
   return parts.map((part, i) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
+    if (part.startsWith("**") && part.endsWith("**"))
       return <strong key={i} style={{ fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
+
+    if (part.startsWith("`") && part.endsWith("`"))
+      return <code key={i} style={{ fontFamily: "monospace", fontSize: "0.85em", background: "rgba(8,73,172,0.07)", padding: "1px 5px", borderRadius: 4, color: "#0849ac" }}>{part.slice(1, -1)}</code>;
+
+    const refMatch = part.match(/^\[ref:(\d+)\]$/);
+    if (refMatch) {
+      const entry = refs?.find(r => r.index === parseInt(refMatch[1]));
+      if (entry) return (
+        <a key={i} href={entry.url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "1px 7px", borderRadius: 4, marginLeft: 3, fontSize: "0.72em", fontWeight: 600, color: "#0849ac", background: "rgba(8,73,172,0.08)", border: "1px solid rgba(8,73,172,0.15)", textDecoration: "none", verticalAlign: "middle", lineHeight: 1.7, whiteSpace: "nowrap" }}>
+          {entry.label}<ExternalLink style={{ width: 8, height: 8 }} />
+        </a>
+      );
+      return null;
     }
+
+    const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (linkMatch) return (
+      <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "1px 7px", borderRadius: 4, marginLeft: 3, fontSize: "0.72em", fontWeight: 600, color: "#0849ac", background: "rgba(8,73,172,0.08)", border: "1px solid rgba(8,73,172,0.15)", textDecoration: "none", verticalAlign: "middle", lineHeight: 1.7, whiteSpace: "nowrap" }}>
+        {linkMatch[1]}<ExternalLink style={{ width: 8, height: 8 }} />
+      </a>
+    );
+
     return part;
   });
 }
 
-function MarkdownBody({ body, fg, fgMuted, fgSubtle, divider, isDark }: {
-  body: string; fg: string; fgMuted: string; fgSubtle: string; divider: string; isDark: boolean;
+function MarkdownBody({ body, fg, fgMuted, fgSubtle, divider, isDark, refs }: {
+  body: string; fg: string; fgMuted: string; fgSubtle: string; divider: string; isDark: boolean; refs?: RefEntry[];
 }) {
   const lines = body.split("\n");
   const elements: React.ReactNode[] = [];
@@ -219,7 +150,7 @@ function MarkdownBody({ body, fg, fgMuted, fgSubtle, divider, isDark }: {
                   <tr key={j} style={{ borderBottom: `0.5px solid ${divider}` }}>
                     {row.map((cell, k) => (
                       <td key={k} style={{ padding: "8px 12px", color: fgMuted, verticalAlign: "middle" }}>
-                        {renderInline(cell)}
+                        {renderInline(cell, refs)}
                       </td>
                     ))}
                   </tr>
@@ -242,7 +173,7 @@ function MarkdownBody({ body, fg, fgMuted, fgSubtle, divider, isDark }: {
       elements.push(
         <ul key={key++} style={{ margin: "6px 0 10px", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
           {items.map((item, j) => (
-            <li key={j} style={{ fontSize: 14, color: fgMuted, lineHeight: 1.65 }}>{renderInline(item)}</li>
+            <li key={j} style={{ fontSize: 14, color: fgMuted, lineHeight: 1.65 }}>{renderInline(item, refs)}</li>
           ))}
         </ul>
       );
@@ -259,7 +190,7 @@ function MarkdownBody({ body, fg, fgMuted, fgSubtle, divider, isDark }: {
       elements.push(
         <ol key={key++} style={{ margin: "6px 0 10px", paddingLeft: 20, display: "flex", flexDirection: "column", gap: 4 }}>
           {items.map((item, j) => (
-            <li key={j} style={{ fontSize: 14, color: fgMuted, lineHeight: 1.65 }}>{renderInline(item)}</li>
+            <li key={j} style={{ fontSize: 14, color: fgMuted, lineHeight: 1.65 }}>{renderInline(item, refs)}</li>
           ))}
         </ol>
       );
@@ -269,7 +200,7 @@ function MarkdownBody({ body, fg, fgMuted, fgSubtle, divider, isDark }: {
     // Regular paragraph
     elements.push(
       <p key={key++} style={{ margin: "0 0 10px", fontSize: 14, color: fgMuted, lineHeight: 1.75 }}>
-        {renderInline(line)}
+        {renderInline(line, refs)}
       </p>
     );
     i++;
@@ -300,7 +231,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
     setLoadingBriefs(true);
     const { data, error } = await supabase
       .from("briefs")
-      .select("id, type, title, summary, content, is_read, created_at, tickers, impact_score, agent_id")
+      .select("id, type, title, summary, content, is_read, created_at, tickers, impact_score, agent_id, refs, sources")
       .order("created_at", { ascending: false })
       .limit(50);
 
@@ -316,10 +247,12 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
         symbol: row.tickers?.[0],
         read: row.is_read ?? false,
         severity: row.impact_score != null && row.impact_score < -3 ? "warn" : "info",
+        refs: row.refs ?? [],
+        sources: row.sources ?? [],
       }));
-      setBriefs(mapped.length > 0 ? mapped : mockBriefs);
+      setBriefs(mapped);
     } else {
-      setBriefs(mockBriefs);
+      setBriefs([]);
     }
     setLoadingBriefs(false);
   };
@@ -398,12 +331,27 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
         boxShadow: isDark ? "0 1px 4px rgba(0,0,0,0.40)" : "0 1px 4px rgba(0,0,0,0.06)",
         overflow: "hidden",
       }}>
+        {!loadingBriefs && filtered.length === 0 && (
+          <div style={{ padding: "48px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Sparkles size={22} color={brand} strokeWidth={1.5} />
+            </div>
+            <div>
+              <p style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                Chưa có brief nào
+              </p>
+              <p style={{ margin: 0, fontSize: 13, color: fgMuted, fontFamily: "'Montserrat', system-ui, sans-serif", lineHeight: 1.6 }}>
+                Kích hoạt agent để tự động nhận phân tích<br />và cảnh báo thị trường hàng ngày
+              </p>
+            </div>
+          </div>
+        )}
         {filtered.map((brief, idx) => {
           const isAlert = brief.type === "alert";
           const accentColor = isAlert ? "#FF9500" : brand;
           const dragCard: ContextCard = {
             id: `inbox-${brief.id}`,
-            type: isAlert ? "news" : "news",
+            type: isAlert ? "news" : "report",
             label: brief.title.length > 40 ? brief.title.slice(0, 40) + "…" : brief.title,
             badge: isAlert ? "Alert" : brief.agentName,
             summary: brief.summary,
@@ -585,7 +533,33 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                 body={selected.body}
                 fg={fg} fgMuted={fgMuted} fgSubtle={fgSubtle}
                 divider={divider} isDark={isDark}
+                refs={selected.refs}
               />
+
+              {/* Sources panel */}
+              {selected.sources && selected.sources.length > 0 && (
+                <div style={{ marginTop: 20, padding: "12px 14px", background: isDark ? "rgba(255,255,255,0.03)" : "rgba(8,73,172,0.03)", border: `1px solid ${divider}`, borderRadius: 10 }}>
+                  <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: fgSubtle, letterSpacing: "0.07em" }}>NGUỒN DỮ LIỆU</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {selected.sources.map((s, idx) => (
+                      <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: 7 }}>
+                        <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.07)", color: brand, fontWeight: 700, flexShrink: 0, marginTop: 1, whiteSpace: "nowrap" }}>
+                          {s.type === "news" ? "Tin" : s.type === "financial" ? "BCTC" : s.type === "insider" ? "Nội bộ" : s.type === "dividend" ? "Cổ tức" : "Sàn"}
+                        </span>
+                        {s.url ? (
+                          <a href={s.url} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: 13, color: fgMuted, textDecoration: "none", lineHeight: 1.4, flex: 1, display: "flex", alignItems: "center", gap: 4 }}>
+                            <span>{s.title}{s.date && <span style={{ marginLeft: 5, fontSize: 11, color: fgSubtle }}>{s.date}</span>}</span>
+                            <ExternalLink style={{ width: 10, height: 10, flexShrink: 0, color: fgSubtle }} />
+                          </a>
+                        ) : (
+                          <span style={{ fontSize: 13, color: fgMuted, lineHeight: 1.4 }}>{s.title}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Modal footer */}

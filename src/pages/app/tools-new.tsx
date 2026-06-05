@@ -17,13 +17,14 @@ interface Tool {
   iconBg: string;
   iconColor: string;
   stats: { uses: string; speed: string; acc: string };
+  available?: boolean;
 }
 
 const tools: Tool[] = [
   {
     id: "realtime-price",
-    name: "Giá cổ phiếu realtime",
-    oneliner: "Giá, khối lượng & biến động tức thì trên HOSE/HNX",
+    name: "Giá cổ phiếu cuối phiên",
+    oneliner: "Giá đóng cửa, khối lượng & biến động theo phiên HOSE/HNX",
     category: "Thị trường",
     icon: TrendingUp,
     iconBg: "linear-gradient(135deg,#34C759,#22c55e)",
@@ -119,6 +120,7 @@ const tools: Tool[] = [
     iconBg: "linear-gradient(135deg,#FF3B30,#ef4444)",
     iconColor: "#fff",
     stats: { uses: "7.9K", speed: "0.8s", acc: "99.7%" },
+    available: false,
   },
   {
     id: "rsi",
@@ -129,6 +131,7 @@ const tools: Tool[] = [
     iconBg: "linear-gradient(135deg,#4b5563,#6b7280)",
     iconColor: "#fff",
     stats: { uses: "10.3K", speed: "0.4s", acc: "96.4%" },
+    available: false,
   },
   {
     id: "macd",
@@ -139,6 +142,7 @@ const tools: Tool[] = [
     iconBg: "linear-gradient(135deg,#1A1A2E,#374151)",
     iconColor: "#fff",
     stats: { uses: "9.7K", speed: "0.4s", acc: "95.8%" },
+    available: false,
   },
 ];
 
@@ -239,18 +243,22 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
           const Icon = tool.icon;
           const hovered = hoverId === tool.id;
 
+          const unavail = tool.available === false;
           return (
             <div
               key={tool.id}
-              draggable
-              onDragStart={(e) => handleDragStart(e, tool)}
+              draggable={!unavail}
+              onDragStart={(e) => !unavail && handleDragStart(e, tool)}
               onDragEnd={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-              onMouseEnter={() => setHoverId(tool.id)}
+              onMouseEnter={() => !unavail && setHoverId(tool.id)}
               onMouseLeave={() => setHoverId(null)}
               style={{
                 background: cardBg,
                 borderRadius: 14,
                 padding: "16px 16px 14px",
+                opacity: unavail ? 0.45 : 1,
+                filter: unavail ? "grayscale(0.6)" : "none",
+                cursor: unavail ? "default" : "grab",
                 border: hovered
                   ? "1px solid " + (isDark ? "rgba(77,143,232,0.35)" : "rgba(8,73,172,0.20)")
                   : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.09)"),
@@ -294,17 +302,23 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
                 </div>
               </div>
 
-              {/* Name + verified */}
+              {/* Name + verified / coming soon */}
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: fg, marginBottom: 3, lineHeight: 1.3 }}>
                   {tool.name}
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <div style={{ width: 14, height: 14, borderRadius: "50%", background: brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Check size={9} color="#fff" strokeWidth={3} />
+                {tool.available === false ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)", color: fgSubtle }}>Sắp ra mắt</span>
                   </div>
-                  <span style={{ fontSize: 11, color: fgSubtle, fontWeight: 500 }}>Wealbee · Tích hợp chính thức</span>
-                </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <div style={{ width: 14, height: 14, borderRadius: "50%", background: brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Check size={9} color="#fff" strokeWidth={3} />
+                    </div>
+                    <span style={{ fontSize: 11, color: fgSubtle, fontWeight: 500 }}>Wealbee · Tích hợp chính thức</span>
+                  </div>
+                )}
               </div>
 
               {/* One-liner description */}

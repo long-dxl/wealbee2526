@@ -1,12 +1,13 @@
 import { Outlet, useNavigate, useLocation } from "react-router";
 import { Toaster } from "sonner";
 import { Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Sidebar } from "./new-sidebar";
 import { ActionHub } from "./new-action-hub";
 import { GlobalSearch } from "./global-search";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { ProtectedRoute } from "./protected-route";
+import { supabase } from "../lib/supabase/client";
 import type { ContextCard } from "../types/cards";
 
 // ─── Route → page-id mapping ──────────────────────────────────────────────────
@@ -50,6 +51,44 @@ function NewLayoutInner() {
   const [actionHubOpen, setActionHubOpen] = useState(true);
   const [hubWidth, setHubWidth] = useState(380);
   const [hubContextCards, setHubContextCards] = useState<ContextCard[]>([]);
+  const [tokenUsed, setTokenUsed] = useState(0);
+  const TOKEN_LIMIT = 500_000;
+
+  const fetchTokens = (userId: string) => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    supabase
+      .from("agent_runs")
+      .select("tokens_used")
+      .eq("user_id", userId)
+      .eq("status", "completed")
+      .gte("started_at", todayStart.toISOString())
+      .then(({ data }) => {
+        const total = (data ?? []).reduce((sum, r) => sum + (r.tokens_used ?? 0), 0);
+        setTokenUsed(total);
+      });
+  };
+
+  // Load ngay khi session sẵn sàng (getSession đọc localStorage, không cần network)
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) fetchTokens(session.user.id);
+    });
+
+    // Lắng nghe auth thay đổi (login/logout) để cập nhật
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) fetchTokens(session.user.id);
+      else setTokenUsed(0);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Refresh khi chuyển trang
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) fetchTokens(session.user.id);
+    });
+  }, [location.pathname]);
 
   // Derive currentPage from URL
   // For /app/ticker/:symbol — no direct sidebar item, highlight nothing special
@@ -92,8 +131,8 @@ function NewLayoutInner() {
         onToggleCollapse={() => setSidebarCollapsed(v => !v)}
         inboxCount={0}
         hasAgentRunning={false}
-        tokenUsed={0}
-        tokenLimit={500000}
+        tokenUsed={tokenUsed}
+        tokenLimit={TOKEN_LIMIT}
         isDark={isDark}
         theme={theme}
       />

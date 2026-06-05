@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Upload, Download, Pencil, Trash2, ArrowUpRight, RefreshCw, X, Activity, GripVertical } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowUpRight, RefreshCw, X, Activity, GripVertical } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -28,60 +28,13 @@ const SLICE_COLORS = ["#0849AC", "#FF9500", "#FF3B30", "#34C759", "#8B5CF6", "#0
 
 type AllocItem = { symbol: string; name: string; value: number; pct: number; color: string };
 
-type ChartPeriod = "5D" | "1M" | "3M" | "YTD" | "5Y";
-const PERIODS: ChartPeriod[] = ["5D", "1M", "3M", "YTD", "5Y"];
+type ChartPeriod = "5D" | "1M" | "3M" | "YTD" | "ALL";
+const PERIODS: ChartPeriod[] = ["5D", "1M", "3M", "YTD", "ALL"];
 
-const CHART_DATA: Record<ChartPeriod, Array<{ date: string; portfolio: number; vni: number; hnx: number }>> = {
-  "5D": [
-    { date: "12/05", portfolio: 0,    vni: 0,     hnx: 0    },
-    { date: "13/05", portfolio: 0.82, vni: 0.42,  hnx: 0.35 },
-    { date: "14/05", portfolio: 1.44, vni: 0.75,  hnx: 0.58 },
-    { date: "15/05", portfolio: 0.95, vni: 0.40,  hnx: 0.28 },
-    { date: "16/05", portfolio: 1.76, vni: 0.82,  hnx: 0.65 },
-  ],
-  "1M": [
-    { date: "16/04", portfolio: 0,    vni: 0,     hnx: 0    },
-    { date: "18/04", portfolio: 1.20, vni: 0.60,  hnx: 0.48 },
-    { date: "21/04", portfolio: 2.80, vni: 1.40,  hnx: 1.10 },
-    { date: "23/04", portfolio: 1.90, vni: 0.95,  hnx: 0.76 },
-    { date: "25/04", portfolio: 3.40, vni: 1.90,  hnx: 1.52 },
-    { date: "28/04", portfolio: 4.10, vni: 2.30,  hnx: 1.84 },
-    { date: "30/04", portfolio: 3.60, vni: 1.80,  hnx: 1.44 },
-    { date: "05/05", portfolio: 5.20, vni: 2.90,  hnx: 2.32 },
-    { date: "07/05", portfolio: 6.10, vni: 3.40,  hnx: 2.72 },
-    { date: "09/05", portfolio: 5.50, vni: 2.80,  hnx: 2.24 },
-    { date: "12/05", portfolio: 6.80, vni: 3.70,  hnx: 2.96 },
-    { date: "14/05", portfolio: 7.30, vni: 4.10,  hnx: 3.28 },
-    { date: "16/05", portfolio: 7.65, vni: 4.52,  hnx: 3.62 },
-  ],
-  "3M": [
-    { date: "16/02", portfolio: 0,     vni: 0,     hnx: 0    },
-    { date: "01/03", portfolio: 2.40,  vni: 1.80,  hnx: 1.44 },
-    { date: "10/03", portfolio: 4.80,  vni: 3.60,  hnx: 2.88 },
-    { date: "20/03", portfolio: 3.20,  vni: 2.10,  hnx: 1.68 },
-    { date: "01/04", portfolio: 6.50,  vni: 4.80,  hnx: 3.84 },
-    { date: "10/04", portfolio: 8.20,  vni: 5.90,  hnx: 4.72 },
-    { date: "16/04", portfolio: 6.90,  vni: 4.60,  hnx: 3.68 },
-    { date: "25/04", portfolio: 9.40,  vni: 6.50,  hnx: 5.20 },
-    { date: "05/05", portfolio: 11.20, vni: 8.10,  hnx: 6.48 },
-    { date: "10/05", portfolio: 10.50, vni: 7.40,  hnx: 5.92 },
-    { date: "16/05", portfolio: 13.30, vni: 9.60,  hnx: 7.68 },
-  ],
-  "YTD": [
-    { date: "T1",  portfolio: 0,     vni: 0,     hnx: 0    },
-    { date: "T2",  portfolio: 3.50,  vni: 2.20,  hnx: 1.76 },
-    { date: "T3",  portfolio: 6.80,  vni: 4.30,  hnx: 3.44 },
-    { date: "T4",  portfolio: 5.20,  vni: 3.10,  hnx: 2.48 },
-    { date: "T5",  portfolio: 7.65,  vni: 4.80,  hnx: 3.84 },
-  ],
-  "5Y": [
-    { date: "2020", portfolio: 0,     vni: 0,     hnx: 0    },
-    { date: "2021", portfolio: 42.0,  vni: 35.0,  hnx: 48.0 },
-    { date: "2022", portfolio: 18.0,  vni: 10.0,  hnx: 15.0 },
-    { date: "2023", portfolio: 28.0,  vni: 22.0,  hnx: 18.0 },
-    { date: "2024", portfolio: 55.0,  vni: 44.0,  hnx: 36.0 },
-    { date: "2025", portfolio: 72.0,  vni: 58.0,  hnx: 47.0 },
-  ],
+type ChartPoint = { date: string; portfolio: number; vni: number; hnx: number };
+
+const PERIOD_DAYS: Record<ChartPeriod, number | null> = {
+  "5D": 5, "1M": 30, "3M": 90, "YTD": null, "ALL": null,
 };
 
 
@@ -184,6 +137,9 @@ export function Portfolio({
   const [editingHolding,   setEditingHolding]   = useState<Holding | null>(null);
   const [form, setForm] = useState({ symbol: "", quantity: "", avgPrice: "", purchaseDate: "" });
   const [hoveredSlice, setHoveredSlice] = useState<string | null>(null);
+  const [chartDataReal,   setChartDataReal]   = useState<ChartPoint[]>([]);
+  const [chartLoading,    setChartLoading]    = useState(false);
+  const [lastAgentRun,    setLastAgentRun]    = useState<string | null>(null);
 
   // ── Load portfolio_holdings + enrich with latest prices ─────────────────
   const loadHoldings = async () => {
@@ -221,7 +177,7 @@ export function Portfolio({
         tickers?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
       }
 
-      setHoldings(rows.map((r: any) => ({
+      const mapped: Holding[] = rows.map((r: any) => ({
         id: r.id,
         symbol: r.symbol,
         name: tickerNames[r.symbol] || r.symbol,
@@ -231,18 +187,150 @@ export function Portfolio({
         purchaseDate: r.purchase_date
           ? new Date(r.purchase_date).toLocaleDateString("vi-VN")
           : null,
-      })));
+      }));
+      setHoldings(mapped);
+      // Load chart after holdings are ready
+      loadChartData(mapped, chartPeriod);
     } finally {
       setPortfolioLoading(false);
     }
   };
 
-  useEffect(() => { loadHoldings(); }, []);
+  useEffect(() => {
+    loadHoldings();
+    loadAgentStatus();
+  }, []);
+
+  const loadAgentStatus = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase
+      .from("agent_runs")
+      .select("finished_at")
+      .eq("user_id", user.id)
+      .eq("status", "completed")
+      .order("finished_at", { ascending: false })
+      .limit(1)
+      .single();
+    if (data?.finished_at) {
+      const d = new Date(data.finished_at);
+      setLastAgentRun(d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Ho_Chi_Minh" }));
+    }
+  };
+
+  const loadChartData = async (currentHoldings: Holding[], period: ChartPeriod) => {
+    if (!currentHoldings.length) { setChartDataReal([]); return; }
+    setChartLoading(true);
+    try {
+      // Determine cutoff date
+      let cutStr: string;
+      const now = new Date();
+      if (period === "YTD") {
+        cutStr = `${now.getFullYear()}-01-01`;
+      } else if (period === "ALL") {
+        cutStr = "2000-01-01";
+      } else {
+        const days = PERIOD_DAYS[period] ?? 30;
+        const cutoff = new Date(now);
+        cutoff.setDate(cutoff.getDate() - days);
+        cutStr = cutoff.toISOString().slice(0, 10);
+      }
+
+      const symbols = currentHoldings.map(h => h.symbol);
+
+      const [{ data: priceRows }, { data: indexRows }] = await Promise.all([
+        supabase.from("prices_daily").select("symbol,date,close").in("symbol", symbols).gte("date", cutStr).order("date", { ascending: true }),
+        supabase.from("market_indices").select("index_code,date,close").in("index_code", ["VNINDEX", "HNX"]).gte("date", cutStr).order("date", { ascending: true }),
+      ]);
+
+      // Build daily price maps
+      const priceByDate: Record<string, Record<string, number>> = {};
+      for (const row of priceRows ?? []) {
+        if (!priceByDate[row.date]) priceByDate[row.date] = {};
+        priceByDate[row.date][row.symbol] = Number(row.close);
+      }
+
+      const vniMap: Record<string, number> = {};
+      const hnxMap: Record<string, number> = {};
+      for (const row of indexRows ?? []) {
+        if (row.index_code === "VNINDEX") vniMap[row.date] = Number(row.close);
+        else hnxMap[row.date] = Number(row.close);
+      }
+
+      // All trading dates from price data
+      const allDates = [...new Set(Object.keys(priceByDate))].sort();
+      if (!allDates.length) { setChartDataReal([]); return; }
+
+      // Track last known price per symbol (fallback when no data for a day)
+      const lastKnown: Record<string, number> = {};
+      currentHoldings.forEach(h => { lastKnown[h.symbol] = h.currentPrice; });
+
+      const points: ChartPoint[] = [];
+      let basePortfolio = 0;
+      let baseVni = 0;
+      let baseHnx = 0;
+
+      allDates.forEach((date, idx) => {
+        // Update last known prices
+        for (const sym of symbols) {
+          if (priceByDate[date]?.[sym] != null) lastKnown[sym] = priceByDate[date][sym];
+        }
+
+        const portfolioVal = currentHoldings.reduce((s, h) => s + h.quantity * (lastKnown[h.symbol] ?? 0), 0);
+
+        if (idx === 0) {
+          basePortfolio = portfolioVal;
+          baseVni = vniMap[date] ?? 0;
+          baseHnx = hnxMap[date] ?? 0;
+        }
+
+        const portfolioPct = basePortfolio > 0 ? parseFloat(((portfolioVal / basePortfolio - 1) * 100).toFixed(2)) : 0;
+        const vniPct = baseVni > 0 && vniMap[date] ? parseFloat(((vniMap[date] / baseVni - 1) * 100).toFixed(2)) : 0;
+        const hnxPct = baseHnx > 0 && hnxMap[date] ? parseFloat(((hnxMap[date] / baseHnx - 1) * 100).toFixed(2)) : 0;
+
+        const dt = new Date(date);
+        const label = period === "ALL"
+          ? `${dt.getMonth() + 1}/${String(dt.getFullYear()).slice(2)}`
+          : period === "YTD"
+          ? `T${dt.getMonth() + 1}`
+          : `${dt.getDate()}/${dt.getMonth() + 1}`;
+
+        points.push({ date: label, portfolio: portfolioPct, vni: vniPct, hnx: hnxPct });
+      });
+
+      // For ALL/YTD: reduce to monthly averages to avoid too many points
+      if (period === "ALL" || period === "YTD") {
+        const byLabel: Record<string, ChartPoint[]> = {};
+        points.forEach(p => {
+          if (!byLabel[p.date]) byLabel[p.date] = [];
+          byLabel[p.date].push(p);
+        });
+        const reduced = Object.values(byLabel).map(group => ({
+          date: group[0].date,
+          portfolio: parseFloat((group.reduce((s, p) => s + p.portfolio, 0) / group.length).toFixed(2)),
+          vni: parseFloat((group.reduce((s, p) => s + p.vni, 0) / group.length).toFixed(2)),
+          hnx: parseFloat((group.reduce((s, p) => s + p.hnx, 0) / group.length).toFixed(2)),
+        }));
+        setChartDataReal(reduced);
+      } else {
+        setChartDataReal(points);
+      }
+    } catch {
+      setChartDataReal([]);
+    } finally {
+      setChartLoading(false);
+    }
+  };
 
   // Chart state
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("3M");
   const [showVni, setShowVni] = useState(true);
   const [showHnx, setShowHnx] = useState(true);
+
+  // Reload chart when period changes (holdings already loaded)
+  useEffect(() => {
+    if (holdings.length > 0) loadChartData(holdings, chartPeriod);
+  }, [chartPeriod]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalValue = holdings.reduce((sum: number, h: Holding) => sum + h.quantity * h.currentPrice, 0);
   const totalPnl = holdings.reduce((sum: number, h: Holding) => {
@@ -252,7 +340,7 @@ export function Portfolio({
   const totalCost = holdings.reduce((sum: number, h: Holding) => sum + (h.avgPrice || h.currentPrice) * h.quantity, 0);
   const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
 
-  const chartData = CHART_DATA[chartPeriod as ChartPeriod];
+  const chartData = chartDataReal;
   const periodPortfolioPct = chartData.length ? chartData[chartData.length - 1].portfolio : 0;
   const periodVniPct       = chartData.length ? chartData[chartData.length - 1].vni       : 0;
   const periodHnxPct       = chartData.length ? chartData[chartData.length - 1].hnx       : 0;
@@ -472,7 +560,17 @@ export function Portfolio({
         </div>
 
         {/* Chart */}
-        <div style={{ height: 220 }}>
+        <div style={{ height: 220, position: "relative" }}>
+          {chartLoading && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2, background: "transparent" }}>
+              <RefreshCw size={16} color={brand} style={{ animation: "spin 1s linear infinite" }} />
+            </div>
+          )}
+          {!chartLoading && chartData.length === 0 && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: 13, color: fgSubtle }}>Chưa có dữ liệu giá cho kỳ này</span>
+            </div>
+          )}
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
               <defs>
@@ -748,24 +846,6 @@ export function Portfolio({
         >
           <Plus size={16} strokeWidth={1.5} /> Thêm mã
         </button>
-        <button
-          style={{
-            display: "flex", alignItems: "center", gap: 6, padding: "10px 18px",
-            borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.20)"), background: cardBg,
-            color: brand, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT,
-          }}
-        >
-          <Upload size={16} strokeWidth={1.5} /> Import CSV
-        </button>
-        <button
-          style={{
-            display: "flex", alignItems: "center", gap: 6, padding: "10px 18px",
-            borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.20)"), background: cardBg,
-            color: fgMuted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT,
-          }}
-        >
-          <Download size={16} strokeWidth={1.5} /> Export
-        </button>
       </div>
 
       {/* Agent status */}
@@ -779,7 +859,7 @@ export function Portfolio({
             <span style={{ background: "rgba(52,199,89,0.12)", color: "#34C759", fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6 }}>● Active</span>
           </div>
           <span style={{ fontSize: 13, color: fgSubtle }}>
-            Agent đang theo dõi danh mục · lần chạy cuối: 07:55 sáng
+            Agent đang theo dõi danh mục{lastAgentRun ? ` · lần chạy cuối: ${lastAgentRun}` : ""}
           </span>
         </div>
         <button

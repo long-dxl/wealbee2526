@@ -368,7 +368,7 @@ export function TickerDetailPage() {
         supabase.from("financials_annual").select("year,revenue,gross_profit,net_profit,eps,pe_ratio,pb_ratio,roe,roa,debt_to_equity,total_assets").eq("symbol", s).order("year", { ascending: true }).limit(10),
         supabase.from("dividends").select("id,ex_date,payment_date,dividend_type,amount").eq("symbol", s).order("ex_date", { ascending: false }).limit(10),
         supabase.from("insider_transactions").select("id,trade_date,insider_name,trade_type,volume").eq("symbol", s).order("trade_date", { ascending: false }).limit(10),
-        supabase.from("market_news").select("title,published_at,impact_score,label,article_url").contains("affected_symbols", [s]).order("published_at", { ascending: false }).limit(10),
+        supabase.from("market_news").select("title,published_at,impact_score,label,article_url").contains("affected_symbols", [s]).neq("label", "trash").not("label", "is", null).order("published_at", { ascending: false }).limit(10),
         supabase.from("market_indices").select("date,close").eq("index_code", "VNINDEX").order("date", { ascending: true }).limit(500),
         supabase.from("market_indices").select("date,close").eq("index_code", "HNX").order("date", { ascending: true }).limit(500),
       ]);

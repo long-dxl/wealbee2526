@@ -209,6 +209,8 @@ export function MarketPulse({
       const { data } = await supabase
         .from("market_news")
         .select("title,published_at,label,article_url")
+        .neq("label", "trash")
+        .not("label", "is", null)
         .order("published_at", { ascending: false })
         .limit(3);
       if (!data || cancelled) return;

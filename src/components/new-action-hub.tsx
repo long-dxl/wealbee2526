@@ -52,6 +52,7 @@ const cardTypeLabel: Record<CardType, string> = {
   mover: "Top mover",
   tool: "Công cụ AI",
   report: "Báo cáo",
+  knowledge: "Knowledge",
 };
 
 const cardTypeBg: Record<CardType, { bg: string; text: string; border: string }> = {
@@ -62,6 +63,7 @@ const cardTypeBg: Record<CardType, { bg: string; text: string; border: string }>
   mover: { bg: "rgba(255,149,0,0.10)", text: "#FF9500", border: "rgba(255,149,0,0.25)" },
   tool: { bg: "rgba(255,59,48,0.08)", text: "#c41a1a", border: "rgba(255,59,48,0.20)" },
   report: { bg: "rgba(79,142,255,0.10)", text: "#1a4fa0", border: "rgba(79,142,255,0.25)" },
+  knowledge: { bg: "rgba(16,185,129,0.09)", text: "#065f46", border: "rgba(16,185,129,0.25)" },
 };
 
 interface ChatMessage {
@@ -202,7 +204,7 @@ export function ActionHub({
     setMessages((prev) => [...prev, { role: "assistant", content: "", time: "vừa xong", streaming: true }]);
 
     try {
-      const cardPayloads = contextCards.map(c => ({ type: c.type, label: c.label, badge: c.badge, summary: c.summary }));
+      const cardPayloads = contextCards.map(c => ({ id: c.id, type: c.type, label: c.label, badge: c.badge, summary: c.summary }));
       const cancel = await sendChatMessage(fullMessage, sessionId, cardPayloads.length ? cardPayloads : null, {
         onChunk: (chunk) => {
           setMessages((prev) => {

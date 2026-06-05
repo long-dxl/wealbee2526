@@ -37,9 +37,12 @@ export async function saveSubscriber(
     return { success: false, message: "Email không hợp lệ." };
   }
 
+  const watchSymbols = Array.isArray(holdings)
+    ? holdings.map((h: any) => typeof h === 'string' ? h : h?.symbol).filter(Boolean)
+    : [];
   const { error } = await supabase
-    .from("subscribers")
-    .insert([{ email: normalizedEmail, holdings, source: "onboarding" }]);
+    .from("digest_subscribers")
+    .insert([{ email: normalizedEmail, watch_symbols: watchSymbols, source: "onboarding" }]);
 
   if (error) {
     if (error.code === "23505") {
@@ -117,8 +120,8 @@ export async function joinProWaitlist(
   }
 
   const { error } = await supabase
-    .from("subscribers")
-    .insert([{ email: normalizedEmail, holdings: [], source: "pro_waitlist" }]);
+    .from("digest_subscribers")
+    .insert([{ email: normalizedEmail, watch_symbols: [], source: "pro_waitlist" }]);
 
   if (error) {
     if (error.code === "23505") {

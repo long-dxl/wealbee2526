@@ -246,12 +246,12 @@ export function PortfolioNews() {
     setLoading(true);
     setError('');
     try {
-      const { data: sub } = await db.from('subscribers')
-        .select('holdings')
+      const { data: sub } = await db.from('digest_subscribers')
+        .select('watch_symbols')
         .eq('email', user.email)
         .maybeSingle();
 
-      const holdings: { symbol: string; quantity: number }[] = sub?.holdings || [];
+      const holdings: { symbol: string; quantity: number }[] = (sub?.watch_symbols || []).map((s: string) => ({ symbol: s, quantity: 0 }));
 
       if (holdings.length === 0) {
         cache.data = [];

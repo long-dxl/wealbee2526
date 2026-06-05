@@ -10,8 +10,7 @@
 import { useState, useEffect } from "react";
 import {
   ArrowUpRight, AlertTriangle, TrendingUp, TrendingDown,
-  RefreshCw, Eye, BarChart2, FileText, Layers, Globe,
-  Sparkles, Lightbulb, ChevronDown,
+  RefreshCw, Eye, FileText, Sparkles, Lightbulb, ChevronDown,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
@@ -148,14 +147,7 @@ function IndexCard({ idx, isDark }: { idx: IndexState; isDark: boolean }) {
   );
 }
 
-// ── Static sample content (will be AI-generated) ───────────────────────────
-const sampleReports = [
-  { id: "r1", title: "HPG: Khuyến nghị MUA — Giá mục tiêu 31,500", source: "VNDIRECT Research", sourceShort: "VNDIRECT", time: "2 giờ trước", excerpt: "Giá thép HRC phục hồi +8% từ đáy tháng 3, HPG dự kiến LNST Q2 tăng 35% YoY. P/E forward 10.2x.", rating: "MUA", ratingColor: "#15803D", ratingBg: "rgba(21,128,61,0.10)", icon: TrendingUp, iconBg: "linear-gradient(135deg, #1a5c2e 0%, #27a348 100%)", tickers: ["HPG"] },
-  { id: "r2", title: "Triển vọng ngành ngân hàng Q2/2026: NIM cải thiện", source: "SSI Research", sourceShort: "SSI", time: "5 giờ trước", excerpt: "Lãi suất ổn định kết hợp tín dụng tăng trưởng 14–15% tạo nền tảng cho NIM phục hồi. Ưu tiên VCB, TCB.", rating: "Tích cực", ratingColor: "#0849AC", ratingBg: "rgba(8,73,172,0.10)", icon: BarChart2, iconBg: "linear-gradient(135deg, #0a2a6e 0%, #1a56c8 100%)", tickers: ["VCB", "TCB"] },
-  { id: "r3", title: "Chiến lược tháng 5/2026: Phòng thủ có chọn lọc", source: "Wealbee AI", sourceShort: "Wealbee", time: "8 giờ trước", excerpt: "VN-Index tiệm cận kháng cự. Khuyến nghị giảm beta danh mục, tăng tỷ trọng nhóm tiêu dùng thiết yếu.", rating: "Trung lập", ratingColor: "#7c3aed", ratingBg: "rgba(124,58,237,0.10)", icon: Layers, iconBg: "linear-gradient(135deg, #3b0d8a 0%, #7c3aed 100%)", tickers: [] },
-  { id: "r4", title: "FPT: Cập nhật sau ĐHCĐ — Kế hoạch lợi nhuận 2026", source: "VCSC", sourceShort: "VCSC", time: "1 ngày trước", excerpt: "Mục tiêu doanh thu 75,000 tỷ (+12% YoY), cổ tức tiền mặt 3,000đ/cp. Mảng xuất khẩu phần mềm là động lực.", rating: "MUA", ratingColor: "#15803D", ratingBg: "rgba(21,128,61,0.10)", icon: Globe, iconBg: "linear-gradient(135deg, #0d4f6e 0%, #4D8FE8 100%)", tickers: ["FPT"] },
-  { id: "r5", title: "Vĩ mô Việt Nam tháng 5: CPI, tỷ giá và dòng vốn ngoại", source: "HSC Research", sourceShort: "HSC", time: "1 ngày trước", excerpt: "CPI 3.7% trong biên kiểm soát. USD/VND ổn định nhờ xuất siêu. Khối ngoại mua ròng — tín hiệu tích cực.", rating: "Tích cực", ratingColor: "#0849AC", ratingBg: "rgba(8,73,172,0.10)", icon: FileText, iconBg: "linear-gradient(135deg, #6b2a0a 0%, #d4700a 100%)", tickers: [] },
-];
+interface BriefRow { id: string; title: string; summary: string; type: string; tickers: string[] | null; created_at: string; }
 
 const tagColors: Record<string, { bg: string; text: string }> = {
   "Tích cực": { bg: "rgba(52,199,89,0.12)", text: "#34C759" },
@@ -184,9 +176,11 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   const [dashNews,      setDashNews]      = useState<NewsItem[]>([]);
   const [watchHoldings, setWatchHoldings] = useState<WatchRow[]>([]);
   const [marketIndices, setMarketIndices] = useState<IndexState[]>([]);
+  const [briefs,        setBriefs]        = useState<BriefRow[]>([]);
   const [moversLoading, setMoversLoading] = useState(true);
   const [newsLoading,   setNewsLoading]   = useState(true);
   const [watchLoading,  setWatchLoading]  = useState(true);
+  const [briefsLoading, setBriefsLoading] = useState(true);
 
   const now = new Date();
   const timeStr = now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
@@ -282,6 +276,8 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
         const { data } = await supabase
           .from("market_news")
           .select("title,published_at,label,article_url")
+          .neq("label", "trash")
+          .not("label", "is", null)
           .order("published_at", { ascending: false })
           .limit(4);
         if (!data || cancelled) return;
@@ -297,49 +293,47 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       }
     }
 
-    // ── Portfolio watchlist ───────────────────────────────────────────────────
+    // ── Portfolio watchlist — dùng portfolio_holdings ─────────────────────────
     async function loadWatchlist() {
       setWatchLoading(true);
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user || cancelled) return;
 
-        const { data: portfolio } = await supabase
-          .from("portfolios").select("id").eq("user_id", user.id).limit(1).single();
-        if (!portfolio || cancelled) return;
-
-        const { data: holdingsData } = await supabase
-          .from("holdings")
-          .select("total_shares, average_price, assets(symbol,name,current_price)")
-          .eq("portfolio_id", portfolio.id)
+        const { data: rows } = await supabase
+          .from("portfolio_holdings")
+          .select("symbol, quantity, avg_cost")
+          .eq("user_id", user.id)
           .limit(8);
-        if (!holdingsData || cancelled) return;
+        if (!rows?.length || cancelled) return;
 
-        // Try to enrich with latest prices from prices_daily
-        const symbols = holdingsData.map((h: any) => h.assets?.symbol).filter(Boolean);
-        let latestPrices: Record<string, number> = {};
-        let latestChanges: Record<string, number> = {};
+        const symbols = rows.map((r: any) => r.symbol);
+        const { data: latestRow } = await supabase
+          .from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
 
-        if (symbols.length > 0) {
-          const { data: latestRow } = await supabase
-            .from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
-          if (latestRow) {
-            const { data: prices } = await supabase
-              .from("prices_daily").select("symbol,open,close").eq("date", latestRow.date).in("symbol", symbols);
-            prices?.forEach((p: any) => {
-              latestPrices[p.symbol] = p.close;
-              latestChanges[p.symbol] = p.open > 0 ? ((p.close - p.open) / p.open) * 100 : 0;
-            });
-          }
+        const latestPrices: Record<string, number> = {};
+        const latestChanges: Record<string, number> = {};
+        const tickerNames: Record<string, string> = {};
+
+        if (latestRow) {
+          const [pricesRes, tickersRes] = await Promise.all([
+            supabase.from("prices_daily").select("symbol,open,close").eq("date", latestRow.date).in("symbol", symbols),
+            supabase.from("tickers").select("symbol,name").in("symbol", symbols),
+          ]);
+          pricesRes.data?.forEach((p: any) => {
+            latestPrices[p.symbol] = Number(p.close);
+            latestChanges[p.symbol] = p.open > 0 ? ((p.close - p.open) / p.open) * 100 : 0;
+          });
+          tickersRes.data?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
         }
 
         if (!cancelled) {
-          setWatchHoldings(holdingsData.map((h: any) => ({
-            symbol: h.assets?.symbol ?? "?",
-            name: h.assets?.name ?? "—",
-            quantity: h.total_shares || 0,
-            price: latestPrices[h.assets?.symbol] ?? h.assets?.current_price ?? 0,
-            change: latestChanges[h.assets?.symbol] ?? 0,
+          setWatchHoldings(rows.map((r: any) => ({
+            symbol: r.symbol,
+            name: tickerNames[r.symbol] || r.symbol,
+            quantity: Number(r.quantity),
+            price: latestPrices[r.symbol] ?? 0,
+            change: latestChanges[r.symbol] ?? 0,
           })));
         }
       } finally {
@@ -347,9 +341,28 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       }
     }
 
+    // ── Briefs (AI analysis reports) ─────────────────────────────────────────
+    async function loadBriefs() {
+      setBriefsLoading(true);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || cancelled) return;
+        const { data } = await supabase
+          .from("briefs")
+          .select("id,title,summary,type,tickers,created_at")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(5);
+        if (!cancelled) setBriefs((data ?? []) as BriefRow[]);
+      } finally {
+        if (!cancelled) setBriefsLoading(false);
+      }
+    }
+
     loadMarket();
     loadNews();
     loadWatchlist();
+    loadBriefs();
 
     return () => { cancelled = true; };
   }, []);
@@ -363,8 +376,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
     e.dataTransfer.effectAllowed = "copy";
   };
 
-  const handleReportDragStart = (e: React.DragEvent, report: typeof sampleReports[0]) => {
-    const card: ContextCard = { id: `report-${report.id}`, type: "report", label: report.title.length > 40 ? report.title.slice(0, 40) + "…" : report.title, badge: report.sourceShort, summary: report.excerpt.slice(0, 80) + "…" };
+  const handleReportDragStart = (e: React.DragEvent, card: ContextCard) => {
     e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
     e.dataTransfer.effectAllowed = "copy";
   };
@@ -672,52 +684,70 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
         </div>
       </div>
 
-      {/* Analysis Reports — nội dung mẫu */}
+      {/* Analysis Reports — từ briefs DB */}
       <div style={{ background: cardBg, borderRadius: 14, padding: 20, boxShadow: cardShadow, marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: fg }}>BÁO CÁO PHÂN TÍCH</div>
-          <button style={{ fontSize: 12, fontWeight: 600, color: brand, background: "transparent", border: "none", cursor: "pointer", padding: "4px 8px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+          <button onClick={() => onNavigate("inbox")} style={{ fontSize: 12, fontWeight: 600, color: brand, background: "transparent", border: "none", cursor: "pointer", padding: "4px 8px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
             Xem tất cả →
           </button>
         </div>
         <div style={{ height: "0.5px", background: divider, marginBottom: 14 }} />
-        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-          {sampleReports.map((report, i) => {
-            const Icon = report.icon;
-            return (
-              <div key={report.id} draggable
-                onDragStart={e => handleReportDragStart(e, report)}
-                onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-                onDragStartCapture={e => { (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
-                style={{ padding: "14px 0", borderBottom: i < sampleReports.length - 1 ? "0.5px solid " + divider : "none", cursor: "grab", position: "relative", userSelect: "none", transition: "background 100ms" }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.025)"; (e.currentTarget as HTMLElement).style.margin = "0 -20px"; (e.currentTarget as HTMLElement).style.padding = "14px 20px"; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "1"; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.margin = "0"; (e.currentTarget as HTMLElement).style.padding = "14px 0"; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "0"; }}>
-                <DragHint />
-                <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                  <div style={{ width: 48, height: 48, borderRadius: 12, flexShrink: 0, background: report.iconBg, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }}>
-                    <Icon size={22} color="rgba(255,255,255,0.90)" strokeWidth={1.5} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 5 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: fg, lineHeight: 1.4, flex: 1 }}>{report.title}</div>
-                      <button onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: "transparent", color: brand, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                        <Eye size={12} strokeWidth={1.5} /> Xem
-                      </button>
+
+        {briefsLoading && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {[0,1,2].map(i => <div key={i} style={{ height: 72, borderRadius: 10, background: isDark ? "rgba(255,255,255,0.04)" : "rgba(8,73,172,0.04)" }} />)}
+          </div>
+        )}
+
+        {!briefsLoading && briefs.length === 0 && (
+          <div style={{ padding: "32px 0", textAlign: "center" }}>
+            <FileText size={28} style={{ color: fgSubtle, marginBottom: 8 }} />
+            <p style={{ fontSize: 13, color: fgSubtle, margin: 0 }}>Chưa có báo cáo — chạy Agent để tạo phân tích</p>
+            <button onClick={() => onNavigate("agents")} style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: brand, background: "transparent", border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.20)"), borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+              Tới Agents →
+            </button>
+          </div>
+        )}
+
+        {!briefsLoading && briefs.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {briefs.map((brief, i) => {
+              const card: ContextCard = { id: `brief-${brief.id}`, type: "report", label: brief.title.slice(0, 50), badge: "Wealbee AI", summary: brief.summary?.slice(0, 80) ?? "" };
+              return (
+                <div key={brief.id} draggable
+                  onDragStart={e => handleReportDragStart(e, card)}
+                  onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+                  onDragStartCapture={e => { (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
+                  style={{ padding: "14px 0", borderBottom: i < briefs.length - 1 ? "0.5px solid " + divider : "none", cursor: "grab", position: "relative", userSelect: "none", transition: "background 100ms" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.025)"; (e.currentTarget as HTMLElement).style.margin = "0 -20px"; (e.currentTarget as HTMLElement).style.padding = "14px 20px"; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "1"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.margin = "0"; (e.currentTarget as HTMLElement).style.padding = "14px 0"; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "0"; }}>
+                  <DragHint />
+                  <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, background: "linear-gradient(135deg, #0a2a6e 0%, #1a56c8 100%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Sparkles size={20} color="rgba(255,255,255,0.90)" strokeWidth={1.5} />
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 12, color: fgSubtle }}>{report.source} · {report.time}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: report.ratingBg, color: report.ratingColor, letterSpacing: "0.02em" }}>{report.rating}</span>
-                      {report.tickers.map(t => (
-                        <span key={t} style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", color: brand }}>{t}</span>
-                      ))}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 5 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: fg, lineHeight: 1.4, flex: 1, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{brief.title}</div>
+                        <button onClick={e => { e.stopPropagation(); onNavigate("inbox"); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: "transparent", color: brand, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                          <Eye size={12} strokeWidth={1.5} /> Xem
+                        </button>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: brief.summary ? 6 : 0, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 12, color: fgSubtle }}>Wealbee AI · {relativeTime(brief.created_at)}</span>
+                        {brief.tickers?.slice(0, 4).map(t => (
+                          <span key={t} style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", color: brand }}>{t}</span>
+                        ))}
+                      </div>
+                      {brief.summary && <p style={{ margin: 0, fontSize: 13, color: fgMuted, lineHeight: 1.6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{brief.summary}</p>}
                     </div>
-                    <p style={{ margin: 0, fontSize: 13, color: fgMuted, lineHeight: 1.6 }}>{report.excerpt}</p>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
     </div>

@@ -57,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(convertSupabaseUser(session.user));
         // Liên kết user_id vào subscribers nếu chưa có (OAuth hoặc account cũ subscribe qua /start)
         if (session.user.email) {
-          supabase.from('subscribers')
+          supabase.from('digest_subscribers')
             .update({ user_id: session.user.id })
             .eq('email', session.user.email)
             .is('user_id', null)

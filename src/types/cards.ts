@@ -1,4 +1,4 @@
-export type CardType = "index" | "portfolio" | "news" | "ticker" | "mover" | "tool" | "report";
+export type CardType = "index" | "portfolio" | "news" | "ticker" | "mover" | "tool" | "report" | "knowledge";
 
 export interface ContextCard {
   id: string;
@@ -45,5 +45,10 @@ export const cardTypeQuestions: Record<CardType, string[]> = {
     "Luận điểm chính trong báo cáo này là gì?",
     "Báo cáo này ảnh hưởng thế nào đến danh mục của tôi?",
     "Tôi có nên hành động theo khuyến nghị trong báo cáo không?",
+  ],
+  knowledge: [
+    "Tóm tắt nội dung tài liệu này cho tôi?",
+    "Thông tin trong tài liệu này liên quan đến danh mục của tôi như thế nào?",
+    "Có điểm nào quan trọng tôi cần chú ý trong tài liệu này không?",
   ],
 };

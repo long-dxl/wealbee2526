@@ -1,18 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Search, FileText, Trash2, CheckCircle, AlertCircle, Loader, X } from "lucide-react";
+import { Upload, Search, FileText, Trash2, CheckCircle, AlertCircle, Loader, X, GripVertical } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
+import { DRAG_CARD_MIME } from "../../types/cards";
 import * as pdfjsLib from "pdfjs-dist";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.mjs",
-  import.meta.url
-).toString();
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
 async function extractText(file: File): Promise<string> {
   const ext = file.name.split(".").pop()?.toLowerCase();
   if (ext === "pdf") {
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
     const pages: string[] = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
@@ -82,9 +81,28 @@ function FileRow({
   const ext = doc.file_type || "txt";
   const fs = FILE_STYLE[ext] || FILE_STYLE.txt;
   const fileBg = isDark ? fs.dBg : fs.bg;
+  const brand = isDark ? "#4D8FE8" : "#0849AC";
+  const canDrag = doc.status === "ready";
+
+  const handleDragStart = (e: React.DragEvent) => {
+    if (!canDrag) return;
+    const card = {
+      id: doc.id,
+      type: "knowledge",
+      label: doc.title.length > 40 ? doc.title.slice(0, 40) + "…" : doc.title,
+      badge: (doc.file_type ?? "txt").toUpperCase(),
+      summary: `${doc.chunk_count ?? 0} đoạn văn`,
+    };
+    e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
+    e.dataTransfer.effectAllowed = "copy";
+    (e.currentTarget as HTMLElement).style.opacity = "0.7";
+  };
 
   return (
     <div
+      draggable={canDrag}
+      onDragStart={handleDragStart}
+      onDragEnd={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -92,6 +110,9 @@ function FileRow({
         borderBottom: isLast ? "none" : `1px solid ${divider}`,
         background: hovered ? (isDark ? "rgba(77,143,232,0.05)" : "rgba(8,73,172,0.03)") : "transparent",
         transition: "background 120ms",
+        cursor: canDrag ? "grab" : "default",
+        userSelect: "none",
+        position: "relative",
       }}
     >
       <div style={{
@@ -113,6 +134,18 @@ function FileRow({
           <StatusBadge status={doc.status} errorMsg={doc.error_msg} isDark={isDark} />
         </div>
       </div>
+
+      {/* Drag hint — hiện khi hover và đã ready */}
+      {canDrag && hovered && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 4,
+          fontSize: 10, fontWeight: 700, color: brand,
+          background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)",
+          borderRadius: 6, padding: "3px 7px", flexShrink: 0,
+        }}>
+          <GripVertical size={11} strokeWidth={2} /> Kéo vào AI
+        </div>
+      )}
 
       <button
         onClick={onDelete}
@@ -232,42 +265,68 @@ const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "rgba(26,26,46,0.40)";
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Chưa đăng nhập");
 
-      // Extract text client-side so edge function gets clean text (not binary)
+      // Extract text client-side
       const contentRaw = await extractText(file);
       if (!contentRaw.trim()) throw new Error("Không đọc được nội dung file");
+
+      // Correct MIME type for each extension
+      const mimeMap: Record<string, string> = {
+        pdf: "application/pdf",
+        txt: "text/plain",
+        md:  "text/markdown",
+      };
+      const contentType = mimeMap[ext] || "text/plain";
 
       const safeFilename = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
       const storagePath = `${user.id}/${safeFilename}`;
 
+      // Upload file to storage
       const { error: uploadErr } = await supabase.storage
         .from("kb-docs")
-        .upload(storagePath, file, { contentType: file.type || "text/plain", upsert: false });
+        .upload(storagePath, file, { contentType, upsert: false });
 
-      if (uploadErr) throw new Error(uploadErr.message);
+      if (uploadErr) throw new Error(`Lỗi lưu file: ${uploadErr.message}`);
 
+      // Insert document record
       const { data: docData, error: insertErr } = await supabase
         .from("knowledge_documents")
         .insert({
-          user_id: user.id,
-          title: file.name,
-          file_path: storagePath,
-          file_type: ext,
+          user_id:     user.id,
+          title:       file.name,
+          file_path:   storagePath,
+          file_type:   ext,
           content_raw: contentRaw,
-          status: "pending",
+          status:      "pending",
         })
         .select("id, title, file_path, file_type, status, error_msg, chunk_count, created_at")
         .single();
 
       if (insertErr || !docData) throw new Error(insertErr?.message || "Không thể tạo document");
 
+      // Add to list immediately as pending
       setDocs(prev => [docData as KBDoc, ...prev]);
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        supabase.functions.invoke("embed-document", {
-          body: { document_id: docData.id },
-        }).catch(() => {});
+      // Call embed-document — SDK tự gắn auth token
+      const { error: embedErr } = await supabase.functions.invoke("embed-document", {
+        body: { document_id: docData.id },
+      });
+
+      if (embedErr) {
+        setDocs(prev => prev.map(d =>
+          d.id === docData.id
+            ? { ...d, status: "error" as DocStatus, error_msg: embedErr.message }
+            : d
+        ));
+        await supabase
+          .from("knowledge_documents")
+          .update({ status: "error", error_msg: embedErr.message })
+          .eq("id", docData.id);
+        throw new Error(`Lỗi embedding: ${embedErr.message}`);
       }
+
+      // Refresh từ DB để lấy status "ready" mới nhất
+      await loadDocs();
+
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : "Upload thất bại");
     } finally {

@@ -30,28 +30,53 @@ const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const SYSTEM_PROMPT = `Bạn là BeeAI — trợ lý phân tích thị trường chứng khoán Việt Nam của Wealbee.
 
-## Vai trò
-- Cung cấp thông tin thị trường, tin tức, và dữ liệu tài chính CHÍNH XÁC từ dữ liệu được cung cấp
-- Trả lời bằng tiếng Việt, ngắn gọn và rõ ràng
-- CHỈ sử dụng số liệu từ phần "DỮ LIỆU THỊ TRƯỜNG THỰC" bên dưới — KHÔNG tự bịa số
-- Nếu không có dữ liệu, nói rõ "Tôi chưa có dữ liệu về X"
+══════════════════════════════════════════════════
+QUY TẮC TUYỆT ĐỐI — KHÔNG ĐƯỢC VI PHẠM
+══════════════════════════════════════════════════
 
-## Quy tắc bắt buộc (Luật Chứng khoán 2019)
-- TUYỆT ĐỐI KHÔNG đưa ra khuyến nghị mua/bán cổ phiếu cụ thể
-- KHÔNG dự đoán giá cụ thể hoặc đưa ra target price
-- KHÔNG hứa hẹn lợi nhuận
-- Mô tả dữ liệu, nêu các yếu tố ảnh hưởng, để người dùng tự quyết định
+**1. CHỈ DÙNG SỐ LIỆU CÓ TRONG PHẦN "DỮ LIỆU XÁC NHẬN" BÊN DƯỚI**
+- Mỗi con số, giá, tỷ lệ % bạn đề cập PHẢI xuất hiện trong phần dữ liệu đó
+- KHÔNG được dùng kiến thức training của bạn để điền giá cổ phiếu, chỉ số, hay số tài chính
+- Ví dụ SAI: "VCB thường giao dịch quanh vùng 80.000đ" (bạn tự bịa từ training)
+- Ví dụ ĐÚNG: "VCB đóng cửa tại **62.200 đ** phiên 2026-06-01" (có trong dữ liệu)
 
-## Định dạng
-- Dùng bullet points cho danh sách
-- In đậm số liệu quan trọng: **1,850.00**
-- Dùng emoji phù hợp: 📈 📉 💰 📊`;
+**2. KHI KHÔNG CÓ DỮ LIỆU — NÓI THẲNG, KHÔNG ĐOÁN**
+- Nếu user hỏi về điều gì không có trong phần dữ liệu → trả lời rõ:
+  "Tôi chưa có dữ liệu về [X] trong hệ thống. Dữ liệu hiện có gồm: [liệt kê những gì có]"
+- KHÔNG dùng các cụm: "thông thường", "lịch sử cho thấy", "về cơ bản", "theo xu hướng" khi không có data xác nhận
+
+**3. GHI RÕ NGUỒN VÀ NGÀY CHO MỌI SỐ LIỆU**
+- Luôn kèm ngày: "giá phiên 2026-06-01", "tin ngày X"
+- Nếu dữ liệu đã cũ (>2 ngày): ghi rõ "⚠ dữ liệu cuối: [ngày]"
+
+**4. PHÁP LÝ (Luật Chứng khoán 2019)**
+- TUYỆT ĐỐI KHÔNG khuyến nghị mua/bán cụ thể
+- KHÔNG đưa target price hay dự báo lợi nhuận
+- Mọi câu trả lời kết thúc bằng: *Thông tin tham khảo · không phải tư vấn đầu tư*
+
+══════════════════════════════════════════════════
+ĐỊNH DẠNG
+══════════════════════════════════════════════════
+- Tiếng Việt, ngắn gọn, bullet points
+- **In đậm** số liệu quan trọng
+- Emoji phù hợp: 📈 📉 💰 📊
+- Khi nói về mã CP: luôn kèm ngày của giá đó`;
 
 // ─── Market context builder ───────────────────────────────────────────────────
 
-interface ContextCardPayload { type: string; label: string; badge?: string; summary?: string; }
+interface ContextCardPayload { id?: string; type: string; label: string; badge?: string; summary?: string; }
 
-async function buildContextCardsSection(cards: ContextCardPayload[], userId: string): Promise<string> {
+// Trích symbol VN từ câu hỏi (2-5 ký tự IN HOA), validate với bảng tickers
+async function extractTickersFromMessage(msg: string): Promise<string[]> {
+  const candidates = [...new Set((msg.match(/\b([A-Z]{2,5})\b/g) ?? []))];
+  if (!candidates.length) return [];
+  try {
+    const { data } = await sb.from("tickers").select("symbol").in("symbol", candidates);
+    return (data ?? []).map((r: { symbol: string }) => r.symbol);
+  } catch { return []; }
+}
+
+async function buildContextCardsSection(cards: ContextCardPayload[], userId: string, message = ""): Promise<string> {
   if (!cards.length) return "";
   const lines: string[] = ["\n## CONTEXT CARDS — Dữ liệu từ card bạn kéo vào"];
 
@@ -59,6 +84,8 @@ async function buildContextCardsSection(cards: ContextCardPayload[], userId: str
   const newsCards: ContextCardPayload[] = [];
   const portfolioCards: ContextCardPayload[] = [];
   const reportCards: ContextCardPayload[] = [];
+  const toolCards: ContextCardPayload[] = [];
+  const knowledgeCards: ContextCardPayload[] = [];
 
   for (const card of cards) {
     if (card.type === "ticker" || card.type === "mover") {
@@ -75,6 +102,30 @@ async function buildContextCardsSection(cards: ContextCardPayload[], userId: str
       portfolioCards.push(card);
     } else if (card.type === "report") {
       reportCards.push(card);
+    } else if (card.type === "tool") {
+      toolCards.push(card);
+    } else if (card.type === "knowledge") {
+      knowledgeCards.push(card);
+    }
+  }
+
+  // ── Nếu không có ticker card, thử extract từ message hoặc portfolio ───────
+  // Dùng bởi tool-financial-statements, tool-pe-pb, tool-insider, tool-dividend
+  const hasToolNeedingSymbols = toolCards.some(c =>
+    ["tool-financial-statements","tool-pe-pb-valuation","tool-insider-trades","tool-dividend-yield"].includes(c.id ?? "")
+  );
+  if (tickerSymbols.length === 0 && hasToolNeedingSymbols) {
+    // 1. Extract từ câu hỏi ("FPT", "VCB"...)
+    const fromMsg = await extractTickersFromMessage(message);
+    tickerSymbols.push(...fromMsg);
+
+    // 2. Fallback: dùng portfolio holdings
+    if (tickerSymbols.length === 0 && portfolioCards.length > 0) {
+      try {
+        const { data: h } = await sb
+          .from("portfolio_holdings").select("symbol").eq("user_id", userId).limit(10);
+        if (h) tickerSymbols.push(...h.map((r: { symbol: string }) => r.symbol));
+      } catch { /* ignore */ }
     }
   }
 
@@ -143,43 +194,348 @@ async function buildContextCardsSection(cards: ContextCardPayload[], userId: str
     } catch { /* ignore */ }
   }
 
-  // ── News cards ──────────────────────────────────────────────────────────
+  // ── News cards — re-fetch nội dung đầy đủ từ market_news ───────────────
   if (newsCards.length > 0) {
     lines.push("\n### Tin tức bạn đang quan tâm:");
     for (const card of newsCards) {
-      lines.push(`- **${card.label}**`);
-      if (card.summary) lines.push(`  ${card.summary}`);
+      lines.push(`- **${card.label.replace(/…$/, "")}**`);
+      try {
+        // Tìm bài báo theo tiêu đề (bỏ "…" cuối nếu bị cắt)
+        const searchTitle = card.label.replace(/…$/, "").trim();
+        const { data: found } = await sb
+          .from("market_news")
+          .select("title, content_summary, affected_symbols, impact_score, published_at, source, article_url")
+          .ilike("title", `${searchTitle}%`)
+          .limit(1);
+        const n = found?.[0];
+        if (n) {
+          if (n.content_summary) lines.push(`  Tóm tắt: ${n.content_summary}`);
+          if (n.affected_symbols?.length) lines.push(`  Mã liên quan: ${n.affected_symbols.slice(0, 5).join(", ")}`);
+          if (n.impact_score != null) lines.push(`  Mức tác động: ${n.impact_score > 0 ? "+" : ""}${n.impact_score}`);
+          if (n.published_at) lines.push(`  Thời gian: ${new Date(n.published_at).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}`);
+          if (n.source) lines.push(`  Nguồn: ${n.source}`);
+        } else if (card.summary) {
+          lines.push(`  ${card.summary}`);
+        }
+      } catch { if (card.summary) lines.push(`  ${card.summary}`); }
     }
   }
 
-  // ── Report cards ────────────────────────────────────────────────────────
+  // ── Report/Brief cards — re-fetch content đầy đủ từ briefs ─────────────
   if (reportCards.length > 0) {
-    lines.push("\n### Báo cáo bạn đang quan tâm:");
+    lines.push("\n### Báo cáo từ Inbox:");
     for (const card of reportCards) {
       lines.push(`- **${card.label}**`);
-      if (card.summary) lines.push(`  ${card.summary}`);
+      try {
+        const briefId = (card.id ?? "").replace(/^brief-|^inbox-/, "");
+        const { data: brief } = await sb
+          .from("briefs")
+          .select("content, summary, tickers, created_at")
+          .eq("id", briefId)
+          .single();
+        if (brief?.content) {
+          // Đưa vào tối đa 800 ký tự để không làm phình context
+          const excerpt = brief.content.replace(/```[\s\S]*?```/g, "").trim().slice(0, 800);
+          lines.push(`  ${excerpt}${brief.content.length > 800 ? "…" : ""}`);
+          if (brief.tickers?.length) lines.push(`  Mã liên quan: ${brief.tickers.join(", ")}`);
+        } else if (brief?.summary) {
+          lines.push(`  ${brief.summary}`);
+        } else if (card.summary) {
+          lines.push(`  ${card.summary}`);
+        }
+      } catch { if (card.summary) lines.push(`  ${card.summary}`); }
     }
   }
 
-  // ── Portfolio cards ─────────────────────────────────────────────────────
+  // ── Portfolio cards — join với prices_daily để lấy giá hiện tại ─────────
   if (portfolioCards.length > 0) {
     try {
       const { data: holdings } = await sb
         .from("portfolio_holdings")
-        .select("symbol, quantity, avg_cost, current_price")
+        .select("symbol, quantity, avg_cost")          // bỏ current_price (không tồn tại)
         .eq("user_id", userId)
         .limit(20);
 
       if (holdings && holdings.length > 0) {
+        const symbols = holdings.map(h => h.symbol);
+
+        // Lấy giá mới nhất từ prices_daily
+        const { data: latestPrices } = await sb
+          .from("prices_daily")
+          .select("symbol, close, date")
+          .in("symbol", symbols)
+          .order("date", { ascending: false })
+          .limit(symbols.length * 3);
+
+        const priceMap: Record<string, { close: number; date: string }> = {};
+        for (const p of (latestPrices ?? [])) {
+          if (!priceMap[p.symbol]) priceMap[p.symbol] = { close: Number(p.close), date: p.date };
+        }
+
         lines.push("\n### Danh mục đầu tư của bạn:");
+        let totalCost = 0, totalValue = 0;
         for (const h of holdings) {
-          const pnl = h.current_price
-            ? ((Number(h.current_price) - Number(h.avg_cost)) / Number(h.avg_cost)) * 100
-            : null;
-          lines.push(`- **${h.symbol}**: ${Number(h.quantity).toLocaleString("vi-VN")} CP | Giá vốn: ${Number(h.avg_cost).toLocaleString("vi-VN")} đ${pnl !== null ? ` | P&L: ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%` : ""}`);
+          const current  = priceMap[h.symbol]?.close ?? Number(h.avg_cost);
+          const cost     = Number(h.quantity) * Number(h.avg_cost);
+          const value    = Number(h.quantity) * current;
+          const pnlPct   = ((current - Number(h.avg_cost)) / Number(h.avg_cost)) * 100;
+          totalCost  += cost;
+          totalValue += value;
+          const dateTag = priceMap[h.symbol]?.date ? ` phiên ${priceMap[h.symbol].date}` : "";
+          lines.push(`- **${h.symbol}**: ${Number(h.quantity).toLocaleString("vi-VN")} CP | Giá vốn: ${Number(h.avg_cost).toLocaleString("vi-VN")} đ | Giá hiện tại: ${current.toLocaleString("vi-VN")} đ${dateTag} | P&L: ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`);
+        }
+        if (totalCost > 0) {
+          const totalPnl = ((totalValue - totalCost) / totalCost) * 100;
+          lines.push(`\nTổng danh mục: ${(totalValue / 1e9).toFixed(3)} tỷ | P&L tổng: ${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}%`);
         }
       }
     } catch { /* ignore */ }
+  }
+
+  // ── Tool cards ────────────────────────────────────────────────────────────
+  if (toolCards.length > 0) {
+    lines.push("\n### Công cụ phân tích đang kích hoạt:");
+
+    for (const card of toolCards) {
+      const toolId = card.id ?? "";
+
+      // ── Tools dùng lại data đã load trong buildMarketContext ─────────────
+      if (["tool-realtime-price", "tool-market-indices", "tool-top-movers"].includes(toolId)) {
+        lines.push(`\n**[${card.label}]** — ${card.summary ?? ""}`);
+        if (toolId === "tool-realtime-price") {
+          lines.push("→ Phân tích giá: dùng bảng 'Giá VN30 cuối phiên gần nhất' ở trên.");
+        } else if (toolId === "tool-market-indices") {
+          lines.push("→ Phân tích chỉ số: dùng bảng 'VN-Index / HNX' ở trên.");
+        } else {
+          lines.push("→ Phân tích top mover: dùng bảng 'Top tăng / Top giảm VN30' ở trên.");
+        }
+      }
+
+      // ── Tin tức CafeF — filter theo source ───────────────────────────────
+      else if (toolId === "tool-cafef-news") {
+        lines.push(`\n**[${card.label}]** — ${card.summary ?? ""}`);
+        try {
+          const { data: news } = await sb
+            .from("market_news")
+            .select("title, content_summary, affected_symbols, impact_score, published_at")
+            .eq("source", "cafef")
+            .not("label", "is", null)
+            .neq("label", "trash")
+            .order("published_at", { ascending: false })
+            .limit(6);
+          if (news && news.length > 0) {
+            lines.push("Tin tức mới nhất từ CafeF:");
+            for (const n of news) {
+              const syms = n.affected_symbols?.length ? ` — ${n.affected_symbols.slice(0, 3).join(", ")}` : "";
+              const score = n.impact_score != null ? ` [${n.impact_score > 0 ? "+" : ""}${n.impact_score}]` : "";
+              lines.push(`- ${n.title}${syms}${score}`);
+              if (n.content_summary) lines.push(`  ${n.content_summary.slice(0, 120)}...`);
+            }
+          } else {
+            lines.push("→ Dùng tin tức thị trường đã có ở trên (nguồn CafeF).");
+          }
+        } catch { lines.push("→ Dùng tin tức thị trường đã có ở trên."); }
+      }
+
+      // ── Tin tức Vietstock — filter theo source ────────────────────────────
+      else if (toolId === "tool-vietstock-news") {
+        lines.push(`\n**[${card.label}]** — ${card.summary ?? ""}`);
+        try {
+          const { data: news } = await sb
+            .from("market_news")
+            .select("title, content_summary, affected_symbols, impact_score, published_at")
+            .eq("source", "vietstock")
+            .not("label", "is", null)
+            .neq("label", "trash")
+            .order("published_at", { ascending: false })
+            .limit(6);
+          if (news && news.length > 0) {
+            lines.push("Tin tức mới nhất từ Vietstock:");
+            for (const n of news) {
+              const syms = n.affected_symbols?.length ? ` — ${n.affected_symbols.slice(0, 3).join(", ")}` : "";
+              const score = n.impact_score != null ? ` [${n.impact_score > 0 ? "+" : ""}${n.impact_score}]` : "";
+              lines.push(`- ${n.title}${syms}${score}`);
+              if (n.content_summary) lines.push(`  ${n.content_summary.slice(0, 120)}...`);
+            }
+          } else {
+            lines.push("→ Dùng tin tức thị trường đã có ở trên (nguồn Vietstock).");
+          }
+        } catch { lines.push("→ Dùng tin tức thị trường đã có ở trên."); }
+      }
+
+      // ── Định giá P/E & P/B ───────────────────────────────────────────────
+      else if (toolId === "tool-pe-pb-valuation") {
+        lines.push(`\n**[${card.label}]**:`);
+        if (tickerSymbols.length > 0) {
+          try {
+            // Lấy năm gần nhất cho mỗi symbol từ financials_annual
+            const { data: funds } = await sb
+              .from("financials_annual")
+              .select("symbol, year, pe_ratio, pb_ratio, roe, roa, debt_to_equity")
+              .in("symbol", tickerSymbols)
+              .order("year", { ascending: false })
+              .limit(tickerSymbols.length * 3);
+            if (funds && funds.length > 0) {
+              // Lấy row mới nhất cho mỗi symbol
+              const latest: Record<string, typeof funds[0]> = {};
+              for (const f of funds) { if (!latest[f.symbol]) latest[f.symbol] = f; }
+              for (const sym of tickerSymbols) {
+                const f = latest[sym];
+                if (!f) { lines.push(`- ${sym}: Chưa có dữ liệu định giá`); continue; }
+                const roe = f.roe != null ? `ROE = ${(Number(f.roe) * 100).toFixed(1)}%` : "";
+                const roa = f.roa != null ? `ROA = ${(Number(f.roa) * 100).toFixed(1)}%` : "";
+                const de = f.debt_to_equity != null ? `D/E = ${f.debt_to_equity}` : "";
+                lines.push(`- **${sym}** (${f.year}): P/E = ${f.pe_ratio ?? "N/A"} | P/B = ${f.pb_ratio ?? "N/A"}${roe ? ` | ${roe}` : ""}${roa ? ` | ${roa}` : ""}${de ? ` | ${de}` : ""}`);
+              }
+            } else {
+              lines.push("Chưa có dữ liệu định giá cho các mã này.");
+            }
+          } catch { lines.push("Không thể tải dữ liệu định giá."); }
+        } else {
+          lines.push("Kéo thêm card cổ phiếu vào context để xem định giá P/E & P/B.");
+        }
+      }
+
+      // ── Tỷ suất cổ tức ──────────────────────────────────────────────────
+      else if (toolId === "tool-dividend-yield") {
+        lines.push(`\n**[${card.label}]**:`);
+        let symsToCheck: string[] = tickerSymbols.length > 0 ? [...tickerSymbols] : [];
+        if (symsToCheck.length === 0) {
+          try {
+            const { data: h } = await sb.from("portfolio_holdings")
+              .select("symbol").eq("user_id", userId).limit(10);
+            if (h) symsToCheck = h.map((r: { symbol: string }) => r.symbol);
+          } catch { /* ignore */ }
+        }
+        if (symsToCheck.length > 0) {
+          try {
+            const { data: divs } = await sb
+              .from("dividends")
+              .select("symbol, ex_date, payment_date, dividend_type, amount")
+              .in("symbol", symsToCheck)
+              .order("ex_date", { ascending: false })
+              .limit(symsToCheck.length * 5);
+            if (divs && divs.length > 0) {
+              const byDiv: Record<string, typeof divs> = {};
+              for (const d of divs) { if (!byDiv[d.symbol]) byDiv[d.symbol] = []; byDiv[d.symbol].push(d); }
+              for (const sym of symsToCheck) {
+                const sdivs = byDiv[sym] ?? [];
+                if (!sdivs.length) { lines.push(`- ${sym}: Chưa có dữ liệu cổ tức`); continue; }
+                lines.push(`- **${sym}**: ${sdivs.slice(0, 3).map(d =>
+                  `${d.ex_date} — ${Number(d.amount).toLocaleString("vi-VN")} đ (${d.dividend_type})`
+                ).join(" | ")}`);
+              }
+            } else {
+              lines.push("Chưa có dữ liệu cổ tức cho các mã này.");
+            }
+          } catch { lines.push("Không thể tải dữ liệu cổ tức."); }
+        } else {
+          lines.push("Kéo thêm card cổ phiếu hoặc card danh mục để tính tỷ suất cổ tức.");
+        }
+      }
+
+      // ── Giao dịch nội bộ ─────────────────────────────────────────────────
+      else if (toolId === "tool-insider-trades") {
+        lines.push(`\n**[${card.label}]**:`);
+        if (tickerSymbols.length > 0) {
+          try {
+            const { data: insiders } = await sb
+              .from("insider_transactions")
+              .select("symbol, insider_name, position, trade_type, volume, price, trade_date")
+              .in("symbol", tickerSymbols)
+              .order("trade_date", { ascending: false })
+              .limit(15);
+            if (insiders && insiders.length > 0) {
+              for (const t of insiders) {
+                const priceStr = t.price != null ? ` @ ${Number(t.price).toLocaleString("vi-VN")} đ` : "";
+                lines.push(`- ${t.trade_date} · **${t.symbol}** · ${t.insider_name}${t.position ? ` (${t.position})` : ""}: ${t.trade_type} ${Number(t.volume).toLocaleString("vi-VN")} CP${priceStr}`);
+              }
+            } else {
+              lines.push("Chưa có dữ liệu giao dịch nội bộ cho các mã này.");
+            }
+          } catch { lines.push("Dữ liệu giao dịch nội bộ chưa có trong hệ thống."); }
+        } else {
+          lines.push("Kéo thêm card cổ phiếu vào context để xem giao dịch nội bộ.");
+        }
+      }
+
+      // ── Báo cáo tài chính ────────────────────────────────────────────────
+      else if (toolId === "tool-financial-statements") {
+        lines.push(`\n**[${card.label}]**:`);
+        if (tickerSymbols.length > 0) {
+          try {
+            const { data: fins } = await sb
+              .from("financials_annual")
+              .select("symbol, year, revenue, net_profit, eps, pe_ratio, pb_ratio, roe, roa, debt_to_equity")
+              .in("symbol", tickerSymbols)
+              .order("year", { ascending: false })
+              .limit(tickerSymbols.length * 5);
+            if (fins && fins.length > 0) {
+              const byFin: Record<string, typeof fins> = {};
+              for (const f of fins) { if (!byFin[f.symbol]) byFin[f.symbol] = []; byFin[f.symbol].push(f); }
+              for (const sym of tickerSymbols) {
+                const sfins = byFin[sym] ?? [];
+                if (!sfins.length) { lines.push(`- ${sym}: Chưa có dữ liệu BCTC`); continue; }
+                lines.push(`- **${sym}** BCTC theo năm:`);
+                for (const f of sfins.slice(0, 3)) {
+                  const rev = f.revenue != null ? `DT ${(Number(f.revenue) / 1e9).toFixed(1)} tỷ` : "";
+                  const lnst = f.net_profit != null ? `LNST ${(Number(f.net_profit) / 1e9).toFixed(1)} tỷ` : "";
+                  const eps = f.eps != null ? `EPS ${Number(f.eps).toLocaleString("vi-VN")} đ` : "";
+                  const pe = f.pe_ratio != null ? `P/E ${f.pe_ratio}` : "";
+                  const roe = f.roe != null ? `ROE ${(Number(f.roe) * 100).toFixed(1)}%` : "";
+                  lines.push(`  ${f.year}: ${[rev, lnst, eps, pe, roe].filter(Boolean).join(" | ")}`);
+                }
+              }
+            } else {
+              lines.push("Chưa có dữ liệu BCTC trong hệ thống.");
+            }
+          } catch { lines.push("Dữ liệu báo cáo tài chính chưa có trong hệ thống."); }
+        } else {
+          lines.push("Kéo thêm card cổ phiếu vào context để xem báo cáo tài chính.");
+        }
+      }
+    }
+  }
+
+  // ── Knowledge Base cards — fetch chunks trực tiếp theo document_id ────────
+  if (knowledgeCards.length > 0) {
+    lines.push("\n## TÀI LIỆU KNOWLEDGE BASE (do người dùng kéo vào)");
+    lines.push("Hãy trả lời DỰA TRÊN nội dung các tài liệu này. Trích dẫn tài liệu khi cần.");
+
+    for (const card of knowledgeCards) {
+      const docId = card.id ?? "";
+      lines.push(`\n### Tài liệu: ${card.label} (${card.badge ?? ""})`);
+
+      if (!docId) {
+        lines.push("(Không có document_id)");
+        continue;
+      }
+
+      try {
+        // Fetch tất cả chunks của document theo thứ tự — không qua semantic threshold
+        const { data: chunks, error } = await sb
+          .from("knowledge_chunks")
+          .select("chunk_index, content")
+          .eq("document_id", docId)
+          .eq("user_id", userId)
+          .order("chunk_index", { ascending: true })
+          .limit(10);
+
+        if (error || !chunks || chunks.length === 0) {
+          lines.push("(Tài liệu chưa được xử lý hoặc không tìm thấy chunks)");
+          continue;
+        }
+
+        lines.push(`Tổng ${chunks.length} đoạn văn được trích xuất:`);
+        for (const c of chunks) {
+          // Trim mỗi chunk để không quá dài — lấy tối đa 600 ký tự/chunk
+          const text = c.content.trim().slice(0, 600);
+          lines.push(`\n[Đoạn ${c.chunk_index + 1}] ${text}${c.content.length > 600 ? "…" : ""}`);
+        }
+      } catch (err) {
+        lines.push(`(Lỗi đọc tài liệu: ${String(err)})`);
+      }
+    }
   }
 
   return lines.join("\n");
@@ -191,6 +547,10 @@ async function buildMarketContext(contextTicker?: string): Promise<string> {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
     timeZone: "Asia/Ho_Chi_Minh",
   });
+  lines.push("══════════════════════════════════════════════════");
+  lines.push("DỮ LIỆU XÁC NHẬN — CHỈ ĐƯỢC DÙNG CÁC SỐ LIỆU NÀY");
+  lines.push("Mọi số liệu ngoài phần này đều KHÔNG được phép sử dụng");
+  lines.push("══════════════════════════════════════════════════");
   lines.push(`Ngày hôm nay: ${today} (múi giờ Việt Nam, UTC+7)`);
 
   // ── 1. Market indices (VN-Index, HNX) ──────────────────────────────────────
@@ -347,6 +707,9 @@ async function buildMarketContext(contextTicker?: string): Promise<string> {
     } catch { /* ignore */ }
   }
 
+  lines.push("\n══════════════════════════════════════════════════");
+  lines.push("HẾT DỮ LIỆU XÁC NHẬN — KHÔNG ĐƯỢC DÙNG SỐ LIỆU NÀO NGOÀI PHẦN TRÊN");
+  lines.push("══════════════════════════════════════════════════");
   return lines.join("\n");
 }
 
@@ -406,7 +769,7 @@ async function callOpenAIStream(
       messages,
       stream: true,
       max_tokens: 1024,
-      temperature: 0.3,
+      temperature: 0,
     }),
     signal,
   });
@@ -528,7 +891,7 @@ Deno.serve(async (req) => {
   const [marketContext, ragContext, cardsContext] = await Promise.all([
     buildMarketContext(context_ticker),
     buildRAGContext(message, user.id),
-    context_cards?.length ? buildContextCardsSection(context_cards, user.id) : Promise.resolve(""),
+    context_cards?.length ? buildContextCardsSection(context_cards, user.id, message) : Promise.resolve(""),
   ]);
   const fullSystem = `${SYSTEM_PROMPT}\n\n---\n${marketContext}${cardsContext}${ragContext}`;
 

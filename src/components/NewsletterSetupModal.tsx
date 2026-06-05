@@ -65,10 +65,13 @@ export function NewsletterSetupModal({ onClose, onSuccess }: Props) {
     setLoading(true);
     setError('');
     try {
+      const watchSymbols = Array.isArray(holdings)
+        ? holdings.map((h: any) => typeof h === 'string' ? h : h?.symbol).filter(Boolean)
+        : [];
       const { error: err } = await supabase
-        .from('subscribers')
+        .from('digest_subscribers')
         .upsert(
-          { email: user.email, name: user.name, user_id: user.id, holdings },
+          { email: user.email, user_id: user.id, watch_symbols: watchSymbols },
           { onConflict: 'email' }
         );
       if (err) throw err;

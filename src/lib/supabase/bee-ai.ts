@@ -12,6 +12,7 @@ export interface ChatStreamCallbacks {
 }
 
 export interface ContextCardPayload {
+  id?: string;
   type: string;
   label: string;
   badge?: string;

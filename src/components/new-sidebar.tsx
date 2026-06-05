@@ -28,17 +28,17 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { id: "dashboard", icon: House,      label: "Home" },
-  { id: "feed",      icon: TrendingUp, label: "Market" },
-  { id: "tickers",   icon: List,       label: "Tickers" },
-  { id: "inbox",     icon: Inbox,      label: "Inbox" },
-  { id: "agents",    icon: Bot,        label: "My Agents" },
-  { id: "portfolio", icon: Wallet,     label: "Portfolio" },
+  { id: "dashboard", icon: House,      label: "Tổng quan" },
+  { id: "feed",      icon: TrendingUp, label: "Thị trường" },
+  { id: "tickers",   icon: List,       label: "Cổ phiếu" },
+  { id: "inbox",     icon: Inbox,      label: "Hộp thư" },
+  { id: "agents",    icon: Bot,        label: "Agent của tôi" },
+  { id: "portfolio", icon: Wallet,     label: "Danh mục" },
   { id: "divider-studio", section: "AGENT STUDIO", icon: Plus, label: "" },
-  { id: "create-agent", icon: Plus, label: "Create Agent" },
-  { id: "templates", icon: LayoutTemplate, label: "Templates" },
-  { id: "tools", icon: Wrench, label: "Tool Library" },
-  { id: "knowledge", icon: BookOpen, label: "Knowledge Base" },
+  { id: "create-agent", icon: Plus, label: "Tạo Agent" },
+  { id: "templates", icon: LayoutTemplate, label: "Mẫu Agent" },
+  { id: "tools", icon: Wrench, label: "Thư viện công cụ" },
+  { id: "knowledge", icon: BookOpen, label: "Kho kiến thức" },
 ];
 
 export function Sidebar({
@@ -256,7 +256,7 @@ export function Sidebar({
         >
           <Settings size={16} strokeWidth={currentPage === "settings" ? 2 : 1.6}
             color={currentPage === "settings" ? theme.brand : inactiveIcon} />
-          {!collapsed && <span>Settings</span>}
+          {!collapsed && <span>Cài đặt</span>}
         </button>
 
         <button

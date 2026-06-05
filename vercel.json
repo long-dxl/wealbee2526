@@ -1,6 +1,14 @@
 {
-  "buildCommand": "npm run build",
   "outputDirectory": "build",
-  "framework": "vite",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/api/dnse-open/:path*",
+      "destination": "https://openapi.dnse.com.vn/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/"
+    }
+  ]
 }
+

@@ -40,6 +40,7 @@ function PctBadge({ value }: { value: number }) {
     <span style={{
       display: "inline-flex", alignItems: "center",
       padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+      width: "fit-content",
       background: isUp ? "rgba(52,199,89,0.12)" : isDown ? "rgba(255,59,48,0.12)" : "rgba(0,0,0,0.06)",
       color: isUp ? "#34C759" : isDown ? "#FF3B30" : "rgba(26,26,46,0.45)",
       fontFamily: "'Montserrat', system-ui, sans-serif",
