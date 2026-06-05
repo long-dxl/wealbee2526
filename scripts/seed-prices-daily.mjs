@@ -6,8 +6,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL    = "https://fkwsvyzguehtsjpwmttb.supabase.co";
-const SUPABASE_SERVICE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrd3N2eXpndWVodHNqcHdtdHRiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTQyNzM1NiwiZXhwIjoyMDkxMDAzMzU2fQ.dd2jG1FUDGlLwUhIdgEOnkK2HPnfkTTdnfYcNcwWTOo";
+const SUPABASE_URL    = process.env.SUPABASE_URL    || "https://fkwsvyzguehtsjpwmttb.supabase.co";
+const SUPABASE_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE);
 

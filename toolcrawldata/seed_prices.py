@@ -12,8 +12,9 @@ from supabase import create_client
 warnings.filterwarnings("ignore")
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-SUPABASE_URL = "https://fkwsvyzguehtsjpwmttb.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrd3N2eXpndWVodHNqcHdtdHRiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTQyNzM1NiwiZXhwIjoyMDkxMDAzMzU2fQ.dd2jG1FUDGlLwUhIdgEOnkK2HPnfkTTdnfYcNcwWTOo"
+import os
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://fkwsvyzguehtsjpwmttb.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
 sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 

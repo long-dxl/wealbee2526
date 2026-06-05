@@ -9,23 +9,8 @@ on:
     - cron: '0 2 * * 1' # Thứ Hai 9AM Vietnam
 
 jobs:
-  codeql:
-    name: CodeQL SAST
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: github/codeql-action/init@v3
-        with:
-          languages: javascript-typescript, python
-
-      - uses: github/codeql-action/autobuild@v3
-
-      - uses: github/codeql-action/analyze@v3
+  # CodeQL requires GitHub Advanced Security (paid) for private repos — disabled
+  # codeql: ...
 
   snyk-node:
     name: Snyk — Node.js Dependencies
@@ -70,3 +55,4 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml

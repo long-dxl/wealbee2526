@@ -1,0 +1,14 @@
+[allowlist]
+description = "Allowlist for known safe patterns"
+
+# Supabase project URL (not a secret - public project ID)
+regexes = [
+  "fkwsvyzguehtsjpwmttb",
+]
+
+# Allowlist specific files that are config/docs, not runtime secrets  
+paths = [
+  "requirement/",
+  "vn30_dashboard/",
+  "\.md$",
+]
