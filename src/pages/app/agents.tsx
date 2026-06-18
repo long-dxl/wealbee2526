@@ -100,21 +100,30 @@ const SYM_PREFIX   = "__TARGET_SYMBOL__: ";
 
 function formatSchedule(schedule: string): string {
   if (!schedule || schedule === "manual") return "Thủ công";
+  if (schedule === "realtime") return "Realtime · khi có tín hiệu";
+
+  // Format: "daily:09:15" (new agent-studio-new)
+  const simpleMatch = schedule.match(/^(daily|weekdays|weekly|realtime):(\d{2}:\d{2})$/);
+  if (simpleMatch) {
+    const freqLabel: Record<string, string> = { daily: "Hàng ngày", weekdays: "Ngày giao dịch", weekly: "Hàng tuần" };
+    return `${freqLabel[simpleMatch[1]] ?? simpleMatch[1]} · ${simpleMatch[2]} ICT`;
+  }
+
+  // Format: "daily:{...json...}" (old agent-studio)
+  const jsonPrefixMatch = schedule.match(/^[^:]+:(\{.+\})$/s);
+  const jsonStr = jsonPrefixMatch ? jsonPrefixMatch[1] : schedule;
+
   try {
-    const cfg = JSON.parse(schedule);
+    const cfg = JSON.parse(jsonStr);
     if (cfg.mode === "realtime") return "Realtime · khi có tín hiệu";
-    if (cfg.mode !== "scheduled") return "Thủ công";
     const freqLabel: Record<string, string> = {
-      daily:    "Hàng ngày",
-      weekdays: "Ngày giao dịch",
-      weekly:   "Hàng tuần",
-      custom:   "Tùy chọn",
+      daily: "Hàng ngày", weekdays: "Ngày giao dịch", weekly: "Hàng tuần", custom: "Tùy chọn",
     };
-    const freq = freqLabel[cfg.frequency] ?? cfg.frequency;
+    const freq = freqLabel[cfg.frequency] ?? cfg.frequency ?? "Hàng ngày";
     const time = cfg.time ? ` · ${cfg.time} ICT` : "";
     return `${freq}${time}`;
   } catch {
-    return schedule;
+    return "Hàng ngày";
   }
 }
 
@@ -137,15 +146,31 @@ function StatusBadge({ status }: { status: UserAgent["status"] }) {
 
 // ─── Symbol Picker Modal ──────────────────────────────────────────────────────
 
-const SYMBOL_SUGGESTIONS = [
+const VN30_FALLBACK = [
   "VCB","TCB","HPG","VNM","MWG","FPT","VIC","VHM",
   "ACB","BID","CTG","MSN","MBB","SSI","VPB","STB",
-  "SHB","NVL","PDR","DXG","VJC","KBC","GMD","REE",
 ];
 
 function SymbolPickerModal({ onConfirm, onCancel }: { onConfirm: (symbols: string[]) => void; onCancel: () => void }) {
-  const [input,    setInput]    = useState("");
-  const [selected, setSelected] = useState<string[]>([]);
+  const [input,       setInput]       = useState("");
+  const [selected,    setSelected]    = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>(VN30_FALLBACK);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase
+        .from("portfolio_holdings")
+        .select("symbol")
+        .eq("user_id", user.id)
+        .limit(24)
+        .then(({ data }) => {
+          if (data && data.length > 0) {
+            setSuggestions(data.map((r: { symbol: string }) => r.symbol));
+          }
+        });
+    });
+  }, []);
   const FONT = "'Montserrat',sans-serif";
 
   const addSymbol = (sym: string) => {
@@ -212,7 +237,7 @@ function SymbolPickerModal({ onConfirm, onCancel }: { onConfirm: (symbols: strin
         {/* Quick-pick grid */}
         <p style={{ margin: "0 0 8px", fontSize: "0.6875rem", fontWeight: 700, color: "#99a1af", textTransform: "uppercase", letterSpacing: "0.06em" }}>Hoặc chọn nhanh:</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 20 }}>
-          {SYMBOL_SUGGESTIONS.map(s => {
+          {suggestions.map(s => {
             const sel = selected.includes(s);
             const disabled = !sel && selected.length >= 5;
             return (
@@ -260,7 +285,7 @@ function renderInline(text: string, refs?: RefEntry[]): React.ReactNode[] {
     if (p.startsWith("**") && p.endsWith("**"))
       return <strong key={i} style={{ fontWeight: 700, color: "#1a1a2e" }}>{p.slice(2, -2)}</strong>;
     if (p.startsWith("`") && p.endsWith("`"))
-      return <code key={i} style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: "0.8em", background: "rgba(8,73,172,0.07)", padding: "1px 5px", borderRadius: 4, color: "#0849ac" }}>{p.slice(1, -1)}</code>;
+      return <code key={i} style={{ fontFamily: "'Montserrat', system-ui, sans-serif", fontSize: "0.8em", background: "rgba(8,73,172,0.07)", padding: "1px 5px", borderRadius: 4, color: "#0849ac" }}>{p.slice(1, -1)}</code>;
 
     // Numbered reference [ref:N] → resolve to real link
     const refMatch = p.match(/^\[ref:(\d+)\]$/);
@@ -362,7 +387,7 @@ function MdContent({ text, refs }: { text: string; refs?: RefEntry[] }) {
       while (i < lines.length && !lines[i].trim().startsWith("```")) { codeLines.push(lines[i]); i++; }
       i++; // skip closing ```
       nodes.push(
-        <pre key={`code${i}`} style={{ background: "#F0F4FF", border: "1px solid rgba(8,73,172,0.10)", borderRadius: 10, padding: "12px 16px", overflowX: "auto", margin: "10px 0", fontSize: "0.8125rem", lineHeight: 1.7, color: "#1a1a2e", fontFamily: "'IBM Plex Mono',monospace" }}>
+        <pre key={`code${i}`} style={{ background: "#F0F4FF", border: "1px solid rgba(8,73,172,0.10)", borderRadius: 10, padding: "12px 16px", overflowX: "auto", margin: "10px 0", fontSize: "0.8125rem", lineHeight: 1.7, color: "#1a1a2e", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
           {fence && <span style={{ fontSize: "0.625rem", fontWeight: 700, color: "#0849ac", textTransform: "uppercase", display: "block", marginBottom: 6 }}>{fence}</span>}
           {codeLines.join("\n")}
         </pre>
@@ -889,7 +914,7 @@ export function AgentsPage() {
                     {(agent.target_symbols?.length ? agent.target_symbols : savedSym ? [savedSym] : []).length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
                         {(agent.target_symbols?.length ? agent.target_symbols : [savedSym!]).map(s => (
-                          <span key={s} style={{ padding: "2px 8px", borderRadius: 5, background: "rgba(99,102,241,0.09)", color: "#6366f1", fontSize: "0.625rem", fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace" }}>
+                          <span key={s} style={{ padding: "2px 8px", borderRadius: 5, background: "rgba(99,102,241,0.09)", color: "#6366f1", fontSize: "0.625rem", fontWeight: 700, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                             {s}
                           </span>
                         ))}

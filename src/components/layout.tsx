@@ -66,8 +66,8 @@ function MarketTicker({ ticker }: { ticker: Ticker }) {
     }}>
       <Icon style={{ width: 12, height: 12, color: ticker.up ? "#0ea5a0" : "#ef4444" }} />
       <span style={{ color: "#6a7282", fontSize: "0.6875rem" }}>{ticker.label}</span>
-      <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: "#1a1a2e", fontWeight: 600 }}>{ticker.value}</span>
-      <span style={{ color: ticker.up ? "#0ea5a0" : "#ef4444", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace" }}>{ticker.change}</span>
+      <span style={{ fontFamily: "'Montserrat', system-ui, sans-serif", color: "#1a1a2e", fontWeight: 600 }}>{ticker.value}</span>
+      <span style={{ color: ticker.up ? "#0ea5a0" : "#ef4444", fontWeight: 600, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{ticker.change}</span>
     </div>
   );
 }
@@ -291,7 +291,7 @@ export function Layout() {
               style={{
                 border: "none", background: "transparent", outline: "none",
                 fontSize: "0.8125rem", color: "#1a1a2e", width: "100%",
-                fontFamily: "'IBM Plex Mono', monospace",
+                fontFamily: "'Montserrat', system-ui, sans-serif",
               }}
             />
           </div>

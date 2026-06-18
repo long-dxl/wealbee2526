@@ -2,10 +2,40 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Bell, X, AlertTriangle, Info, TrendingDown, Sparkles,
   TrendingUp, Coins, Landmark, Globe, CheckCheck, Filter,
-  ChevronRight, ShieldAlert, BellRing, CircleDot
+  ChevronRight, ShieldAlert, BellRing, CircleDot, Loader2
 } from 'lucide-react';
 import { useNavigate } from 'react-router';
-import { mockNotifications, type Notification, type NotificationSeverity, type NotificationType } from '../lib/notifications';
+import { type Notification, type NotificationSeverity, type NotificationType } from '../lib/notifications';
+import { supabase } from '../lib/supabase/client';
+
+const VALID_TYPES: NotificationType[] = [
+  'DIVIDEND_SAFETY_DROP', 'EARNINGS_MISS', 'MACRO_RATE', 'EXCHANGE_RATE',
+  'MARKET_FLOW', 'INDEX_REBALANCING', 'EX_DIVIDEND_ALERT', 'GOLD_ALERT',
+  'CRYPTO_ALERT', 'BOND_ALERT',
+];
+
+function mapDbRow(row: Record<string, any>): Notification {
+  const meta = (row.metadata as Record<string, any>) || {};
+  const type: NotificationType = VALID_TYPES.includes(row.notification_type)
+    ? row.notification_type
+    : 'MACRO_RATE';
+  const severity: NotificationSeverity = ['critical', 'warning', 'info'].includes(meta.severity)
+    ? meta.severity
+    : 'info';
+  return {
+    id: row.id,
+    type,
+    assetClass: meta.assetClass ?? 'macro',
+    severity,
+    title: row.title,
+    impact: row.message,
+    summary: meta.summary ?? row.message,
+    ticker: meta.ticker,
+    aiPrompt: meta.aiPrompt ?? `${row.title}: ${row.message}`,
+    timestamp: new Date(row.created_at || Date.now()),
+    read: row.is_read ?? false,
+  };
+}
 
 // ── Severity config ───────────────────────────────────────────────────────────
 const severityConfig: Record<NotificationSeverity, {
@@ -88,13 +118,40 @@ type FilterTab = 'all' | 'critical' | 'warning' | 'info';
 // ── Main component ────────────────────────────────────────────────────────────
 export function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const unreadCount = notifications.filter(n => !n.read).length;
   const criticalCount = notifications.filter(n => n.severity === 'critical' && !n.read).length;
+
+  // Fetch real notifications from Supabase
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchNotifs() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || cancelled) return;
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (!cancelled && !error && data) {
+          setNotifications(data.map(mapDbRow));
+        }
+      } catch {
+        // silently — no notifications on error
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    fetchNotifs();
+    return () => { cancelled = true; };
+  }, []);
 
   // Prevent body scroll when sidebar is open
   useEffect(() => {
@@ -106,11 +163,18 @@ export function NotificationBell() {
     return () => { document.body.style.overflow = ''; };
   }, [isOpen]);
 
-  const markRead = (id: string) =>
+  const markRead = (id: string) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    supabase.rpc('mark_notification_read', { p_notification_id: id }).catch(() => {});
+  };
 
-  const markAllRead = () =>
+  const markAllRead = async () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      supabase.rpc('mark_all_notifications_read', { p_user_id: user.id }).catch(() => {});
+    }
+  };
 
   const handleAskBeeAI = (notification: Notification) => {
     markRead(notification.id);
@@ -246,7 +310,12 @@ export function NotificationBell() {
 
         {/* ─── Notification List ─── */}
         <div className="flex-1 overflow-y-auto">
-          {sorted.length === 0 ? (
+          {loading ? (
+            <div className="flex flex-col items-center justify-center h-full py-16 px-6">
+              <Loader2 className="w-8 h-8 text-[#4980DF] animate-spin mb-3" />
+              <p className="text-xs text-gray-400 dark:text-slate-500">Đang tải cảnh báo...</p>
+            </div>
+          ) : sorted.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full py-16 px-6">
               <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center mb-4">
                 <Filter className="w-8 h-8 text-gray-400 dark:text-slate-500" />
@@ -255,7 +324,7 @@ export function NotificationBell() {
                 Không có cảnh báo nào
               </p>
               <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">
-                Thử chọn bộ lọc khác
+                {activeFilter === 'all' ? 'Chưa có cảnh báo mới' : 'Thử chọn bộ lọc khác'}
               </p>
             </div>
           ) : (

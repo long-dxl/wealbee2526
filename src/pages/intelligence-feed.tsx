@@ -445,7 +445,7 @@ export function IntelligenceFeed() {
                                 <span style={{
                                   marginLeft: "auto",
                                   fontSize: "0.6875rem", fontWeight: 700,
-                                  fontFamily: "'JetBrains Mono', monospace",
+                                  fontFamily: "'Montserrat', system-ui, sans-serif",
                                   color: sentTextColor,
                                 }}>
                                   {item.impact_score > 0 ? "+" : ""}{item.impact_score.toFixed(1)}
@@ -478,7 +478,7 @@ export function IntelligenceFeed() {
                                   <span key={t} style={{
                                     padding: "1px 6px", borderRadius: 4,
                                     background: "rgba(8,73,172,0.08)", color: "#0849ac",
-                                    fontSize: "0.6875rem", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600,
+                                    fontSize: "0.6875rem", fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 600,
                                   }}>
                                     {t}
                                   </span>
@@ -601,7 +601,7 @@ export function IntelligenceFeed() {
                           {sentiment === "positive" ? "TÍCH CỰC" : sentiment === "negative" ? "TIÊU CỰC" : "TRUNG LẬP"}
                         </span>
                         {(item.affected_symbols ?? []).slice(0, 2).map((t) => (
-                          <span key={t} className="px-1.5 py-0.5 bg-primary/10 text-primary rounded" style={{ fontSize: "0.625rem", fontFamily: "'JetBrains Mono', monospace" }}>
+                          <span key={t} className="px-1.5 py-0.5 bg-primary/10 text-primary rounded" style={{ fontSize: "0.625rem", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                             {t}
                           </span>
                         ))}
@@ -612,7 +612,7 @@ export function IntelligenceFeed() {
                           <span
                             style={{
                               fontSize: "0.6875rem", fontWeight: 700,
-                              fontFamily: "'JetBrains Mono', monospace",
+                              fontFamily: "'Montserrat', system-ui, sans-serif",
                               color: sentiment === "positive" ? "#10b981" : sentiment === "negative" ? "#ef4444" : "#6a7282",
                             }}
                           >
@@ -679,7 +679,7 @@ export function IntelligenceFeed() {
                       </div>
                       <div className="flex items-center gap-1.5 ml-8 flex-wrap">
                         {(item.affected_symbols ?? []).slice(0, 3).map((t) => (
-                          <span key={t} className="px-1.5 py-0.5 bg-primary/10 text-primary rounded" style={{ fontSize: "0.625rem", fontFamily: "'JetBrains Mono', monospace" }}>
+                          <span key={t} className="px-1.5 py-0.5 bg-primary/10 text-primary rounded" style={{ fontSize: "0.625rem", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                             {t}
                           </span>
                         ))}
@@ -694,7 +694,7 @@ export function IntelligenceFeed() {
                         <span
                           style={{
                             fontSize: "0.6875rem", fontWeight: 700,
-                            fontFamily: "'JetBrains Mono', monospace",
+                            fontFamily: "'Montserrat', system-ui, sans-serif",
                             color: sentiment === "positive" ? "#10b981" : sentiment === "negative" ? "#ef4444" : "#6a7282",
                           }}
                         >

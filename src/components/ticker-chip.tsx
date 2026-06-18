@@ -32,7 +32,7 @@ export function TickerChip({ symbol, bg, color, size = "sm" }: TickerChipProps) 
         color: color ?? "#0849AC",
         fontSize: isSmall ? 11 : 13,
         fontWeight: 700,
-        fontFamily: "'IBM Plex Mono', 'Montserrat', monospace",
+        fontFamily: "'Montserrat', system-ui, sans-serif",
         cursor: "pointer",
         letterSpacing: "0.04em",
         transition: "all 0.15s",

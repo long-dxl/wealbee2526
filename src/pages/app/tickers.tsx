@@ -352,13 +352,13 @@ export function Tickers({
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
             >
-              <span style={{ fontWeight: 700, fontSize: 14, color: fg, fontFamily: "'IBM Plex Mono', monospace" }}>{ticker.symbol}</span>
+              <span style={{ fontWeight: 700, fontSize: 14, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{ticker.symbol}</span>
               <span style={{ fontSize: 13, color: fgMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ticker.name}</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: fg, fontFamily: "'IBM Plex Mono', monospace" }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                 {ticker.price > 0 ? ticker.price.toLocaleString("vi-VN") : "—"}
               </span>
               <PctBadge value={ticker.change} />
-              <span style={{ fontSize: 13, color: fgMuted, fontFamily: "'IBM Plex Mono', monospace" }}>{ticker.volume}</span>
+              <span style={{ fontSize: 13, color: fgMuted, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{ticker.volume}</span>
               <span style={{
                 fontSize: 11, padding: "2px 8px", borderRadius: 6, width: "fit-content",
                 background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.06)",

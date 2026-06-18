@@ -109,7 +109,75 @@ export function Settings() {
   const [digestSaving,  setDigestSaving]  = useState(false);
   const [digestSaved,   setDigestSaved]   = useState(false);
 
-  useEffect(() => { loadProfile(); loadDigestSubscription(); }, []);
+  // ── Token usage (real from Supabase) ──────────────────────────────────────
+  interface UsageRow { day: string; tokens: number; }
+  interface UsageLog { created_at: string; tokens_used: number; label: string; source: "test" | "run"; }
+  const [usageChart,   setUsageChart]   = useState<UsageRow[]>([]);
+  const [usageLog,     setUsageLog]     = useState<UsageLog[]>([]);
+  const [totalTokens,  setTotalTokens]  = useState(0);
+  const [loadingUsage, setLoadingUsage] = useState(true);
+
+  useEffect(() => { loadProfile(); loadDigestSubscription(); loadTokenUsage(); }, []);
+
+  const loadTokenUsage = async () => {
+    setLoadingUsage(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const since = new Date(Date.now() - 30 * 86400000).toISOString();
+
+      // Load agent_test_sessions (chạy thử trong studio)
+      const { data: tests } = await supabase
+        .from("agent_test_sessions")
+        .select("created_at, tokens_used, config, status")
+        .eq("user_id", user.id)
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(200);
+
+      // Load agent_runs (chạy thật)
+      const { data: runs } = await supabase
+        .from("agent_runs")
+        .select("started_at, tokens_used, agent_id, status")
+        .eq("user_id", user.id)
+        .gte("started_at", since)
+        .order("started_at", { ascending: false })
+        .limit(200);
+
+      // Aggregate by day for chart
+      const dayMap: Record<string, number> = {};
+      const logs: UsageLog[] = [];
+
+      for (const t of (tests ?? [])) {
+        if (!t.tokens_used) continue;
+        const day = t.created_at.substring(0, 10);
+        dayMap[day] = (dayMap[day] ?? 0) + t.tokens_used;
+        const agentName = t.config?.agentName ?? t.config?.templateId ?? "Chạy thử";
+        logs.push({ created_at: t.created_at, tokens_used: t.tokens_used, label: agentName, source: "test" });
+      }
+      for (const r of (runs ?? [])) {
+        if (!r.tokens_used) continue;
+        const day = r.started_at.substring(0, 10);
+        dayMap[day] = (dayMap[day] ?? 0) + r.tokens_used;
+        logs.push({ created_at: r.started_at, tokens_used: r.tokens_used, label: "Chạy agent", source: "run" });
+      }
+
+      // Build 30-day chart array (fill missing days with 0)
+      const chart: UsageRow[] = [];
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86400000);
+        const key = d.toISOString().substring(0, 10);
+        const label = `${d.getDate()}/${d.getMonth() + 1}`;
+        chart.push({ day: label, tokens: dayMap[key] ?? 0 });
+      }
+
+      setUsageChart(chart);
+      setUsageLog(logs.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 20));
+      setTotalTokens(Object.values(dayMap).reduce((s, v) => s + v, 0));
+    } finally {
+      setLoadingUsage(false);
+    }
+  };
 
   const loadProfile = async () => {
     setLoadingProfile(true);
@@ -129,18 +197,21 @@ export function Settings() {
 
       setFullName(profile?.full_name ?? user.user_metadata?.full_name ?? "");
 
-      // Load notification settings
+      // Load notification settings from JSON column
       const { data: settings } = await supabase
         .from("user_settings")
-        .select("email_digest, inbox_alerts")
+        .select("notifications")
         .eq("user_id", user.id)
         .single();
 
-      if (settings) {
+      if (settings?.notifications && typeof settings.notifications === "object") {
+        const n = settings.notifications as Record<string, boolean>;
         setNotifs(prev => ({
           ...prev,
-          email:      settings.email_digest ?? true,
-          agentAlert: settings.inbox_alerts  ?? true,
+          email:        n.email_digest    ?? prev.email,
+          push:         n.push            ?? prev.push,
+          agentAlert:   n.inbox_alerts    ?? prev.agentAlert,
+          weeklyReport: n.weekly_report   ?? prev.weeklyReport,
         }));
       }
     } finally {
@@ -172,9 +243,12 @@ export function Settings() {
   const loadDigestSubscription = async () => {
     setDigestLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
       const { data } = await supabase
         .from("digest_subscribers")
         .select("watch_symbols")
+        .eq("user_id", user.id)
         .maybeSingle();
       if (data?.watch_symbols) setWatchSymbols(data.watch_symbols);
     } finally {
@@ -213,15 +287,17 @@ export function Settings() {
   };
 
   const saveNotifSettings = async (key: string, value: boolean) => {
-    setNotifs(prev => ({ ...prev, [key]: value }));
+    const newNotifs = { ...notifs, [key]: value };
+    setNotifs(newNotifs);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const updates: Record<string, boolean> = {};
-    if (key === "email")      updates.email_digest  = value;
-    if (key === "agentAlert") updates.inbox_alerts  = value;
-    if (Object.keys(updates).length > 0) {
-      await supabase.from("user_settings").update(updates).eq("user_id", user.id);
-    }
+    const notifJson: Record<string, boolean> = {
+      email_digest:  newNotifs.email,
+      push:          newNotifs.push,
+      inbox_alerts:  newNotifs.agentAlert,
+      weekly_report: newNotifs.weeklyReport,
+    };
+    await supabase.from("user_settings").update({ notifications: notifJson }).eq("user_id", user.id);
   };
 
   const cardBg       = isDark ? "#131824" : "#fff";
@@ -669,39 +745,135 @@ export function Settings() {
 
           {/* ── Billing ──────────────────────────────────────────────────────── */}
           {section === "billing" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-              {plans.map(plan => (
-                <div
-                  key={plan.id}
-                  style={{
-                    background: cardBg, borderRadius: 14, padding: 20, position: "relative",
-                    border: plan.popular ? "1.5px solid " + theme.brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)"),
-                    boxShadow: cardShadow,
-                  }}
-                >
-                  {plan.popular && (
-                    <span style={{ position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", background: theme.brand, color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>
-                      PHỔ BIẾN NHẤT
-                    </span>
-                  )}
-                  <div style={{ fontSize: 18, fontWeight: 700, color: headingColor, marginBottom: 4 }}>{plan.name}</div>
-                  <div style={{ marginBottom: 16 }}>
-                    <span style={{ fontSize: 24, fontWeight: 700, color: theme.brand }}>{plan.price}</span>
-                    <span style={{ fontSize: 13, color: subtleColor }}>{plan.period}</span>
+            <div>
+              {/* ── Token usage widget ── */}
+              <div style={{ background: cardBg, borderRadius: 14, padding: 20, marginBottom: 20, boxShadow: cardShadow, border: "0.5px solid " + borderColor }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <CreditCard size={16} color={theme.brand} strokeWidth={1.8} />
+                    <span style={{ fontSize: 15, fontWeight: 700, color: headingColor, fontFamily: FONT }}>Tokens đã dùng (30 ngày)</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.09)", color: theme.brand, fontFamily: FONT }}>Free</span>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-                    {plan.features.map(f => (
-                      <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                        <Check size={14} color="#34C759" strokeWidth={2} style={{ marginTop: 2, flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, color: labelColor }}>{f}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <button style={{ width: "100%", padding: "10px 0", borderRadius: 10, border: "none", background: plan.id === "free" ? theme.bgAccent : plan.popular ? theme.brand : theme.bgAccent, color: plan.id === "free" ? subtleColor : plan.popular ? "#fff" : theme.brand, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
-                    {plan.id === "free" ? "Gói hiện tại" : `Nâng cấp ${plan.name}`}
+                  <button onClick={loadTokenUsage} title="Làm mới" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 8, border: "0.5px solid " + borderColor, background: "transparent", cursor: "pointer" }}>
+                    <RefreshCw size={14} color={subtleColor} strokeWidth={1.8} />
                   </button>
                 </div>
-              ))}
+
+                {loadingUsage ? (
+                  <div style={{ height: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <RefreshCw size={20} color={subtleColor} strokeWidth={1.5} style={{ animation: "spin 1s linear infinite" }} />
+                  </div>
+                ) : (
+                  <>
+                    {/* Tổng tokens */}
+                    <div style={{ display: "flex", gap: 20, marginBottom: 18 }}>
+                      <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(77,143,232,0.07)" : "rgba(8,73,172,0.05)", border: "0.5px solid " + borderColor }}>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Tổng 30 ngày</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: theme.brand, fontFamily: FONT }}>{totalTokens.toLocaleString()}</div>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>tokens</div>
+                      </div>
+                      <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(52,199,89,0.07)" : "rgba(52,199,89,0.05)", border: "0.5px solid " + borderColor }}>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Trung bình / ngày</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "#1a7a3a", fontFamily: FONT }}>{Math.round(totalTokens / 30).toLocaleString()}</div>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>tokens/ngày</div>
+                      </div>
+                      <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(255,149,0,0.07)" : "rgba(255,149,0,0.05)", border: "0.5px solid " + borderColor }}>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Số lần chạy</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "#CC7A00", fontFamily: FONT }}>{usageLog.length}</div>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>lần (30 ngày)</div>
+                      </div>
+                    </div>
+
+                    {/* Bar chart 30 ngày */}
+                    <div style={{ marginBottom: 20 }}>
+                      <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 600, color: labelColor, fontFamily: FONT }}>Sử dụng theo ngày</p>
+                      {usageChart.every(d => d.tokens === 0) ? (
+                        <div style={{ height: 64, display: "flex", alignItems: "center", justifyContent: "center", border: "0.5px dashed " + borderColor, borderRadius: 8 }}>
+                          <span style={{ fontSize: 12, color: subtleColor, fontFamily: FONT }}>Chưa có dữ liệu trong 30 ngày</span>
+                        </div>
+                      ) : (
+                        <div style={{ height: 72, display: "flex", alignItems: "flex-end", gap: 3 }}>
+                          {(() => {
+                            const max = Math.max(...usageChart.map(d => d.tokens), 1);
+                            return usageChart.map((d, i) => (
+                              <div key={i} title={`${d.day}: ${d.tokens.toLocaleString()} tokens`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "default" }}>
+                                <div style={{ width: "100%", height: Math.max(3, Math.round((d.tokens / max) * 60)), borderRadius: "3px 3px 0 0", background: d.tokens > 0 ? theme.brand : (isDark ? "rgba(255,255,255,0.06)" : "rgba(8,73,172,0.06)"), transition: "height 300ms ease", opacity: d.tokens > 0 ? 0.85 : 1 }} />
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                        <span style={{ fontSize: 10, color: subtleColor, fontFamily: FONT }}>{usageChart[0]?.day}</span>
+                        <span style={{ fontSize: 10, color: subtleColor, fontFamily: FONT }}>{usageChart[usageChart.length - 1]?.day}</span>
+                      </div>
+                    </div>
+
+                    {/* Log gần nhất */}
+                    {usageLog.length > 0 && (
+                      <div>
+                        <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 600, color: labelColor, fontFamily: FONT }}>Lịch sử sử dụng</p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 1, borderRadius: 10, overflow: "hidden", border: "0.5px solid " + borderColor }}>
+                          {usageLog.map((row, i) => {
+                            const dt = new Date(row.created_at);
+                            const dateStr = `${dt.getDate()}/${dt.getMonth() + 1}`;
+                            const timeStr = `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
+                            return (
+                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: i % 2 === 0 ? "transparent" : (isDark ? "rgba(255,255,255,0.02)" : "rgba(8,73,172,0.015)") }}>
+                                <span style={{ fontSize: 10, color: subtleColor, fontFamily: FONT, minWidth: 36 }}>{dateStr}</span>
+                                <span style={{ fontSize: 10, color: subtleColor, fontFamily: FONT, minWidth: 36 }}>{timeStr}</span>
+                                <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: row.source === "test" ? (isDark ? "rgba(255,149,0,0.12)" : "rgba(255,149,0,0.10)") : (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)"), color: row.source === "test" ? "#CC7A00" : theme.brand, fontFamily: FONT, flexShrink: 0 }}>
+                                  {row.source === "test" ? "Thử" : "Chạy"}
+                                </span>
+                                <span style={{ fontSize: 12, color: labelColor, fontFamily: FONT, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.label}</span>
+                                <span style={{ fontSize: 12, fontWeight: 700, fontFamily: FONT, color: theme.brand, minWidth: 60, textAlign: "right" }}>
+                                  {row.tokens_used.toLocaleString()} tk
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* ── Plan cards ── */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                {plans.map(plan => (
+                  <div
+                    key={plan.id}
+                    style={{
+                      background: cardBg, borderRadius: 14, padding: 20, position: "relative",
+                      border: plan.popular ? "1.5px solid " + theme.brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)"),
+                      boxShadow: cardShadow,
+                    }}
+                  >
+                    {plan.popular && (
+                      <span style={{ position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", background: theme.brand, color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>
+                        PHỔ BIẾN NHẤT
+                      </span>
+                    )}
+                    <div style={{ fontSize: 18, fontWeight: 700, color: headingColor, marginBottom: 4 }}>{plan.name}</div>
+                    <div style={{ marginBottom: 16 }}>
+                      <span style={{ fontSize: 24, fontWeight: 700, color: theme.brand }}>{plan.price}</span>
+                      <span style={{ fontSize: 13, color: subtleColor }}>{plan.period}</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                      {plan.features.map(f => (
+                        <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                          <Check size={14} color="#34C759" strokeWidth={2} style={{ marginTop: 2, flexShrink: 0 }} />
+                          <span style={{ fontSize: 12, color: labelColor }}>{f}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <button style={{ width: "100%", padding: "10px 0", borderRadius: 10, border: "none", background: plan.id === "free" ? theme.bgAccent : plan.popular ? theme.brand : theme.bgAccent, color: plan.id === "free" ? subtleColor : plan.popular ? "#fff" : theme.brand, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
+                      {plan.id === "free" ? "Gói hiện tại" : `Nâng cấp ${plan.name}`}
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

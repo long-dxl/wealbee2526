@@ -5,8 +5,8 @@
  *   dividends, insider_transactions, market_news, market_indices
  */
 
-import { useState, useEffect, useMemo, createContext, useContext } from "react";
-import { useParams, useNavigate } from "react-router";
+import { useState, useEffect, useMemo, createContext, useContext, useRef } from "react";
+import { useParams, useNavigate, useOutletContext } from "react-router";
 import {
   ArrowLeft, ExternalLink, BarChart2, BookOpen, Scale, Banknote,
   RefreshCw, AlertCircle, Info, Users, Coins, Newspaper,
@@ -17,6 +17,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { supabase } from "../../lib/supabase/client";
+import type { AppOutletContext } from "./page-wrappers";
 
 // ─── Theme tokens ─────────────────────────────────────────────────────────────
 
@@ -141,7 +142,7 @@ function ChartTooltip({ active, payload, label }: any) {
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: p.color }} />
           <span style={{ fontSize: 12, color: tk.MUTED }}>{p.name}:</span>
           <span style={{ fontSize: 12, color: p.color, fontWeight: 700 }}>
-            {p.dataKey === "stock" ? fmtN(p.value) + " đ" : fmtPct(p.value)}
+            {fmtPct(p.value)}
           </span>
         </div>
       ))}
@@ -299,7 +300,7 @@ function FinancialPanel({ data, tab }: { data: FinancialRow[]; tab: FinTab }) {
                       const d = data.find(f => f.year === y);
                       const raw = d ? (d[row.key] as number | null) : null;
                       return (
-                        <td key={y} style={{ padding: "11px 16px 11px 0", textAlign: "right", fontSize: 13, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 600 : 400, fontFamily: "'IBM Plex Mono', monospace" }}>
+                        <td key={y} style={{ padding: "11px 16px 11px 0", textAlign: "right", fontSize: 13, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 600 : 400, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                           {raw != null ? row.fmt(raw) : "—"}
                         </td>
                       );
@@ -347,6 +348,28 @@ export function TickerDetailPage() {
 
   const sym = symbol?.toUpperCase() ?? "";
 
+  // ── Outlet context (optional — page can also be rendered standalone) ────────
+  let addContextCard: AppOutletContext["addContextCard"] | undefined;
+  let removeContextCard: AppOutletContext["removeContextCard"] | undefined;
+  try {
+    const ctx = useOutletContext<AppOutletContext>();
+    addContextCard = ctx.addContextCard;
+    removeContextCard = ctx.removeContextCard;
+  } catch { /* standalone render, no outlet */ }
+
+  const contextCardId = `ticker-${sym}`;
+  const addedRef = useRef(false);
+
+  // Add context card when ticker data loads, remove on unmount
+  useEffect(() => {
+    if (!sym || !removeContextCard) return;
+    addedRef.current = false;
+    return () => {
+      removeContextCard!(contextCardId);
+      addedRef.current = false;
+    };
+  }, [sym]);
+
   useEffect(() => {
     if (!sym) return;
     loadAll(sym);
@@ -364,6 +387,7 @@ export function TickerDetailPage() {
         { data: newsData },
         { data: vniData },
         { data: hnxData },
+        { data: stockData },
       ] = await Promise.all([
         supabase.from("tickers").select("symbol,name,exchange,sector,in_vn30").eq("symbol", s).single(),
         supabase.from("prices_daily").select("date,open,high,low,close,volume").eq("symbol", s).order("date", { ascending: true }).limit(500),
@@ -373,6 +397,7 @@ export function TickerDetailPage() {
         supabase.from("market_news").select("title,published_at,impact_score,label,article_url").contains("affected_symbols", [s]).neq("label", "trash").not("label", "is", null).order("published_at", { ascending: false }).limit(10),
         supabase.from("market_indices").select("date,close").eq("index_code", "VNINDEX").order("date", { ascending: true }).limit(500),
         supabase.from("market_indices").select("date,close").eq("index_code", "HNX").order("date", { ascending: true }).limit(500),
+        supabase.from("stocks").select("symbol,name,sector_name,company_context").eq("symbol", s).single(),
       ]);
 
       if (!tickerData) { setError(`Không tìm thấy mã "${s}"`); setLoading(false); return; }
@@ -384,6 +409,18 @@ export function TickerDetailPage() {
       setNews(newsData ?? []);
       setVniPrices(vniData ?? []);
       setHnxPrices(hnxData ?? []);
+
+      // Auto-add context card to Action Hub
+      if (addContextCard && !addedRef.current) {
+        addedRef.current = true;
+        addContextCard({
+          id: `ticker-${s}`,
+          type: "ticker",
+          label: s,
+          badge: stockData?.name ?? tickerData.name ?? s,
+          summary: stockData?.company_context ?? undefined,
+        });
+      }
     } catch { setError("Lỗi kết nối. Vui lòng thử lại."); }
     setLoading(false);
   };
@@ -414,10 +451,10 @@ export function TickerDetailPage() {
     const baseHnx   = hnxMap[filteredPrices[0].date] ?? 0;
 
     return filteredPrices.map(p => ({
-      date: fmtShort(p.date),
-      stock: Number(p.close),
-      vni: baseVni > 0 ? parseFloat(((vniMap[p.date] ?? baseVni) / baseVni * 100 - 100).toFixed(2)) : 0,
-      hnx: baseHnx > 0 ? parseFloat(((hnxMap[p.date] ?? baseHnx) / baseHnx * 100 - 100).toFixed(2)) : 0,
+      date:  fmtShort(p.date),
+      stock: parseFloat(((Number(p.close) / baseStock - 1) * 100).toFixed(2)),
+      vni:   baseVni > 0 ? parseFloat(((vniMap[p.date] ?? baseVni) / baseVni * 100 - 100).toFixed(2)) : 0,
+      hnx:   baseHnx > 0 ? parseFloat(((hnxMap[p.date] ?? baseHnx) / baseHnx * 100 - 100).toFixed(2)) : 0,
     }));
   }, [filteredPrices, vniPrices, hnxPrices]);
 
@@ -427,8 +464,7 @@ export function TickerDetailPage() {
   const chgPct  = latest && prev ? (chgAbs! / Number(prev.close)) * 100 : null;
   const isUp    = chgPct != null ? chgPct >= 0 : null;
 
-  const stockPeriodPct = chartData.length >= 2
-    ? ((chartData[chartData.length - 1].stock / chartData[0].stock) - 1) * 100 : 0;
+  const stockPeriodPct = chartData.length >= 2 ? chartData[chartData.length - 1].stock : 0;
   const STOCK_C = stockPeriodPct >= 0 ? GREEN : RED;
 
   const FIN_TABS: { id: FinTab; icon: React.ElementType; label: string }[] = [
@@ -515,7 +551,7 @@ export function TickerDetailPage() {
           </div>
 
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.8px", color: tk.TEXT, fontFamily: "'IBM Plex Mono', monospace" }}>
+            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.8px", color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
               {latest ? latest.close.toLocaleString("vi-VN") : "—"}
               <span style={{ fontSize: 13, color: tk.MUTED, marginLeft: 5 }}>đ</span>
             </div>
@@ -580,7 +616,7 @@ export function TickerDetailPage() {
               <div>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
                     <div>
-                      <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-1.5px", marginBottom: 6, color: tk.TEXT, fontFamily: "'IBM Plex Mono', monospace" }}>
+                      <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-1.5px", marginBottom: 6, color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                         {latest ? latest.close.toLocaleString("vi-VN") : "—"}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -626,13 +662,12 @@ export function TickerDetailPage() {
                         </defs>
                         <CartesianGrid stroke={tk.GRID_STROKE} vertical={false} />
                         <XAxis dataKey="date" tick={{ fill: tk.MUTED, fontSize: 10, fontFamily: FONT }} axisLine={false} tickLine={false} interval={Math.max(1, Math.floor(chartData.length / 7))} />
-                        <YAxis yAxisId="left"  dataKey="stock" tick={{ fill: tk.MUTED, fontSize: 10, fontFamily: FONT }} axisLine={false} tickLine={false} width={68} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)} />
-                        <YAxis yAxisId="right" orientation="right" tick={{ fill: tk.MUTED, fontSize: 10, fontFamily: FONT }} axisLine={false} tickLine={false} width={40} tickFormatter={v => `${v > 0 ? "+" : ""}${v.toFixed(0)}%`} />
+                        <YAxis tick={{ fill: tk.MUTED, fontSize: 10, fontFamily: FONT }} axisLine={false} tickLine={false} width={48} tickFormatter={v => `${v > 0 ? "+" : ""}${v.toFixed(0)}%`} />
                         <Tooltip content={<ChartTooltip />} />
-                        <ReferenceLine yAxisId="right" y={0} stroke={tk.REF_STROKE} strokeDasharray="3 3" />
-                        <Area yAxisId="left"  type="monotone" dataKey="stock" stroke={STOCK_C}  strokeWidth={2.5} fill="url(#gStock)" dot={false} name={sym} />
-                        {showVni && <Area yAxisId="right" type="monotone" dataKey="vni" stroke={VNI_C} strokeWidth={1.5} fill="url(#gVni)" dot={false} name="VN-Index"  strokeDasharray="5 2" />}
-                        {showHnx && <Area yAxisId="right" type="monotone" dataKey="hnx" stroke={HNX_C} strokeWidth={1.5} fill="url(#gHnx)" dot={false} name="HNX-Index" strokeDasharray="5 2" />}
+                        <ReferenceLine y={0} stroke={tk.REF_STROKE} strokeDasharray="3 3" />
+                        <Area type="monotone" dataKey="stock" stroke={STOCK_C}  strokeWidth={2.5} fill="url(#gStock)" dot={false} name={sym} />
+                        {showVni && <Area type="monotone" dataKey="vni" stroke={VNI_C} strokeWidth={1.5} fill="url(#gVni)" dot={false} name="VN-Index"  strokeDasharray="5 2" />}
+                        {showHnx && <Area type="monotone" dataKey="hnx" stroke={HNX_C} strokeWidth={1.5} fill="url(#gHnx)" dot={false} name="HNX-Index" strokeDasharray="5 2" />}
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -740,7 +775,7 @@ export function TickerDetailPage() {
                                 {d.dividend_type === "cash" ? "Tiền mặt" : "Cổ phiếu"}
                               </span>
                             </td>
-                            <td style={{ padding: "10px 16px", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: tk.TEXT }}>
+                            <td style={{ padding: "10px 16px", fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 600, color: tk.TEXT }}>
                               {d.dividend_type === "cash" ? `${fmtN(d.amount)} đ/CP` : `${(d.amount * 100).toFixed(0)}%`}
                             </td>
                           </tr>
@@ -773,7 +808,7 @@ export function TickerDetailPage() {
                                 {ins.trade_type === "buy" ? "▲ MUA" : "▼ BÁN"}
                               </span>
                             </td>
-                            <td style={{ padding: "10px 16px", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: tk.TEXT }}>
+                            <td style={{ padding: "10px 16px", fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 600, color: tk.TEXT }}>
                               {ins.volume != null ? `${ins.volume.toLocaleString("vi-VN")} CP` : "—"}
                             </td>
                           </tr>

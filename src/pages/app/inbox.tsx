@@ -344,7 +344,7 @@ export function InboxPage() {
                     <span style={{ fontSize: "0.5625rem", color: "#c4c9d4" }}>{timeAgo(brief.created_at)}</span>
                     {brief.impact_score != null && <ImpactBadge score={brief.impact_score} />}
                     {brief.tickers?.slice(0, 4).map(t => (
-                      <span key={t} style={{ fontSize: "0.5625rem", padding: "1px 5px", borderRadius: 4, background: "rgba(8,73,172,0.08)", color: "#0849ac", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace" }}>{t}</span>
+                      <span key={t} style={{ fontSize: "0.5625rem", padding: "1px 5px", borderRadius: 4, background: "rgba(8,73,172,0.08)", color: "#0849ac", fontWeight: 700, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{t}</span>
                     ))}
                   </div>
                 </div>
@@ -385,7 +385,7 @@ export function InboxPage() {
           {selected.tickers && selected.tickers.length > 0 && (
             <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
               {selected.tickers.map(t => (
-                <span key={t} style={{ padding: "4px 10px", borderRadius: 7, background: "rgba(8,73,172,0.08)", color: "#0849ac", fontWeight: 700, fontSize: "0.8125rem", fontFamily: "'IBM Plex Mono', monospace" }}>{t}</span>
+                <span key={t} style={{ padding: "4px 10px", borderRadius: 7, background: "rgba(8,73,172,0.08)", color: "#0849ac", fontWeight: 700, fontSize: "0.8125rem", fontFamily: "'Montserrat', system-ui, sans-serif" }}>{t}</span>
               ))}
             </div>
           )}

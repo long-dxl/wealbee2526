@@ -380,7 +380,7 @@ export function ActionHub() {
                 </div>
                 {contextTicker && (
                   <div style={{ background: "rgba(8,73,172,0.04)", border: "1px solid rgba(8,73,172,0.1)", borderRadius: 9, padding: "7px 11px", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: "0.6875rem", color: "#0849ac", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace" }}>{contextTicker}</span>
+                    <span style={{ fontSize: "0.6875rem", color: "#0849ac", fontWeight: 700, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{contextTicker}</span>
                     <span style={{ fontSize: "0.6875rem", color: "#6a7282" }}>đang được xem — BeeAI sẽ ưu tiên phân tích mã này</span>
                   </div>
                 )}

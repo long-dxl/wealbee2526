@@ -231,9 +231,12 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
 
   const fetchBriefs = async () => {
     setLoadingBriefs(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoadingBriefs(false); return; }
     const { data, error } = await supabase
       .from("briefs")
       .select("id, type, title, summary, content, is_read, created_at, tickers, agent_id, refs")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(50);
 
@@ -279,7 +282,10 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
     setEmailSent(false);
     if (!brief.read) {
       setBriefs(prev => prev.map(b => b.id === brief.id ? { ...b, read: true } : b));
-      await supabase.from("briefs").update({ is_read: true }).eq("id", brief.id);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("briefs").update({ is_read: true }).eq("id", brief.id).eq("user_id", user.id);
+      }
     }
   };
 

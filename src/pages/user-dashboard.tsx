@@ -94,14 +94,14 @@ function IndexCard({ idx }: { idx: IndexData }) {
         }
         <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#99a1af", letterSpacing: "0.05em" }}>{idx.label}</span>
       </div>
-      <p style={{ fontSize: "1.25rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>
+      <p style={{ fontSize: "1.25rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "'Montserrat', system-ui, sans-serif", lineHeight: 1 }}>
         {idx.value}
       </p>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-        <span style={{ fontSize: "0.75rem", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: idx.up ? "#0ea5a0" : "#ef4444" }}>
+        <span style={{ fontSize: "0.75rem", fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 600, color: idx.up ? "#0ea5a0" : "#ef4444" }}>
           {idx.change}
         </span>
-        <span style={{ fontSize: "0.6875rem", padding: "2px 6px", borderRadius: 5, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", background: idx.up ? "rgba(14,165,160,0.1)" : "rgba(239,68,68,0.1)", color: idx.up ? "#0ea5a0" : "#ef4444" }}>
+        <span style={{ fontSize: "0.6875rem", padding: "2px 6px", borderRadius: 5, fontWeight: 700, fontFamily: "'Montserrat', system-ui, sans-serif", background: idx.up ? "rgba(14,165,160,0.1)" : "rgba(239,68,68,0.1)", color: idx.up ? "#0ea5a0" : "#ef4444" }}>
           {idx.pct}
         </span>
       </div>
@@ -289,10 +289,10 @@ export function UserDashboard() {
                 onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(14,165,160,0.04)"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
               >
-                <span style={{ width: 44, fontSize: "0.8125rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "'IBM Plex Mono', monospace" }}>{s.ticker}</span>
+                <span style={{ width: 44, fontSize: "0.8125rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "'Montserrat', system-ui, sans-serif" }}>{s.ticker}</span>
                 <span style={{ flex: 1, fontSize: "0.6875rem", color: "#99a1af" }}>{s.name}</span>
-                <span style={{ fontSize: "0.8125rem", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: "#1a1a2e", marginRight: 10 }}>{s.price.toLocaleString("vi-VN")}</span>
-                <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#0ea5a0", fontFamily: "'IBM Plex Mono', monospace", minWidth: 52, textAlign: "right" }}>+{s.pct.toFixed(2)}%</span>
+                <span style={{ fontSize: "0.8125rem", fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 600, color: "#1a1a2e", marginRight: 10 }}>{s.price.toLocaleString("vi-VN")}</span>
+                <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#0ea5a0", fontFamily: "'Montserrat', system-ui, sans-serif", minWidth: 52, textAlign: "right" }}>+{s.pct.toFixed(2)}%</span>
               </div>
             ))}
           </div>
@@ -310,10 +310,10 @@ export function UserDashboard() {
                 onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(239,68,68,0.04)"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
               >
-                <span style={{ width: 44, fontSize: "0.8125rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "'IBM Plex Mono', monospace" }}>{s.ticker}</span>
+                <span style={{ width: 44, fontSize: "0.8125rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "'Montserrat', system-ui, sans-serif" }}>{s.ticker}</span>
                 <span style={{ flex: 1, fontSize: "0.6875rem", color: "#99a1af" }}>{s.name}</span>
-                <span style={{ fontSize: "0.8125rem", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: "#1a1a2e", marginRight: 10 }}>{s.price.toLocaleString("vi-VN")}</span>
-                <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#ef4444", fontFamily: "'IBM Plex Mono', monospace", minWidth: 52, textAlign: "right" }}>{s.pct.toFixed(2)}%</span>
+                <span style={{ fontSize: "0.8125rem", fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 600, color: "#1a1a2e", marginRight: 10 }}>{s.price.toLocaleString("vi-VN")}</span>
+                <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#ef4444", fontFamily: "'Montserrat', system-ui, sans-serif", minWidth: 52, textAlign: "right" }}>{s.pct.toFixed(2)}%</span>
               </div>
             ))}
           </div>
@@ -373,12 +373,12 @@ export function UserDashboard() {
                         {SOURCE_LABEL[article.source] || article.source}
                       </span>
                       {article.impact_score !== null && (
-                        <span style={{ fontSize: "0.5625rem", fontWeight: 700, color: impactColor(article.impact_score), fontFamily: "'IBM Plex Mono', monospace" }}>
+                        <span style={{ fontSize: "0.5625rem", fontWeight: 700, color: impactColor(article.impact_score), fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                           {article.impact_score > 0 ? "+" : ""}{article.impact_score}
                         </span>
                       )}
                       {article.affected_symbols?.slice(0, 3).map(sym => (
-                        <span key={sym} onClick={e => { e.preventDefault(); handleTickerClick(sym); }} style={{ padding: "1px 5px", borderRadius: 4, background: "rgba(8,73,172,0.08)", color: "#0849ac", fontSize: "0.5625rem", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
+                        <span key={sym} onClick={e => { e.preventDefault(); handleTickerClick(sym); }} style={{ padding: "1px 5px", borderRadius: 4, background: "rgba(8,73,172,0.08)", color: "#0849ac", fontSize: "0.5625rem", fontWeight: 700, fontFamily: "'Montserrat', system-ui, sans-serif", cursor: "pointer" }}>
                           {sym}
                         </span>
                       ))}

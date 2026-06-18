@@ -8,7 +8,7 @@ function renderInline(text: string, refs?: RefEntry[]): React.ReactNode[] {
     if (p.startsWith("**") && p.endsWith("**"))
       return <strong key={i} style={{ fontWeight: 700, color: "#1a1a2e" }}>{p.slice(2, -2)}</strong>;
     if (p.startsWith("`") && p.endsWith("`"))
-      return <code key={i} style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: "0.8em", background: "rgba(8,73,172,0.07)", padding: "1px 5px", borderRadius: 4, color: "#0849ac" }}>{p.slice(1, -1)}</code>;
+      return <code key={i} style={{ fontFamily: "'Montserrat', system-ui, sans-serif", fontSize: "0.8em", background: "rgba(8,73,172,0.07)", padding: "1px 5px", borderRadius: 4, color: "#0849ac" }}>{p.slice(1, -1)}</code>;
     const refMatch = p.match(/^\[ref:(\d+)\]$/);
     if (refMatch) {
       if (refs) {
@@ -90,7 +90,7 @@ export function MdContent({ text, refs }: { text: string; refs?: RefEntry[] }) {
       while (i < lines.length && !lines[i].trim().startsWith("```")) { codeLines.push(lines[i]); i++; }
       i++;
       nodes.push(
-        <pre key={`code${i}`} style={{ background: "#F0F4FF", border: "1px solid rgba(8,73,172,0.10)", borderRadius: 10, padding: "12px 16px", overflowX: "auto", margin: "10px 0", fontSize: "0.8125rem", lineHeight: 1.7, color: "#1a1a2e", fontFamily: "'IBM Plex Mono',monospace" }}>
+        <pre key={`code${i}`} style={{ background: "#F0F4FF", border: "1px solid rgba(8,73,172,0.10)", borderRadius: 10, padding: "12px 16px", overflowX: "auto", margin: "10px 0", fontSize: "0.8125rem", lineHeight: 1.7, color: "#1a1a2e", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
           {fence && <span style={{ fontSize: "0.625rem", fontWeight: 700, color: "#0849ac", textTransform: "uppercase", display: "block", marginBottom: 6 }}>{fence}</span>}
           {codeLines.join("\n")}
         </pre>

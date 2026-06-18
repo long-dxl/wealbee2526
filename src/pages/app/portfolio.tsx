@@ -428,7 +428,7 @@ export function PortfolioPage() {
         ].map(c => (
           <div key={c.label} style={{ background: "#fff", border: "1px solid rgba(8,73,172,0.08)", borderRadius: 12, padding: "16px 18px" }}>
             <p style={{ fontSize: "0.6875rem", color: "#99a1af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>{c.label}</p>
-            <p style={{ fontSize: "1.125rem", fontWeight: 700, color: c.color, fontFamily: "'IBM Plex Mono', monospace" }}>{c.value || "—"}</p>
+            <p style={{ fontSize: "1.125rem", fontWeight: 700, color: c.color, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{c.value || "—"}</p>
           </div>
         ))}
       </div>
@@ -470,7 +470,7 @@ export function PortfolioPage() {
                 <div key={s.name}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                     <span style={{ fontSize: "0.75rem", color: "#1a1a2e", fontWeight: 600 }}>{s.name}</span>
-                    <span style={{ fontSize: "0.75rem", color: "#6a7282", fontFamily: "'IBM Plex Mono', monospace" }}>{s.pct.toFixed(1)}%</span>
+                    <span style={{ fontSize: "0.75rem", color: "#6a7282", fontFamily: "'Montserrat', system-ui, sans-serif" }}>{s.pct.toFixed(1)}%</span>
                   </div>
                   <div style={{ height: 5, borderRadius: 3, background: "#f1f5f9", overflow: "hidden" }}>
                     <div style={{ height: "100%", width: `${s.pct}%`, background: SECTOR_COLORS[i % SECTOR_COLORS.length], borderRadius: 3 }} />
@@ -517,23 +517,23 @@ export function PortfolioPage() {
           >
             {/* Symbol + name */}
             <div>
-              <p style={{ fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "'IBM Plex Mono', monospace" }}>{h.symbol}</p>
+              <p style={{ fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", fontFamily: "'Montserrat', system-ui, sans-serif" }}>{h.symbol}</p>
               <p style={{ fontSize: "0.6875rem", color: "#99a1af" }}>{h.name} · {h.sector}</p>
             </div>
             {/* Qty */}
-            <p style={{ fontSize: "0.875rem", color: "#1a1a2e", fontFamily: "'IBM Plex Mono', monospace" }}>
+            <p style={{ fontSize: "0.875rem", color: "#1a1a2e", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
               {h.quantity.toLocaleString()}
             </p>
             {/* Avg cost */}
-            <p style={{ fontSize: "0.875rem", color: "#6a7282", fontFamily: "'IBM Plex Mono', monospace" }}>
+            <p style={{ fontSize: "0.875rem", color: "#6a7282", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
               {h.avg_cost.toLocaleString("vi-VN")}
             </p>
             {/* Current price */}
-            <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#1a1a2e", fontFamily: "'IBM Plex Mono', monospace" }}>
+            <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#1a1a2e", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
               {h.current_price.toLocaleString("vi-VN")}
             </p>
             {/* Market value */}
-            <p style={{ fontSize: "0.875rem", color: "#1a1a2e", fontFamily: "'IBM Plex Mono', monospace" }}>
+            <p style={{ fontSize: "0.875rem", color: "#1a1a2e", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
               {fmt(h.market_value)}
             </p>
             {/* P&L */}
@@ -543,10 +543,10 @@ export function PortfolioPage() {
                 : <TrendingDown style={{ width: 13, height: 13, color: "#ef4444", flexShrink: 0 }} />
               }
               <div>
-                <p style={{ fontSize: "0.8125rem", fontWeight: 700, color: h.pnl >= 0 ? "#0ea5a0" : "#ef4444", fontFamily: "'IBM Plex Mono', monospace" }}>
+                <p style={{ fontSize: "0.8125rem", fontWeight: 700, color: h.pnl >= 0 ? "#0ea5a0" : "#ef4444", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                   {h.pnl >= 0 ? "+" : ""}{fmt(h.pnl)}
                 </p>
-                <p style={{ fontSize: "0.6875rem", color: h.pnl >= 0 ? "#0ea5a0" : "#ef4444", fontFamily: "'IBM Plex Mono', monospace" }}>
+                <p style={{ fontSize: "0.6875rem", color: h.pnl >= 0 ? "#0ea5a0" : "#ef4444", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                   {h.pnl_pct >= 0 ? "+" : ""}{h.pnl_pct.toFixed(2)}%
                 </p>
               </div>

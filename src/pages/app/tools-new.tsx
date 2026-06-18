@@ -16,7 +16,6 @@ interface Tool {
   icon: React.ElementType;
   iconBg: string;
   iconColor: string;
-  stats: { uses: string; speed: string; acc: string };
   available?: boolean;
 }
 
@@ -29,7 +28,6 @@ const tools: Tool[] = [
     icon: TrendingUp,
     iconBg: "linear-gradient(135deg,#34C759,#22c55e)",
     iconColor: "#fff",
-    stats: { uses: "18.2K", speed: "0.2s", acc: "99.8%" },
   },
   {
     id: "market-indices",
@@ -39,7 +37,6 @@ const tools: Tool[] = [
     icon: BarChart2,
     iconBg: "linear-gradient(135deg,#0849AC,#4D8FE8)",
     iconColor: "#fff",
-    stats: { uses: "14.7K", speed: "0.3s", acc: "99.9%" },
   },
   {
     id: "top-movers",
@@ -49,7 +46,6 @@ const tools: Tool[] = [
     icon: Zap,
     iconBg: "linear-gradient(135deg,#FF9500,#FF3B30)",
     iconColor: "#fff",
-    stats: { uses: "11.3K", speed: "0.4s", acc: "99.5%" },
   },
   {
     id: "insider-trades",
@@ -59,7 +55,6 @@ const tools: Tool[] = [
     icon: Eye,
     iconBg: "linear-gradient(135deg,#7c3aed,#a855f7)",
     iconColor: "#fff",
-    stats: { uses: "6.1K", speed: "0.5s", acc: "98.2%" },
   },
   {
     id: "financial-statements",
@@ -69,7 +64,6 @@ const tools: Tool[] = [
     icon: FileText,
     iconBg: "linear-gradient(135deg,#6366F1,#818CF8)",
     iconColor: "#fff",
-    stats: { uses: "9.8K", speed: "0.7s", acc: "99.1%" },
   },
   {
     id: "pe-pb-valuation",
@@ -79,7 +73,6 @@ const tools: Tool[] = [
     icon: Calculator,
     iconBg: "linear-gradient(135deg,#b36200,#FF9500)",
     iconColor: "#fff",
-    stats: { uses: "8.4K", speed: "0.3s", acc: "98.9%" },
   },
   {
     id: "dividend-yield",
@@ -89,7 +82,6 @@ const tools: Tool[] = [
     icon: Percent,
     iconBg: "linear-gradient(135deg,#34C759,#22c55e)",
     iconColor: "#fff",
-    stats: { uses: "5.2K", speed: "0.2s", acc: "99.3%" },
   },
   {
     id: "cafef-news",
@@ -99,7 +91,6 @@ const tools: Tool[] = [
     icon: Newspaper,
     iconBg: "linear-gradient(135deg,#0849AC,#2563eb)",
     iconColor: "#fff",
-    stats: { uses: "22.6K", speed: "0.6s", acc: "97.8%" },
   },
   {
     id: "vietstock-news",
@@ -109,7 +100,6 @@ const tools: Tool[] = [
     icon: Rss,
     iconBg: "linear-gradient(135deg,#0849AC,#6366F1)",
     iconColor: "#fff",
-    stats: { uses: "15.1K", speed: "0.5s", acc: "97.5%" },
   },
   {
     id: "macro-data",
@@ -119,7 +109,6 @@ const tools: Tool[] = [
     icon: Globe,
     iconBg: "linear-gradient(135deg,#FF3B30,#ef4444)",
     iconColor: "#fff",
-    stats: { uses: "7.9K", speed: "0.8s", acc: "99.7%" },
     available: false,
   },
   {
@@ -130,7 +119,6 @@ const tools: Tool[] = [
     icon: Activity,
     iconBg: "linear-gradient(135deg,#4b5563,#6b7280)",
     iconColor: "#fff",
-    stats: { uses: "10.3K", speed: "0.4s", acc: "96.4%" },
     available: false,
   },
   {
@@ -141,7 +129,6 @@ const tools: Tool[] = [
     icon: GitBranch,
     iconBg: "linear-gradient(135deg,#1A1A2E,#374151)",
     iconColor: "#fff",
-    stats: { uses: "9.7K", speed: "0.4s", acc: "95.8%" },
     available: false,
   },
 ];
@@ -330,25 +317,14 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
                 {tool.oneliner}
               </p>
 
-              {/* Divider */}
-              <div style={{ height: "0.5px", background: divider }} />
-
-              {/* Bottom: category tag + stats */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{
-                  fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 99,
-                  background: cs.bg, color: cs.text,
-                  letterSpacing: "0.02em",
-                }}>
-                  {tool.category}
-                </span>
-
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <StatBit value={tool.stats.uses} label="lượt" isDark={isDark} />
-                  <StatBit value={tool.stats.speed} label="" isDark={isDark} />
-                  <StatBit value={tool.stats.acc} label="" color="#34C759" isDark={isDark} />
-                </div>
-              </div>
+              {/* Bottom: category tag */}
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 99,
+                background: cs.bg, color: cs.text,
+                letterSpacing: "0.02em", alignSelf: "flex-start",
+              }}>
+                {tool.category}
+              </span>
             </div>
           );
         })}
@@ -363,10 +339,3 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
   );
 }
 
-function StatBit({ value, label, color, isDark }: { value: string; label: string; color?: string; isDark?: boolean }) {
-  return (
-    <span style={{ fontSize: 11, color: color || (isDark ? "rgba(240,242,255,0.35)" : "rgba(26,26,46,0.40)"), fontWeight: 600, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-      {value}{label ? ` ${label}` : ""}
-    </span>
-  );
-}
