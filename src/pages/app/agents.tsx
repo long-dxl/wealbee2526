@@ -2,7 +2,7 @@ import {
   Bot, Play, Pause, Clock, Zap,
   BarChart3, Mail, TrendingUp, Search, Globe, Plus,
   RefreshCw, AlertCircle, Inbox, Settings2, ArrowLeft,
-  CheckCircle, Loader2, Database, Bell, ExternalLink,
+  CheckCircle, Loader2, Database, Bell, ExternalLink, // icons
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router";
