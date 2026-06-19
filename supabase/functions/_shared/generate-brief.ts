@@ -118,11 +118,11 @@ function articleToJson(a: NewsRow) {
   };
 }
 
-export async function fetchNewsAndBuildData(sb: ReturnType<typeof createClient>, watchSymbols: string[]) {
+export async function fetchNewsAndBuildData(sb: ReturnType<typeof createClient>, watchSymbols: string[], filterSources?: string[]) {
   const since = new Date(Date.now() - 24 * 3600_000).toISOString();
   const watchSymbolSet = new Set(watchSymbols);
 
-  const { data: allNews } = await sb
+  let newsQuery = sb
     .from("market_news")
     .select("id,title,content_summary,article_url,label,source,news_type,affected_symbols,impact_reasoning,impact_score,published_at")
     .not("label", "is", null)
@@ -130,6 +130,8 @@ export async function fetchNewsAndBuildData(sb: ReturnType<typeof createClient>,
     .gte("published_at", since)
     .order("impact_score", { ascending: false, nullsFirst: false })
     .limit(100);
+  if (filterSources && filterSources.length > 0) newsQuery = newsQuery.in("source", filterSources);
+  const { data: allNews } = await newsQuery;
 
   const news: NewsRow[] = (allNews ?? []) as NewsRow[];
   const perSymbol: Record<string, NewsRow[]> = {};

@@ -1,559 +1,146 @@
 /**
- * BeeAI Chat — Supabase Edge Function
- * Streaming chat với OpenAI GPT-4.1-mini (fallback sang Claude khi có ANTHROPIC_API_KEY)
+ * BeeAI Chat — True agent với OpenAI tool-calling
  *
  * POST /functions/v1/bee-ai-chat
  * Headers: Authorization: Bearer <user_jwt>
- * Body: { message: string, session_id?: string, context_ticker?: string }
+ * Body: { message, session_id?, context_cards? }
  *
- * Response: SSE stream
- *   data: {"type":"chunk","text":"..."}
- *   data: {"type":"done","session_id":"...","message_id":"...","tokens":123}
- *   data: {"type":"error","message":"..."}
+ * SSE events:
+ *   {"type":"step","name":"...","status":"loading"|"done","label":"..."}
+ *   {"type":"chunk","text":"..."}
+ *   {"type":"done","session_id":"...","message_id":"...","tokens":N,"model":"..."}
+ *   {"type":"error","message":"..."}
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-// ─── Config ───────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL         = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const OPENAI_API_KEY       = Deno.env.get("OPENAI_API_KEY") ?? "";
 const ANTHROPIC_API_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-
-const USE_CLAUDE  = ANTHROPIC_API_KEY.length > 10;
-const MODEL_LABEL = USE_CLAUDE ? "claude-sonnet-4-6" : "gpt-4.1-mini";
+const BRAVE_SEARCH_KEY     = Deno.env.get("BRAVE_SEARCH_API_KEY") ?? "";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-// ─── System prompt ────────────────────────────────────────────────────────────
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
-const SYSTEM_PROMPT = `Bạn là BeeAI — trợ lý phân tích thị trường chứng khoán Việt Nam của Wealbee.
+// ─── SSE ─────────────────────────────────────────────────────────────────────
 
-══════════════════════════════════════════════════
-QUY TẮC TUYỆT ĐỐI — KHÔNG ĐƯỢC VI PHẠM
-══════════════════════════════════════════════════
-
-**1. CHỈ DÙNG SỐ LIỆU CÓ TRONG PHẦN "DỮ LIỆU XÁC NHẬN" BÊN DƯỚI**
-- Mỗi con số, giá, tỷ lệ % bạn đề cập PHẢI xuất hiện trong phần dữ liệu đó
-- KHÔNG được dùng kiến thức training của bạn để điền giá cổ phiếu, chỉ số, hay số tài chính
-- Ví dụ SAI: "VCB thường giao dịch quanh vùng 80.000đ" (bạn tự bịa từ training)
-- Ví dụ ĐÚNG: "VCB đóng cửa tại **62.200 đ** phiên 2026-06-01" (có trong dữ liệu)
-
-**2. KHI KHÔNG CÓ DỮ LIỆU — NÓI THẲNG, KHÔNG ĐOÁN**
-- Nếu user hỏi về điều gì không có trong phần dữ liệu → trả lời rõ:
-  "Tôi chưa có dữ liệu về [X] trong hệ thống. Dữ liệu hiện có gồm: [liệt kê những gì có]"
-- KHÔNG dùng các cụm: "thông thường", "lịch sử cho thấy", "về cơ bản", "theo xu hướng" khi không có data xác nhận
-
-**3. GHI RÕ NGUỒN VÀ NGÀY CHO MỌI SỐ LIỆU**
-- Luôn kèm ngày: "giá phiên 2026-06-01", "tin ngày X"
-- Nếu dữ liệu đã cũ (>2 ngày): ghi rõ "⚠ dữ liệu cuối: [ngày]"
-
-**4. PHÁP LÝ (Luật Chứng khoán 2019)**
-- TUYỆT ĐỐI KHÔNG khuyến nghị mua/bán cụ thể
-- KHÔNG đưa target price hay dự báo lợi nhuận
-- Mọi câu trả lời kết thúc bằng: *Thông tin tham khảo · không phải tư vấn đầu tư*
-
-══════════════════════════════════════════════════
-ĐỊNH DẠNG
-══════════════════════════════════════════════════
-- Tiếng Việt, ngắn gọn, bullet points
-- **In đậm** số liệu quan trọng
-- Emoji phù hợp: 📈 📉 💰 📊
-- Khi nói về mã CP: luôn kèm ngày của giá đó`;
-
-// ─── Market context builder ───────────────────────────────────────────────────
-
-interface ContextCardPayload { id?: string; type: string; label: string; badge?: string; summary?: string; }
-
-// Trích symbol VN từ câu hỏi (2-5 ký tự IN HOA), validate với bảng tickers
-async function extractTickersFromMessage(msg: string): Promise<string[]> {
-  const candidates = [...new Set((msg.match(/\b([A-Z]{2,5})\b/g) ?? []))];
-  if (!candidates.length) return [];
-  try {
-    const { data } = await sb.from("tickers").select("symbol").in("symbol", candidates);
-    return (data ?? []).map((r: { symbol: string }) => r.symbol);
-  } catch { return []; }
+const enc = new TextEncoder();
+function sse(data: Record<string, unknown>): Uint8Array {
+  return enc.encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-async function buildContextCardsSection(cards: ContextCardPayload[], userId: string, message = ""): Promise<string> {
-  if (!cards.length) return "";
-  const lines: string[] = ["\n## CONTEXT CARDS — Dữ liệu từ card bạn kéo vào"];
+// ─── Tool definitions ─────────────────────────────────────────────────────────
 
-  const tickerSymbols: string[] = [];
-  const newsCards: ContextCardPayload[] = [];
-  const portfolioCards: ContextCardPayload[] = [];
-  const reportCards: ContextCardPayload[] = [];
-  const toolCards: ContextCardPayload[] = [];
-  const knowledgeCards: ContextCardPayload[] = [];
+const TOOL_DEFS = [
+  {
+    type: "function",
+    function: {
+      name: "get_market_data",
+      description: "Lấy dữ liệu thị trường thực: chỉ số VN-Index/HNX, giá đóng cửa VN30, top tăng/giảm hôm nay. Dùng khi người dùng hỏi về thị trường, chỉ số, hoặc giá cổ phiếu VN30.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_news",
+      description: "Lấy tin tức tài chính từ database. Trả về tiêu đề, tóm tắt, ngày đăng, nguồn, mã CP liên quan. Dùng khi hỏi về tin tức thị trường, sự kiện, hoặc tin về mã cụ thể.",
+      parameters: {
+        type: "object",
+        properties: {
+          symbols: {
+            type: "array",
+            items: { type: "string" },
+            description: "Mã CP cần lọc tin (để trống = tin thị trường chung)",
+          },
+          days: {
+            type: "number",
+            description: "Số ngày gần đây cần lấy (mặc định 3, tối đa 30)",
+          },
+          source: {
+            type: "string",
+            description: "Nguồn báo: 'cafef', 'vietstock', hoặc bỏ trống để lấy tất cả",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_financials",
+      description: "Lấy báo cáo tài chính (BCTC) theo năm, cổ tức, giao dịch insider của một mã CP. Trả về doanh thu, LNST, EPS, P/E, P/B, ROE, ROA theo từng năm với nguồn HSX/HNX.",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: {
+            type: "string",
+            description: "Mã CP, ví dụ 'VCB', 'HPG', 'FPT'",
+          },
+        },
+        required: ["symbol"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_portfolio",
+      description: "Lấy danh mục đầu tư của người dùng: tất cả holdings, giá vốn, giá hiện tại, P&L. Dùng khi hỏi về danh mục, hiệu quả đầu tư cá nhân.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_knowledge_base",
+      description: "Tìm kiếm ngữ nghĩa trong Knowledge Base (tài liệu người dùng đã upload: phương pháp đầu tư, báo cáo, ghi chú). Dùng khi câu hỏi liên quan đến kiến thức riêng của người dùng.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Câu hỏi hoặc từ khóa tìm kiếm" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "Tìm kiếm thông tin mới nhất trên internet về thị trường chứng khoán Việt Nam, chính sách, báo cáo phân tích, tin tức kinh tế. Dùng khi database không đủ thông tin hoặc cần tin rất mới.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Từ khóa tìm kiếm (tiếng Việt hoặc tiếng Anh)",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+];
 
-  for (const card of cards) {
-    if (card.type === "ticker" || card.type === "mover") {
-      // label = symbol e.g. "VIC", "HPG"
-      const sym = card.label.trim().toUpperCase().split(/\s+/)[0];
-      if (sym && /^[A-Z0-9]{2,5}$/.test(sym)) tickerSymbols.push(sym);
-    } else if (card.type === "index") {
-      const code = /hnx/i.test(card.label) ? "HNX" : "VNINDEX";
-      lines.push(`\n### Chỉ số: ${card.label} (${code})`);
-      lines.push("(Xem dữ liệu chỉ số ở phần trên — Chỉ số thị trường)");
-    } else if (card.type === "news") {
-      newsCards.push(card);
-    } else if (card.type === "portfolio") {
-      portfolioCards.push(card);
-    } else if (card.type === "report") {
-      reportCards.push(card);
-    } else if (card.type === "tool") {
-      toolCards.push(card);
-    } else if (card.type === "knowledge") {
-      knowledgeCards.push(card);
-    }
-  }
+// ─── Tool executors ───────────────────────────────────────────────────────────
 
-  // ── Nếu không có ticker card, thử extract từ message hoặc portfolio ───────
-  // Dùng bởi tool-financial-statements, tool-pe-pb, tool-insider, tool-dividend
-  const hasToolNeedingSymbols = toolCards.some(c =>
-    ["tool-financial-statements","tool-pe-pb-valuation","tool-insider-trades","tool-dividend-yield"].includes(c.id ?? "")
-  );
-  if (tickerSymbols.length === 0 && hasToolNeedingSymbols) {
-    // 1. Extract từ câu hỏi ("FPT", "VCB"...)
-    const fromMsg = await extractTickersFromMessage(message);
-    tickerSymbols.push(...fromMsg);
-
-    // 2. Fallback: dùng portfolio holdings
-    if (tickerSymbols.length === 0 && portfolioCards.length > 0) {
-      try {
-        const { data: h } = await sb
-          .from("portfolio_holdings").select("symbol").eq("user_id", userId).limit(10);
-        if (h) tickerSymbols.push(...h.map((r: { symbol: string }) => r.symbol));
-      } catch { /* ignore */ }
-    }
-  }
-
-  // ── Ticker / Mover: query prices + info ──────────────────────────────────
-  if (tickerSymbols.length > 0) {
-    lines.push(`\n### Cổ phiếu: ${tickerSymbols.join(", ")}`);
-
-    try {
-      const [pricesRes, tickerInfoRes] = await Promise.all([
-        sb.from("prices_daily")
-          .select("symbol, date, open, high, low, close, volume")
-          .in("symbol", tickerSymbols)
-          .order("date", { ascending: false })
-          .limit(tickerSymbols.length * 10),
-        sb.from("tickers")
-          .select("symbol, name, exchange, sector")
-          .in("symbol", tickerSymbols),
-      ]);
-
-      const infoMap: Record<string, { name: string; sector?: string }> = {};
-      for (const t of (tickerInfoRes.data ?? [])) {
-        infoMap[t.symbol] = { name: t.name, sector: t.sector };
-      }
-
-      const bySymbol: Record<string, Array<{ date: string; open: number; high: number; low: number; close: number; volume: number }>> = {};
-      for (const row of (pricesRes.data ?? [])) {
-        if (!bySymbol[row.symbol]) bySymbol[row.symbol] = [];
-        bySymbol[row.symbol].push(row);
-      }
-
-      for (const sym of tickerSymbols) {
-        const rows = bySymbol[sym] ?? [];
-        const info = infoMap[sym];
-        if (info) lines.push(`- **${sym}** — ${info.name}${info.sector ? ` (${info.sector})` : ""}`);
-        if (!rows.length) { lines.push(`  Chưa có dữ liệu giá cho ${sym}`); continue; }
-
-        const latest = rows[0];
-        const prev   = rows[1];
-        const close  = Number(latest.close);
-        const open   = Number(latest.open);
-        const chgVsOpen    = ((close - open) / open) * 100;
-        const chgVsPrev    = prev ? ((close - Number(prev.close)) / Number(prev.close)) * 100 : null;
-
-        lines.push(`  Phiên ${latest.date}: Đóng **${close.toLocaleString("vi-VN")} đ** | Thay đổi trong ngày: ${chgVsOpen >= 0 ? "+" : ""}${chgVsOpen.toFixed(2)}%${chgVsPrev !== null ? ` | So phiên trước: ${chgVsPrev >= 0 ? "+" : ""}${chgVsPrev.toFixed(2)}%` : ""}`);
-        lines.push(`  OHLC: ${Number(latest.open).toLocaleString("vi-VN")} / ${Number(latest.high).toLocaleString("vi-VN")} / ${Number(latest.low).toLocaleString("vi-VN")} / ${close.toLocaleString("vi-VN")}`);
-        lines.push(`  Khối lượng: ${Number(latest.volume).toLocaleString("vi-VN")} CP`);
-
-        if (rows.length > 1) {
-          const history = rows.slice(0, 5).map(r => `${r.date}: ${Number(r.close).toLocaleString("vi-VN")}`).join(" → ");
-          lines.push(`  Lịch sử 5 phiên (gần → xa): ${history}`);
-        }
-
-        // News for this ticker (7 days)
-        const { data: tickerNews } = await sb
-          .from("market_news")
-          .select("title, impact_score, published_at")
-          .contains("affected_symbols", [sym])
-          .gte("published_at", new Date(Date.now() - 7 * 86400000).toISOString())
-          .order("published_at", { ascending: false })
-          .limit(3);
-
-        if (tickerNews && tickerNews.length > 0) {
-          lines.push(`  Tin liên quan: ${tickerNews.map(n => `"${n.title}"${n.impact_score != null ? ` [${n.impact_score >= 0 ? "+" : ""}${n.impact_score}]` : ""}`).join("; ")}`);
-        }
-      }
-    } catch { /* ignore */ }
-  }
-
-  // ── News cards — re-fetch nội dung đầy đủ từ market_news ───────────────
-  if (newsCards.length > 0) {
-    lines.push("\n### Tin tức bạn đang quan tâm:");
-    for (const card of newsCards) {
-      lines.push(`- **${card.label.replace(/…$/, "")}**`);
-      try {
-        // Tìm bài báo theo tiêu đề (bỏ "…" cuối nếu bị cắt)
-        const searchTitle = card.label.replace(/…$/, "").trim();
-        const { data: found } = await sb
-          .from("market_news")
-          .select("title, content_summary, affected_symbols, impact_score, published_at, source, article_url")
-          .ilike("title", `${searchTitle}%`)
-          .limit(1);
-        const n = found?.[0];
-        if (n) {
-          if (n.content_summary) lines.push(`  Tóm tắt: ${n.content_summary}`);
-          if (n.affected_symbols?.length) lines.push(`  Mã liên quan: ${n.affected_symbols.slice(0, 5).join(", ")}`);
-          if (n.impact_score != null) lines.push(`  Mức tác động: ${n.impact_score > 0 ? "+" : ""}${n.impact_score}`);
-          if (n.published_at) lines.push(`  Thời gian: ${new Date(n.published_at).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}`);
-          if (n.source) lines.push(`  Nguồn: ${n.source}`);
-        } else if (card.summary) {
-          lines.push(`  ${card.summary}`);
-        }
-      } catch { if (card.summary) lines.push(`  ${card.summary}`); }
-    }
-  }
-
-  // ── Report/Brief cards — re-fetch content đầy đủ từ briefs ─────────────
-  if (reportCards.length > 0) {
-    lines.push("\n### Báo cáo từ Inbox:");
-    for (const card of reportCards) {
-      lines.push(`- **${card.label}**`);
-      try {
-        const briefId = (card.id ?? "").replace(/^brief-|^inbox-/, "");
-        const { data: brief } = await sb
-          .from("briefs")
-          .select("content, summary, tickers, created_at")
-          .eq("id", briefId)
-          .single();
-        if (brief?.content) {
-          // Đưa vào tối đa 800 ký tự để không làm phình context
-          const excerpt = brief.content.replace(/```[\s\S]*?```/g, "").trim().slice(0, 800);
-          lines.push(`  ${excerpt}${brief.content.length > 800 ? "…" : ""}`);
-          if (brief.tickers?.length) lines.push(`  Mã liên quan: ${brief.tickers.join(", ")}`);
-        } else if (brief?.summary) {
-          lines.push(`  ${brief.summary}`);
-        } else if (card.summary) {
-          lines.push(`  ${card.summary}`);
-        }
-      } catch { if (card.summary) lines.push(`  ${card.summary}`); }
-    }
-  }
-
-  // ── Portfolio cards — join với prices_daily để lấy giá hiện tại ─────────
-  if (portfolioCards.length > 0) {
-    try {
-      const { data: holdings } = await sb
-        .from("portfolio_holdings")
-        .select("symbol, quantity, avg_cost")          // bỏ current_price (không tồn tại)
-        .eq("user_id", userId)
-        .limit(20);
-
-      if (holdings && holdings.length > 0) {
-        const symbols = holdings.map(h => h.symbol);
-
-        // Lấy giá mới nhất từ prices_daily
-        const { data: latestPrices } = await sb
-          .from("prices_daily")
-          .select("symbol, close, date")
-          .in("symbol", symbols)
-          .order("date", { ascending: false })
-          .limit(symbols.length * 3);
-
-        const priceMap: Record<string, { close: number; date: string }> = {};
-        for (const p of (latestPrices ?? [])) {
-          if (!priceMap[p.symbol]) priceMap[p.symbol] = { close: Number(p.close), date: p.date };
-        }
-
-        lines.push("\n### Danh mục đầu tư của bạn:");
-        let totalCost = 0, totalValue = 0;
-        for (const h of holdings) {
-          const current  = priceMap[h.symbol]?.close ?? Number(h.avg_cost);
-          const cost     = Number(h.quantity) * Number(h.avg_cost);
-          const value    = Number(h.quantity) * current;
-          const pnlPct   = ((current - Number(h.avg_cost)) / Number(h.avg_cost)) * 100;
-          totalCost  += cost;
-          totalValue += value;
-          const dateTag = priceMap[h.symbol]?.date ? ` phiên ${priceMap[h.symbol].date}` : "";
-          lines.push(`- **${h.symbol}**: ${Number(h.quantity).toLocaleString("vi-VN")} CP | Giá vốn: ${Number(h.avg_cost).toLocaleString("vi-VN")} đ | Giá hiện tại: ${current.toLocaleString("vi-VN")} đ${dateTag} | P&L: ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`);
-        }
-        if (totalCost > 0) {
-          const totalPnl = ((totalValue - totalCost) / totalCost) * 100;
-          lines.push(`\nTổng danh mục: ${(totalValue / 1e9).toFixed(3)} tỷ | P&L tổng: ${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}%`);
-        }
-      }
-    } catch { /* ignore */ }
-  }
-
-  // ── Tool cards ────────────────────────────────────────────────────────────
-  if (toolCards.length > 0) {
-    lines.push("\n### Công cụ phân tích đang kích hoạt:");
-
-    for (const card of toolCards) {
-      const toolId = card.id ?? "";
-
-      // ── Tools dùng lại data đã load trong buildMarketContext ─────────────
-      if (["tool-realtime-price", "tool-market-indices", "tool-top-movers"].includes(toolId)) {
-        lines.push(`\n**[${card.label}]** — ${card.summary ?? ""}`);
-        if (toolId === "tool-realtime-price") {
-          lines.push("→ Phân tích giá: dùng bảng 'Giá VN30 cuối phiên gần nhất' ở trên.");
-        } else if (toolId === "tool-market-indices") {
-          lines.push("→ Phân tích chỉ số: dùng bảng 'VN-Index / HNX' ở trên.");
-        } else {
-          lines.push("→ Phân tích top mover: dùng bảng 'Top tăng / Top giảm VN30' ở trên.");
-        }
-      }
-
-      // ── Tin tức CafeF — filter theo source ───────────────────────────────
-      else if (toolId === "tool-cafef-news") {
-        lines.push(`\n**[${card.label}]** — ${card.summary ?? ""}`);
-        try {
-          const { data: news } = await sb
-            .from("market_news")
-            .select("title, content_summary, affected_symbols, impact_score, published_at")
-            .eq("source", "cafef")
-            .not("label", "is", null)
-            .neq("label", "trash")
-            .order("published_at", { ascending: false })
-            .limit(6);
-          if (news && news.length > 0) {
-            lines.push("Tin tức mới nhất từ CafeF:");
-            for (const n of news) {
-              const syms = n.affected_symbols?.length ? ` — ${n.affected_symbols.slice(0, 3).join(", ")}` : "";
-              const score = n.impact_score != null ? ` [${n.impact_score > 0 ? "+" : ""}${n.impact_score}]` : "";
-              lines.push(`- ${n.title}${syms}${score}`);
-              if (n.content_summary) lines.push(`  ${n.content_summary.slice(0, 120)}...`);
-            }
-          } else {
-            lines.push("→ Dùng tin tức thị trường đã có ở trên (nguồn CafeF).");
-          }
-        } catch { lines.push("→ Dùng tin tức thị trường đã có ở trên."); }
-      }
-
-      // ── Tin tức Vietstock — filter theo source ────────────────────────────
-      else if (toolId === "tool-vietstock-news") {
-        lines.push(`\n**[${card.label}]** — ${card.summary ?? ""}`);
-        try {
-          const { data: news } = await sb
-            .from("market_news")
-            .select("title, content_summary, affected_symbols, impact_score, published_at")
-            .eq("source", "vietstock")
-            .not("label", "is", null)
-            .neq("label", "trash")
-            .order("published_at", { ascending: false })
-            .limit(6);
-          if (news && news.length > 0) {
-            lines.push("Tin tức mới nhất từ Vietstock:");
-            for (const n of news) {
-              const syms = n.affected_symbols?.length ? ` — ${n.affected_symbols.slice(0, 3).join(", ")}` : "";
-              const score = n.impact_score != null ? ` [${n.impact_score > 0 ? "+" : ""}${n.impact_score}]` : "";
-              lines.push(`- ${n.title}${syms}${score}`);
-              if (n.content_summary) lines.push(`  ${n.content_summary.slice(0, 120)}...`);
-            }
-          } else {
-            lines.push("→ Dùng tin tức thị trường đã có ở trên (nguồn Vietstock).");
-          }
-        } catch { lines.push("→ Dùng tin tức thị trường đã có ở trên."); }
-      }
-
-      // ── Định giá P/E & P/B ───────────────────────────────────────────────
-      else if (toolId === "tool-pe-pb-valuation") {
-        lines.push(`\n**[${card.label}]**:`);
-        if (tickerSymbols.length > 0) {
-          try {
-            // Lấy năm gần nhất cho mỗi symbol từ financials_annual
-            const { data: funds } = await sb
-              .from("financials_annual")
-              .select("symbol, year, pe_ratio, pb_ratio, roe, roa, debt_to_equity")
-              .in("symbol", tickerSymbols)
-              .order("year", { ascending: false })
-              .limit(tickerSymbols.length * 3);
-            if (funds && funds.length > 0) {
-              // Lấy row mới nhất cho mỗi symbol
-              const latest: Record<string, typeof funds[0]> = {};
-              for (const f of funds) { if (!latest[f.symbol]) latest[f.symbol] = f; }
-              for (const sym of tickerSymbols) {
-                const f = latest[sym];
-                if (!f) { lines.push(`- ${sym}: Chưa có dữ liệu định giá`); continue; }
-                const roe = f.roe != null ? `ROE = ${(Number(f.roe) * 100).toFixed(1)}%` : "";
-                const roa = f.roa != null ? `ROA = ${(Number(f.roa) * 100).toFixed(1)}%` : "";
-                const de = f.debt_to_equity != null ? `D/E = ${f.debt_to_equity}` : "";
-                lines.push(`- **${sym}** (${f.year}): P/E = ${f.pe_ratio ?? "N/A"} | P/B = ${f.pb_ratio ?? "N/A"}${roe ? ` | ${roe}` : ""}${roa ? ` | ${roa}` : ""}${de ? ` | ${de}` : ""}`);
-              }
-            } else {
-              lines.push("Chưa có dữ liệu định giá cho các mã này.");
-            }
-          } catch { lines.push("Không thể tải dữ liệu định giá."); }
-        } else {
-          lines.push("Kéo thêm card cổ phiếu vào context để xem định giá P/E & P/B.");
-        }
-      }
-
-      // ── Tỷ suất cổ tức ──────────────────────────────────────────────────
-      else if (toolId === "tool-dividend-yield") {
-        lines.push(`\n**[${card.label}]**:`);
-        let symsToCheck: string[] = tickerSymbols.length > 0 ? [...tickerSymbols] : [];
-        if (symsToCheck.length === 0) {
-          try {
-            const { data: h } = await sb.from("portfolio_holdings")
-              .select("symbol").eq("user_id", userId).limit(10);
-            if (h) symsToCheck = h.map((r: { symbol: string }) => r.symbol);
-          } catch { /* ignore */ }
-        }
-        if (symsToCheck.length > 0) {
-          try {
-            const { data: divs } = await sb
-              .from("dividends")
-              .select("symbol, ex_date, payment_date, dividend_type, amount")
-              .in("symbol", symsToCheck)
-              .order("ex_date", { ascending: false })
-              .limit(symsToCheck.length * 5);
-            if (divs && divs.length > 0) {
-              const byDiv: Record<string, typeof divs> = {};
-              for (const d of divs) { if (!byDiv[d.symbol]) byDiv[d.symbol] = []; byDiv[d.symbol].push(d); }
-              for (const sym of symsToCheck) {
-                const sdivs = byDiv[sym] ?? [];
-                if (!sdivs.length) { lines.push(`- ${sym}: Chưa có dữ liệu cổ tức`); continue; }
-                lines.push(`- **${sym}**: ${sdivs.slice(0, 3).map(d =>
-                  `${d.ex_date} — ${Number(d.amount).toLocaleString("vi-VN")} đ (${d.dividend_type})`
-                ).join(" | ")}`);
-              }
-            } else {
-              lines.push("Chưa có dữ liệu cổ tức cho các mã này.");
-            }
-          } catch { lines.push("Không thể tải dữ liệu cổ tức."); }
-        } else {
-          lines.push("Kéo thêm card cổ phiếu hoặc card danh mục để tính tỷ suất cổ tức.");
-        }
-      }
-
-      // ── Giao dịch nội bộ ─────────────────────────────────────────────────
-      else if (toolId === "tool-insider-trades") {
-        lines.push(`\n**[${card.label}]**:`);
-        if (tickerSymbols.length > 0) {
-          try {
-            const { data: insiders } = await sb
-              .from("insider_transactions")
-              .select("symbol, insider_name, position, trade_type, volume, price, trade_date")
-              .in("symbol", tickerSymbols)
-              .order("trade_date", { ascending: false })
-              .limit(15);
-            if (insiders && insiders.length > 0) {
-              for (const t of insiders) {
-                const priceStr = t.price != null ? ` @ ${Number(t.price).toLocaleString("vi-VN")} đ` : "";
-                lines.push(`- ${t.trade_date} · **${t.symbol}** · ${t.insider_name}${t.position ? ` (${t.position})` : ""}: ${t.trade_type} ${Number(t.volume).toLocaleString("vi-VN")} CP${priceStr}`);
-              }
-            } else {
-              lines.push("Chưa có dữ liệu giao dịch nội bộ cho các mã này.");
-            }
-          } catch { lines.push("Dữ liệu giao dịch nội bộ chưa có trong hệ thống."); }
-        } else {
-          lines.push("Kéo thêm card cổ phiếu vào context để xem giao dịch nội bộ.");
-        }
-      }
-
-      // ── Báo cáo tài chính ────────────────────────────────────────────────
-      else if (toolId === "tool-financial-statements") {
-        lines.push(`\n**[${card.label}]**:`);
-        if (tickerSymbols.length > 0) {
-          try {
-            const { data: fins } = await sb
-              .from("financials_annual")
-              .select("symbol, year, revenue, net_profit, eps, pe_ratio, pb_ratio, roe, roa, debt_to_equity")
-              .in("symbol", tickerSymbols)
-              .order("year", { ascending: false })
-              .limit(tickerSymbols.length * 5);
-            if (fins && fins.length > 0) {
-              const byFin: Record<string, typeof fins> = {};
-              for (const f of fins) { if (!byFin[f.symbol]) byFin[f.symbol] = []; byFin[f.symbol].push(f); }
-              for (const sym of tickerSymbols) {
-                const sfins = byFin[sym] ?? [];
-                if (!sfins.length) { lines.push(`- ${sym}: Chưa có dữ liệu BCTC`); continue; }
-                lines.push(`- **${sym}** BCTC theo năm:`);
-                for (const f of sfins.slice(0, 3)) {
-                  const rev = f.revenue != null ? `DT ${(Number(f.revenue) / 1e9).toFixed(1)} tỷ` : "";
-                  const lnst = f.net_profit != null ? `LNST ${(Number(f.net_profit) / 1e9).toFixed(1)} tỷ` : "";
-                  const eps = f.eps != null ? `EPS ${Number(f.eps).toLocaleString("vi-VN")} đ` : "";
-                  const pe = f.pe_ratio != null ? `P/E ${f.pe_ratio}` : "";
-                  const roe = f.roe != null ? `ROE ${(Number(f.roe) * 100).toFixed(1)}%` : "";
-                  lines.push(`  ${f.year}: ${[rev, lnst, eps, pe, roe].filter(Boolean).join(" | ")}`);
-                }
-              }
-            } else {
-              lines.push("Chưa có dữ liệu BCTC trong hệ thống.");
-            }
-          } catch { lines.push("Dữ liệu báo cáo tài chính chưa có trong hệ thống."); }
-        } else {
-          lines.push("Kéo thêm card cổ phiếu vào context để xem báo cáo tài chính.");
-        }
-      }
-    }
-  }
-
-  // ── Knowledge Base cards — fetch chunks trực tiếp theo document_id ────────
-  if (knowledgeCards.length > 0) {
-    lines.push("\n## TÀI LIỆU KNOWLEDGE BASE (do người dùng kéo vào)");
-    lines.push("Hãy trả lời DỰA TRÊN nội dung các tài liệu này. Trích dẫn tài liệu khi cần.");
-
-    for (const card of knowledgeCards) {
-      const docId = card.id ?? "";
-      lines.push(`\n### Tài liệu: ${card.label} (${card.badge ?? ""})`);
-
-      if (!docId) {
-        lines.push("(Không có document_id)");
-        continue;
-      }
-
-      try {
-        // Fetch tất cả chunks của document theo thứ tự — không qua semantic threshold
-        const { data: chunks, error } = await sb
-          .from("knowledge_chunks")
-          .select("chunk_index, content")
-          .eq("document_id", docId)
-          .eq("user_id", userId)
-          .order("chunk_index", { ascending: true })
-          .limit(10);
-
-        if (error || !chunks || chunks.length === 0) {
-          lines.push("(Tài liệu chưa được xử lý hoặc không tìm thấy chunks)");
-          continue;
-        }
-
-        lines.push(`Tổng ${chunks.length} đoạn văn được trích xuất:`);
-        for (const c of chunks) {
-          // Trim mỗi chunk để không quá dài — lấy tối đa 600 ký tự/chunk
-          const text = c.content.trim().slice(0, 600);
-          lines.push(`\n[Đoạn ${c.chunk_index + 1}] ${text}${c.content.length > 600 ? "…" : ""}`);
-        }
-      } catch (err) {
-        lines.push(`(Lỗi đọc tài liệu: ${String(err)})`);
-      }
-    }
-  }
-
-  return lines.join("\n");
-}
-
-async function buildMarketContext(contextTicker?: string): Promise<string> {
+async function toolGetMarketData(): Promise<string> {
   const lines: string[] = [];
-  const today = new Date().toLocaleDateString("vi-VN", {
+  const todayStr = new Date().toLocaleDateString("vi-VN", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
     timeZone: "Asia/Ho_Chi_Minh",
   });
-  lines.push("══════════════════════════════════════════════════");
-  lines.push("DỮ LIỆU XÁC NHẬN — CHỈ ĐƯỢC DÙNG CÁC SỐ LIỆU NÀY");
-  lines.push("Mọi số liệu ngoài phần này đều KHÔNG được phép sử dụng");
-  lines.push("══════════════════════════════════════════════════");
-  lines.push(`Ngày hôm nay: ${today} (múi giờ Việt Nam, UTC+7)`);
+  lines.push(`Ngày hôm nay: ${todayStr}`);
 
-  // ── 1. Market indices (VN-Index, HNX) ──────────────────────────────────────
+  // Indices
   try {
     const { data: indices } = await sb
       .from("market_indices")
@@ -562,284 +149,436 @@ async function buildMarketContext(contextTicker?: string): Promise<string> {
       .order("date", { ascending: false })
       .limit(4);
 
-    if (indices && indices.length > 0) {
-      lines.push("\n## DỮ LIỆU THỊ TRƯỜNG THỰC — Chỉ số hôm nay");
+    if (indices?.length) {
       const seen = new Set<string>();
-      for (const idx of indices) {
-        if (seen.has(idx.index_code)) continue;
-        seen.add(idx.index_code);
-        const arrow = (idx.change_pct ?? 0) >= 0 ? "▲" : "▼";
-        const pct   = idx.change_pct != null ? `${idx.change_pct >= 0 ? "+" : ""}${Number(idx.change_pct).toFixed(2)}%` : "";
-        const pt    = idx.change_pt  != null ? `${idx.change_pt  >= 0 ? "+" : ""}${Number(idx.change_pt).toFixed(2)} điểm` : "";
-        const vol   = idx.volume ? ` | KL: ${(idx.volume / 1_000_000).toFixed(1)}M` : "";
-        lines.push(`- **${idx.index_code}**: ${Number(idx.close).toLocaleString("vi-VN", { minimumFractionDigits: 2 })} điểm ${arrow} ${pt} (${pct})${vol} [ngày ${idx.date}]`);
+      const idxRows = indices.filter(i => { if (seen.has(i.index_code)) return false; seen.add(i.index_code); return true; });
+      const latestIdxDate = idxRows[0]?.date ?? "";
+      const idxAgeDays = latestIdxDate ? Math.floor((Date.now() - new Date(latestIdxDate).getTime()) / 86400000) : 999;
+      if (idxAgeDays > 3) {
+        lines.push(`\n⚠️ **DỮ LIỆU CHỈ SỐ CŨ**: Dữ liệu mới nhất là phiên ${latestIdxDate} (${idxAgeDays} ngày trước). Pipeline cập nhật giá/chỉ số đang bị dừng. Không có dữ liệu thị trường hôm nay.`);
+      } else {
+        lines.push("\n### Chỉ số thị trường");
+        for (const idx of idxRows) {
+          const arrow = (idx.change_pct ?? 0) >= 0 ? "▲" : "▼";
+          const pct = idx.change_pct != null ? `${idx.change_pct >= 0 ? "+" : ""}${Number(idx.change_pct).toFixed(2)}%` : "";
+          const pt  = idx.change_pt  != null ? `${idx.change_pt  >= 0 ? "+" : ""}${Number(idx.change_pt).toFixed(2)} điểm` : "";
+          const vol = idx.volume ? ` | KL: ${(Number(idx.volume) / 1_000_000).toFixed(1)}M` : "";
+          lines.push(`- **${idx.index_code}**: ${Number(idx.close).toLocaleString("vi-VN", { minimumFractionDigits: 2 })} điểm ${arrow} ${pt} (${pct})${vol} · phiên ${idx.date} · Nguồn: HOSE/HNX`);
+        }
       }
+    } else {
+      lines.push("\n⚠️ Không có dữ liệu chỉ số thị trường trong database.");
     }
-  } catch { /* ignore */ }
+  } catch { /* skip */ }
 
-  // ── 2. VN30 prices — top movers ────────────────────────────────────────────
+  // VN30 prices
   try {
     const { data: prices } = await sb
       .from("prices_daily")
-      .select("symbol, date, open, close")
+      .select("symbol, date, open, high, low, close, volume")
       .order("date", { ascending: false })
-      .limit(75); // 25 stocks × 3 days buffer
+      .limit(80);
 
-    if (prices && prices.length > 0) {
-      // Use latest row per symbol, compute pct = (close-open)/open — same as Dashboard
-      const latestBySymbol: Record<string, { close: number; open: number }> = {};
+    if (prices?.length) {
+      const latestBySymbol: Record<string, { date: string; close: number; open: number; high: number; low: number; volume: number }> = {};
       for (const row of prices) {
         if (!latestBySymbol[row.symbol]) {
-          latestBySymbol[row.symbol] = { close: Number(row.close), open: Number(row.open) };
+          latestBySymbol[row.symbol] = {
+            date: row.date, close: Number(row.close), open: Number(row.open),
+            high: Number(row.high), low: Number(row.low), volume: Number(row.volume),
+          };
         }
       }
+      const latestDate = Object.values(latestBySymbol)[0]?.date ?? "";
+      const priceAgeDays = latestDate ? Math.floor((Date.now() - new Date(latestDate).getTime()) / 86400000) : 999;
 
-      const movers = Object.entries(latestBySymbol)
-        .map(([sym, { close, open }]) => ({
-          sym,
-          price: close,
-          pct: open > 0 ? ((close - open) / open) * 100 : 0,
-        }))
-        .sort((a, b) => b.pct - a.pct);
+      if (priceAgeDays > 3) {
+        lines.push(`\n⚠️ **DỮ LIỆU GIÁ CŨ**: Dữ liệu giá VN30 mới nhất là phiên ${latestDate} (${priceAgeDays} ngày trước). Pipeline cập nhật giá đang bị dừng. Hãy thông báo người dùng rằng KHÔNG có giá thực tế hôm nay.`);
+      } else {
+        const movers = Object.entries(latestBySymbol)
+          .map(([sym, r]) => ({ sym, ...r, pct: r.open > 0 ? ((r.close - r.open) / r.open) * 100 : 0 }))
+          .sort((a, b) => b.pct - a.pct);
+        const top5up   = movers.filter(m => m.pct > 0).slice(0, 5);
+        const top5down = movers.filter(m => m.pct < 0).slice(-5).reverse();
 
-      const top5up   = movers.filter(m => m.pct > 0).slice(0, 5);
-      const top5down = movers.filter(m => m.pct < 0).slice(-5).reverse();
-
-      lines.push("\n## DỮ LIỆU THỊ TRƯỜNG THỰC — Giá VN30 cuối phiên gần nhất");
-      for (const [sym, { close }] of Object.entries(latestBySymbol)) {
-        lines.push(`- ${sym}: **${close.toLocaleString("vi-VN")}** đ`);
-      }
-
-      if (top5up.length > 0) {
-        lines.push("\n### Top tăng VN30");
-        for (const m of top5up) {
-          lines.push(`- **${m.sym}**: ${m.price.toLocaleString("vi-VN")} đ (+${m.pct.toFixed(2)}%)`);
+        lines.push(`\n### Giá VN30 — phiên ${latestDate} · Nguồn: HSX`);
+        for (const [sym, r] of Object.entries(latestBySymbol)) {
+          const pct = r.open > 0 ? ((r.close - r.open) / r.open) * 100 : 0;
+          lines.push(`- ${sym}: **${r.close.toLocaleString("vi-VN")}đ** (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%) | KL: ${r.volume.toLocaleString("vi-VN")}`);
+        }
+        if (top5up.length) {
+          lines.push("\n**Top tăng:**");
+          for (const m of top5up) lines.push(`- ${m.sym}: ${m.close.toLocaleString("vi-VN")}đ (+${m.pct.toFixed(2)}%)`);
+        }
+        if (top5down.length) {
+          lines.push("\n**Top giảm:**");
+          for (const m of top5down) lines.push(`- ${m.sym}: ${m.close.toLocaleString("vi-VN")}đ (${m.pct.toFixed(2)}%)`);
         }
       }
-      if (top5down.length > 0) {
-        lines.push("\n### Top giảm VN30");
-        for (const m of top5down) {
-          lines.push(`- **${m.sym}**: ${m.price.toLocaleString("vi-VN")} đ (${m.pct.toFixed(2)}%)`);
-        }
-      }
+    } else {
+      lines.push("\n⚠️ Không có dữ liệu giá VN30 trong database.");
     }
-  } catch { /* ignore */ }
+  } catch { /* skip */ }
 
-  // ── 3. High-impact news (48h) ──────────────────────────────────────────────
+  return lines.join("\n") || "Chưa có dữ liệu thị trường trong database.";
+}
+
+async function toolGetNews(symbols?: string[], days = 3, source?: string): Promise<string> {
+  const since = new Date(Date.now() - Math.min(days, 30) * 86400000).toISOString();
+  const lines: string[] = [];
+
   try {
-    const { data: news } = await sb
+    let query = sb
       .from("market_news")
-      .select("title, content_summary, label, impact_score, affected_symbols, published_at")
+      .select("title, content_summary, affected_symbols, impact_score, published_at, source, article_url")
+      .gte("published_at", since)
       .not("label", "is", null)
       .neq("label", "trash")
-      .not("impact_score", "is", null)
-      .gte("published_at", new Date(Date.now() - 2 * 86400000).toISOString())
-      .order("impact_score", { ascending: false, nullsFirst: false })
-      .limit(8);
+      .order("published_at", { ascending: false })
+      .limit(12);
 
-    if (news && news.length > 0) {
-      lines.push("\n## Tin tức thị trường nổi bật (48h gần nhất)");
-      for (const n of news) {
-        const score = n.impact_score !== null
-          ? ` [tác động: ${n.impact_score > 0 ? "+" : ""}${n.impact_score}]`
-          : "";
-        const syms = n.affected_symbols?.length
-          ? ` — ${n.affected_symbols.slice(0, 3).join(", ")}`
-          : "";
-        lines.push(`- ${n.title}${syms}${score}`);
-        if (n.content_summary) {
-          lines.push(`  ${n.content_summary.substring(0, 150)}...`);
-        }
-      }
+    if (symbols?.length) query = query.overlaps("affected_symbols", symbols);
+    if (source) query = query.eq("source", source);
+
+    const { data: news } = await query;
+    if (!news?.length) return "Không tìm thấy tin tức phù hợp trong database.";
+
+    const header = symbols?.length
+      ? `Tin tức về ${symbols.join(", ")} (${days} ngày gần đây):`
+      : `Tin tức thị trường (${days} ngày gần đây):`;
+    lines.push(header);
+
+    for (const n of news) {
+      const dateStr = new Date(n.published_at).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Ho_Chi_Minh" });
+      const timeStr = new Date(n.published_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" });
+      const score = n.impact_score != null ? ` | Tác động: ${n.impact_score > 0 ? "+" : ""}${n.impact_score}` : "";
+      const syms = n.affected_symbols?.length ? ` | Mã: ${n.affected_symbols.slice(0, 4).join(", ")}` : "";
+      const srcName = n.source ? n.source.charAt(0).toUpperCase() + n.source.slice(1) : "N/A";
+      // Format URL as markdown link — LLM must preserve this in output
+      const sourceLink = n.article_url
+        ? `[📰 ${srcName} · ${dateStr} ${timeStr}](${n.article_url})`
+        : `📰 ${srcName} · ${dateStr} ${timeStr}`;
+
+      lines.push(`\n**${n.title}**`);
+      if (n.content_summary) lines.push(n.content_summary.slice(0, 200));
+      lines.push(`${sourceLink}${syms}${score}`);
     }
-  } catch { /* ignore */ }
+  } catch { return "Lỗi khi tải tin tức từ database."; }
 
-  // ── 4. Context ticker deep-dive ────────────────────────────────────────────
-  if (contextTicker) {
-    const sym = contextTicker.toUpperCase();
-    try {
-      const { data: ticker } = await sb
-        .from("tickers")
-        .select("symbol, name, exchange, sector")
-        .eq("symbol", sym)
-        .single();
-
-      if (ticker) {
-        lines.push(`\n## Mã CP đang xem: ${ticker.symbol} — ${ticker.name}`);
-        lines.push(`Sàn: ${ticker.exchange} | Ngành: ${ticker.sector || "N/A"}`);
-
-        // Price history 10 days
-        const { data: ph } = await sb
-          .from("prices_daily")
-          .select("date, open, high, low, close, volume")
-          .eq("symbol", sym)
-          .order("date", { ascending: false })
-          .limit(10);
-
-        if (ph && ph.length > 0) {
-          const latest = ph[0];
-          const prev   = ph[1];
-          const chg    = prev ? Number(latest.close) - Number(prev.close) : 0;
-          const chgPct = prev ? (chg / Number(prev.close)) * 100 : 0;
-          lines.push(`\nGiá ${sym} cuối phiên gần nhất (${latest.date}):`);
-          lines.push(`- Đóng cửa: **${Number(latest.close).toLocaleString("vi-VN")} đ** (${chg >= 0 ? "+" : ""}${chg.toLocaleString("vi-VN")} / ${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(2)}%)`);
-          lines.push(`- OHLC: ${Number(latest.open).toLocaleString("vi-VN")} / ${Number(latest.high).toLocaleString("vi-VN")} / ${Number(latest.low).toLocaleString("vi-VN")} / ${Number(latest.close).toLocaleString("vi-VN")}`);
-          lines.push(`- Khối lượng: ${Number(latest.volume).toLocaleString("vi-VN")} CP`);
-        }
-
-        // News for this ticker
-        const { data: tickerNews } = await sb
-          .from("market_news")
-          .select("title, impact_score, published_at")
-          .contains("affected_symbols", [sym])
-          .gte("published_at", new Date(Date.now() - 7 * 86400000).toISOString())
-          .order("published_at", { ascending: false })
-          .limit(5);
-
-        if (tickerNews && tickerNews.length > 0) {
-          lines.push(`\nTin tức về ${sym} (7 ngày gần đây):`);
-          for (const n of tickerNews) {
-            const score = n.impact_score != null ? ` [${n.impact_score >= 0 ? "+" : ""}${n.impact_score}]` : "";
-            lines.push(`- ${n.title}${score}`);
-          }
-        }
-      }
-    } catch { /* ignore */ }
-  }
-
-  lines.push("\n══════════════════════════════════════════════════");
-  lines.push("HẾT DỮ LIỆU XÁC NHẬN — KHÔNG ĐƯỢC DÙNG SỐ LIỆU NÀO NGOÀI PHẦN TRÊN");
-  lines.push("══════════════════════════════════════════════════");
   return lines.join("\n");
 }
 
-// ─── RAG: semantic search in user's knowledge base ───────────────────────────
+async function toolGetFinancials(symbol: string): Promise<string> {
+  const sym = symbol.toUpperCase().trim();
+  const lines: string[] = [`## BCTC & Tài chính: ${sym}`];
 
-async function buildRAGContext(query: string, userId: string): Promise<string> {
+  // Ticker info
   try {
-    // 1. Embed the query
+    const { data: ticker } = await sb
+      .from("tickers")
+      .select("name, exchange, sector")
+      .eq("symbol", sym)
+      .single();
+    if (ticker) {
+      lines.push(`**${sym}** — ${ticker.name}`);
+      lines.push(`Sàn: **${ticker.exchange ?? "N/A"}** | Ngành: ${ticker.sector ?? "N/A"} · Nguồn: ${ticker.exchange === "HNX" ? "HNX" : "HOSE"}`);
+    }
+  } catch { /* skip */ }
+
+  // Annual financials
+  try {
+    const { data: fins } = await sb
+      .from("financials_annual")
+      .select("year, revenue, net_profit, eps, pe_ratio, pb_ratio, roe, roa, debt_to_equity")
+      .eq("symbol", sym)
+      .order("year", { ascending: false })
+      .limit(5);
+
+    if (fins?.length) {
+      lines.push(`\n### Báo cáo tài chính theo năm · Nguồn: HSX/HNX (BCTC kiểm toán)`);
+      lines.push("| Năm | Doanh thu | LNST | EPS | P/E | P/B | ROE | ROA | D/E |");
+      lines.push("|-----|-----------|------|-----|-----|-----|-----|-----|-----|");
+      for (const f of fins) {
+        const rev  = f.revenue   != null ? `${(Number(f.revenue) / 1e9).toFixed(1)} tỷ`   : "—";
+        const lnst = f.net_profit!= null ? `${(Number(f.net_profit) / 1e9).toFixed(1)} tỷ` : "—";
+        const eps  = f.eps       != null ? `${Number(f.eps).toLocaleString("vi-VN")}đ`     : "—";
+        const pe   = f.pe_ratio  != null ? String(f.pe_ratio)  : "—";
+        const pb   = f.pb_ratio  != null ? String(f.pb_ratio)  : "—";
+        const roe  = f.roe       != null ? `${(Number(f.roe) * 100).toFixed(1)}%`   : "—";
+        const roa  = f.roa       != null ? `${(Number(f.roa) * 100).toFixed(1)}%`   : "—";
+        const de   = f.debt_to_equity != null ? String(f.debt_to_equity) : "—";
+        lines.push(`| ${f.year} | ${rev} | ${lnst} | ${eps} | ${pe} | ${pb} | ${roe} | ${roa} | ${de} |`);
+      }
+    } else {
+      lines.push("\n*Chưa có dữ liệu BCTC hàng năm trong database.*");
+    }
+  } catch { /* skip */ }
+
+  // Dividends
+  try {
+    const { data: divs } = await sb
+      .from("dividends")
+      .select("ex_date, payment_date, dividend_type, amount")
+      .eq("symbol", sym)
+      .order("ex_date", { ascending: false })
+      .limit(5);
+
+    if (divs?.length) {
+      lines.push("\n### Cổ tức · Nguồn: HSX/HNX");
+      for (const d of divs) {
+        const amt = Number(d.amount).toLocaleString("vi-VN");
+        lines.push(`- **${d.ex_date}** (ngày GDKHQ): ${amt}đ/CP (${d.dividend_type ?? "tiền mặt"})${d.payment_date ? ` · Chi trả: ${d.payment_date}` : ""}`);
+      }
+    }
+  } catch { /* skip */ }
+
+  // Insider transactions
+  try {
+    const { data: insiders } = await sb
+      .from("insider_transactions")
+      .select("insider_name, position, trade_type, volume, price, trade_date")
+      .eq("symbol", sym)
+      .order("trade_date", { ascending: false })
+      .limit(5);
+
+    if (insiders?.length) {
+      lines.push("\n### Giao dịch nội bộ · Nguồn: HSX/HNX (công bố thông tin)");
+      for (const t of insiders) {
+        const priceStr = t.price != null ? ` @ ${Number(t.price).toLocaleString("vi-VN")}đ` : "";
+        const vol = Number(t.volume).toLocaleString("vi-VN");
+        lines.push(`- **${t.trade_date}** · ${t.insider_name}${t.position ? ` (${t.position})` : ""}: ${t.trade_type} **${vol} CP**${priceStr}`);
+      }
+    }
+  } catch { /* skip */ }
+
+  // Recent prices
+  try {
+    const { data: prices } = await sb
+      .from("prices_daily")
+      .select("date, close, volume")
+      .eq("symbol", sym)
+      .order("date", { ascending: false })
+      .limit(5);
+
+    if (prices?.length) {
+      const latest = prices[0];
+      const prev   = prices[1];
+      const chgPct = prev ? ((Number(latest.close) - Number(prev.close)) / Number(prev.close)) * 100 : null;
+      lines.push(`\n### Giá gần nhất · Nguồn: HSX/HNX`);
+      lines.push(`- Phiên **${latest.date}**: đóng **${Number(latest.close).toLocaleString("vi-VN")}đ**${chgPct != null ? ` (${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(2)}% so phiên trước)` : ""}`);
+      lines.push(`  Lịch sử 5 phiên: ${prices.map(p => `${p.date}: ${Number(p.close).toLocaleString("vi-VN")}đ`).join(" → ")}`);
+    }
+  } catch { /* skip */ }
+
+  return lines.join("\n");
+}
+
+async function toolGetPortfolio(userId: string): Promise<string> {
+  const lines: string[] = ["## Danh mục đầu tư của bạn"];
+
+  try {
+    const { data: holdings } = await sb
+      .from("portfolio_holdings")
+      .select("symbol, quantity, avg_cost")
+      .eq("user_id", userId)
+      .limit(30);
+
+    if (!holdings?.length) return "Danh mục chưa có cổ phiếu nào. Hãy thêm holdings vào Portfolio.";
+
+    const symbols = holdings.map(h => h.symbol);
+
+    // Latest prices
+    const { data: prices } = await sb
+      .from("prices_daily")
+      .select("symbol, close, date")
+      .in("symbol", symbols)
+      .order("date", { ascending: false })
+      .limit(symbols.length * 3);
+
+    const priceMap: Record<string, { close: number; date: string }> = {};
+    for (const p of (prices ?? [])) {
+      if (!priceMap[p.symbol]) priceMap[p.symbol] = { close: Number(p.close), date: p.date };
+    }
+
+    let totalCost = 0, totalValue = 0;
+    for (const h of holdings) {
+      const current = priceMap[h.symbol]?.close ?? Number(h.avg_cost);
+      const cost    = Number(h.quantity) * Number(h.avg_cost);
+      const value   = Number(h.quantity) * current;
+      const pnlPct  = ((current - Number(h.avg_cost)) / Number(h.avg_cost)) * 100;
+      totalCost  += cost;
+      totalValue += value;
+      const dateTag = priceMap[h.symbol]?.date ? ` · phiên ${priceMap[h.symbol].date}` : "";
+      const pnlIcon = pnlPct >= 0 ? "📈" : "📉";
+      lines.push(`\n**${h.symbol}** ${pnlIcon}`);
+      lines.push(`- Số lượng: ${Number(h.quantity).toLocaleString("vi-VN")} CP`);
+      lines.push(`- Giá vốn: ${Number(h.avg_cost).toLocaleString("vi-VN")}đ | Giá hiện tại: **${current.toLocaleString("vi-VN")}đ**${dateTag} · Nguồn: HSX/HNX`);
+      lines.push(`- P&L: **${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%** (${(value - cost >= 0 ? "+" : "")}${((value - cost) / 1e6).toFixed(1)} triệu)`);
+    }
+
+    if (totalCost > 0) {
+      const totalPnl = ((totalValue - totalCost) / totalCost) * 100;
+      lines.push(`\n---\n**Tổng danh mục**: ${(totalValue / 1e9).toFixed(3)} tỷ | P&L tổng: **${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}%**`);
+    }
+  } catch { return "Lỗi khi tải danh mục đầu tư."; }
+
+  return lines.join("\n");
+}
+
+async function toolSearchKB(query: string, userId: string): Promise<string> {
+  if (!OPENAI_API_KEY) return "Knowledge Base search chưa có API key.";
+
+  try {
     const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
     });
-    if (!embedRes.ok) return "";
+    if (!embedRes.ok) return "Không thể tạo embedding để tìm kiếm KB.";
+
     const embedJson = await embedRes.json();
     const embedding = embedJson.data?.[0]?.embedding;
-    if (!embedding) return "";
+    if (!embedding) return "Embedding rỗng.";
 
-    // 2. Match chunks from user's knowledge base
     const { data: chunks } = await sb.rpc("match_knowledge_chunks", {
       query_embedding: embedding,
       match_user_id: userId,
-      match_count: 4,
-      match_threshold: 0.65,
+      match_count: 5,
+      match_threshold: 0.60,
     });
 
-    if (!chunks || chunks.length === 0) return "";
+    if (!chunks?.length) return "Không tìm thấy nội dung liên quan trong Knowledge Base.";
 
-    // 3. Format relevant chunks
-    const lines: string[] = ["\n## KIẾN THỨC TỪ THƯ VIỆN CỦA BẠN (Knowledge Base)"];
-    for (const chunk of chunks) {
-      lines.push(`\n---\n${chunk.content}`);
+    const lines = [`## Kết quả từ Knowledge Base (truy vấn: "${query}")`];
+    for (const c of chunks) {
+      lines.push(`\n---\n${c.content.trim().slice(0, 500)}`);
+      if (c.content.length > 500) lines.push("…");
     }
     return lines.join("\n");
-  } catch {
-    return "";
+  } catch { return "Lỗi khi tìm kiếm Knowledge Base."; }
+}
+
+async function toolWebSearch(query: string): Promise<string> {
+  if (!BRAVE_SEARCH_KEY) {
+    return "Web search chưa được cấu hình (thiếu BRAVE_SEARCH_API_KEY trong Supabase secrets). Hãy thêm key để bật tính năng này.";
+  }
+
+  try {
+    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&country=vn&search_lang=vi&freshness=pw`;
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_SEARCH_KEY },
+    });
+    if (!res.ok) return `Web search thất bại (status ${res.status}).`;
+
+    const json = await res.json();
+    const results: any[] = json.web?.results ?? [];
+    if (!results.length) return "Không tìm thấy kết quả phù hợp trên web.";
+
+    const lines = [`## Kết quả web search: "${query}"`];
+    for (const r of results.slice(0, 5)) {
+      lines.push(`\n**${r.title}**`);
+      if (r.description) lines.push(r.description);
+      const age = r.age ? ` · ${r.age}` : "";
+      const domain = new URL(r.url).hostname.replace("www.", "");
+      lines.push(`📅 Nguồn: ${domain}${age} | 🔗 ${r.url}`);
+    }
+    return lines.join("\n");
+  } catch (e) { return `Web search lỗi: ${String(e)}`; }
+}
+
+// ─── Execute any tool call ────────────────────────────────────────────────────
+
+async function executeTool(name: string, args: Record<string, any>, userId: string): Promise<string> {
+  switch (name) {
+    case "get_market_data":      return toolGetMarketData();
+    case "get_news":             return toolGetNews(args.symbols, args.days ?? 3, args.source);
+    case "get_financials":       return toolGetFinancials(args.symbol ?? "");
+    case "get_portfolio":        return toolGetPortfolio(userId);
+    case "search_knowledge_base":return toolSearchKB(args.query ?? "", userId);
+    case "web_search":           return toolWebSearch(args.query ?? "");
+    default:                     return `Tool "${name}" không tồn tại.`;
   }
 }
 
-// ─── Call OpenAI (streaming) ──────────────────────────────────────────────────
-
-async function callOpenAIStream(
-  messages: Array<{ role: string; content: string }>,
-  signal: AbortSignal
-): Promise<ReadableStream<Uint8Array>> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4.1-mini",
-      messages,
-      stream: true,
-      max_tokens: 1024,
-      temperature: 0,
-    }),
-    signal,
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`OpenAI error ${res.status}: ${err}`);
+function toolLabel(name: string, args: Record<string, any>): { loading: string; done: string } {
+  switch (name) {
+    case "get_market_data":
+      return { loading: "Đang lấy dữ liệu thị trường...", done: "Thị trường VN30 & chỉ số" };
+    case "get_news": {
+      const syms = args.symbols?.length ? `${args.symbols.join(", ")}` : "thị trường";
+      const src  = args.source ? ` từ ${args.source}` : "";
+      return { loading: `Đang tìm tin tức ${syms}${src}...`, done: `Tin tức ${syms}${src}` };
+    }
+    case "get_financials":
+      return { loading: `Đang lấy BCTC ${args.symbol}...`, done: `BCTC & Tài chính ${args.symbol}` };
+    case "get_portfolio":
+      return { loading: "Đang lấy danh mục...", done: "Danh mục đầu tư" };
+    case "search_knowledge_base":
+      return { loading: "Đang tìm trong Knowledge Base...", done: "Kết quả Knowledge Base" };
+    case "web_search":
+      return { loading: `Đang tìm kiếm web: "${args.query}"...`, done: `Web search: "${args.query}"` };
+    default:
+      return { loading: "Đang xử lý...", done: name };
   }
-  return res.body!;
 }
 
-// ─── Call Anthropic (streaming) ───────────────────────────────────────────────
+// ─── System prompt ────────────────────────────────────────────────────────────
 
-async function callAnthropicStream(
-  systemPrompt: string,
-  messages: Array<{ role: string; content: string }>,
-  signal: AbortSignal
-): Promise<ReadableStream<Uint8Array>> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: messages.filter(m => m.role !== "system"),
-      stream: true,
-    }),
-    signal,
-  });
+const SYSTEM_PROMPT = `Bạn là BeeAI — trợ lý phân tích thị trường chứng khoán Việt Nam của Wealbee.
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Anthropic error ${res.status}: ${err}`);
-  }
-  return res.body!;
-}
+## CÁCH HOẠT ĐỘNG — BẮT BUỘC GỌI TOOL TRƯỚC KHI TRẢ LỜI
 
-// ─── SSE helper ───────────────────────────────────────────────────────────────
+**Chiến lược gọi tool theo loại câu hỏi:**
+- "Hôm nay có gì?", "thị trường?", "tin tức?" → gọi **CẢ HAI**: get_market_data VÀ get_news
+- "VCB/HPG/FPT thế nào?" → gọi get_news(symbols=["VCB"]) VÀ get_financials("VCB")
+- "Danh mục tôi?" → gọi get_portfolio VÀ get_market_data
+- "Tìm tài liệu..." → gọi search_knowledge_base
+- Cần tin mới nhất ngoài DB → gọi web_search
 
-function sseChunk(data: Record<string, unknown>): Uint8Array {
-  return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
-}
+KHÔNG trả lời từ kiến thức training. KHÔNG bịa số liệu.
+
+**Khi data stale (có cảnh báo ⚠️ trong kết quả tool):**
+Thông báo rõ cho người dùng: "Pipeline cập nhật giá đang bị dừng, dữ liệu giá/chỉ số mới nhất là ngày X. Tôi có thể cung cấp tin tức hôm nay từ market_news."
+
+## QUY TẮC LINK — BẮT BUỘC
+Với tin tức: COPY NGUYÊN VĂN markdown link từ tool vào câu trả lời.
+- Tool trả về dạng [Bao CafeF - 18/06/2026](https://cafef.vn/...) thi giu nguyen, KHONG thay bang "(Nguon: CafeF)"
+- TUYET DOI KHONG viet "(Nguon: X)" dang text thuan khi tool da co link markdown
+
+Voi so lieu gia/BCTC: kem ngay va nguon dang text: "phien 01/06/2026 - Nguon: HOSE"
+
+## PHÁP LÝ
+TUYỆT ĐỐI không khuyến nghị mua/bán cụ thể. Không đưa target price.
+Kết thúc mọi câu trả lời: *Thông tin tham khảo · không phải tư vấn đầu tư theo Luật Chứng khoán 2019*
+
+## ĐỊNH DẠNG
+- Tiếng Việt, ngắn gọn, dùng bullet points
+- **In đậm** số liệu quan trọng
+- Emoji: 📈 📉 💰 📊 📅 📰`;
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
+interface ContextCardPayload { id?: string; type: string; label: string; badge?: string; summary?: string; }
+
+function buildContextHint(cards: ContextCardPayload[]): string {
+  if (!cards.length) return "";
+  const lines = ["\n## Người dùng đang xem (context cards):"];
+  for (const c of cards) {
+    const detail = c.badge ? ` (${c.badge})` : "";
+    const summ   = c.summary ? ` — ${c.summary.slice(0, 80)}` : "";
+    lines.push(`- ${c.type.toUpperCase()}: "${c.label}"${detail}${summ}`);
+  }
+  lines.push("\nNếu cần dữ liệu về các mục trên, hãy gọi tool phù hợp.");
+  return lines.join("\n");
+}
+
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "authorization, content-type",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-      },
-    });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+  if (req.method !== "POST")    return new Response("Method Not Allowed", { status: 405 });
 
-  if (req.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405 });
-  }
-
-  // ── Auth ──
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-  }
+  if (!authHeader) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+
   const jwt = authHeader.replace("Bearer ", "");
   const anonSb = createClient(
     SUPABASE_URL,
@@ -847,172 +586,288 @@ Deno.serve(async (req) => {
     { global: { headers: { Authorization: `Bearer ${jwt}` } } }
   );
   const { data: { user }, error: authError } = await anonSb.auth.getUser();
-  if (authError || !user) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-  }
+  if (authError || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
 
-  // ── Parse body ──
   let body: { message: string; session_id?: string; context_ticker?: string; context_cards?: ContextCardPayload[] };
-  try {
-    body = await req.json();
-  } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400 });
-  }
+  try { body = await req.json(); }
+  catch { return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400 }); }
 
-  const { message, context_ticker, context_cards } = body;
-  if (!message?.trim()) {
-    return new Response(JSON.stringify({ error: "message is required" }), { status: 400 });
-  }
+  const { message, context_cards } = body;
+  if (!message?.trim()) return new Response(JSON.stringify({ error: "message required" }), { status: 400 });
 
-  // ── Get or create session ──
+  // Session
   let sessionId = body.session_id;
   if (!sessionId) {
     const { data: sess } = await sb
       .from("chat_sessions")
-      .insert({ user_id: user.id, context_ticker: context_ticker || null })
+      .insert({ user_id: user.id, context_ticker: body.context_ticker ?? null })
       .select("id")
       .single();
     sessionId = sess?.id;
   }
 
-  // ── Conversation history (last 12 messages) ──
+  // Conversation history
   const { data: history } = await sb
     .from("chat_messages")
     .select("role, content")
     .eq("session_id", sessionId)
     .order("created_at", { ascending: true })
-    .limit(12);
+    .limit(10);
 
-  // ── Save user message ──
   await sb.from("chat_messages")
     .insert({ session_id: sessionId, user_id: user.id, role: "user", content: message });
 
-  // ── Build prompt with real market data + RAG + context cards ──
-  const [marketContext, ragContext, cardsContext] = await Promise.all([
-    buildMarketContext(context_ticker),
-    buildRAGContext(message, user.id),
-    context_cards?.length ? buildContextCardsSection(context_cards, user.id, message) : Promise.resolve(""),
-  ]);
-  const fullSystem = `${SYSTEM_PROMPT}\n\n---\n${marketContext}${cardsContext}${ragContext}`;
+  // Build full system prompt
+  const contextHint = buildContextHint(context_cards ?? []);
+  const fullSystem  = SYSTEM_PROMPT + contextHint;
 
-  const messages: Array<{ role: string; content: string }> = [
-    ...(USE_CLAUDE ? [] : [{ role: "system", content: fullSystem }]),
-    ...(history ?? []).map((m: { role: string; content: string }) => ({
-      role: m.role, content: m.content,
-    })),
+  // Initial messages
+  const chatMessages: any[] = [
+    ...(history ?? []).map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })),
     { role: "user", content: message },
   ];
 
-  // ── Stream ──
-  const controller = new AbortController();
+  const useAnthropic = ANTHROPIC_API_KEY.length > 10;
+  const finalModel   = useAnthropic ? "claude-sonnet-4-6" : "gpt-4o-mini";
 
   const stream = new ReadableStream({
     async start(ctrl) {
       let fullText  = "";
+      let totalToks = 0;
       let inputTok  = 0;
       let outputTok = 0;
 
       try {
-        const aiStream = USE_CLAUDE
-          ? await callAnthropicStream(fullSystem, messages, controller.signal)
-          : await callOpenAIStream(messages, controller.signal);
+        // ── Framework step 1: Observe ─────────────────────────────────────
+        // Context, history, session đã được đọc từ DB trước khi stream bắt đầu
+        ctrl.enqueue(sse({ type: "step", name: "_observe", status: "loading", label: "Đọc ngữ cảnh & lịch sử hội thoại..." }));
+        ctrl.enqueue(sse({ type: "step", name: "_observe", status: "done",
+          label: `Ngữ cảnh: ${history?.length ?? 0} tin nhắn cũ${context_cards?.length ? `, ${context_cards.length} card` : ""}` }));
 
-        const reader = aiStream.getReader();
-        let buf = "";
+        // ── Tool-call loop (always OpenAI for tool calls) ──────────────────
+        const loopMessages: any[] = [
+          { role: "system", content: fullSystem },
+          ...chatMessages,
+        ];
+        const MAX_ITERS = 6;
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buf += new TextDecoder().decode(value, { stream: true });
-          const lines = buf.split("\n");
-          buf = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const raw = line.slice(6).trim();
-            if (raw === "[DONE]") continue;
-
-            try {
-              const json = JSON.parse(raw);
-
-              if (USE_CLAUDE) {
-                if (json.type === "content_block_delta" && json.delta?.type === "text_delta") {
-                  const text = json.delta.text ?? "";
-                  fullText += text;
-                  ctrl.enqueue(sseChunk({ type: "chunk", text }));
-                }
-                if (json.type === "message_delta" && json.usage) {
-                  outputTok = json.usage.output_tokens ?? 0;
-                }
-                if (json.type === "message_start" && json.message?.usage) {
-                  inputTok = json.message.usage.input_tokens ?? 0;
-                }
-              } else {
-                // OpenAI
-                const text = json.choices?.[0]?.delta?.content ?? "";
-                if (text) {
-                  fullText += text;
-                  ctrl.enqueue(sseChunk({ type: "chunk", text }));
-                }
-                if (json.usage) {
-                  inputTok  = json.usage.prompt_tokens ?? 0;
-                  outputTok = json.usage.completion_tokens ?? 0;
-                }
-              }
-            } catch { /* skip */ }
+        for (let iter = 0; iter < MAX_ITERS; iter++) {
+          // ── Framework step 2: Reason (chỉ emit ở vòng đầu) ──────────────
+          if (iter === 0) {
+            ctrl.enqueue(sse({ type: "step", name: "_reason", status: "loading", label: "Phân tích câu hỏi & lên kế hoạch gọi tool..." }));
           }
+
+          const callBody: any = {
+            model: "gpt-4o-mini",
+            messages: loopMessages,
+            tools: TOOL_DEFS,
+            tool_choice: "auto",
+            temperature: 0,
+            max_tokens: 1000,
+          };
+
+          const callRes = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify(callBody),
+          });
+          if (!callRes.ok) throw new Error(`OpenAI tool-call error ${callRes.status}: ${await callRes.text()}`);
+
+          const callJson = await callRes.json();
+          totalToks += callJson.usage?.total_tokens ?? 0;
+          const assistantMsg = callJson.choices?.[0]?.message;
+
+          if (!assistantMsg?.tool_calls?.length) {
+            // LLM decided no tools needed — mark reason done then emit answer
+            if (iter === 0) {
+              ctrl.enqueue(sse({ type: "step", name: "_reason", status: "done", label: "Có thể trả lời trực tiếp, không cần gọi tool" }));
+            }
+            if (assistantMsg?.content) {
+              fullText = assistantMsg.content;
+              ctrl.enqueue(sse({ type: "chunk", text: fullText }));
+            }
+            break;
+          }
+
+          // Mark Reason done with actual tool names the LLM chose
+          if (iter === 0) {
+            const chosenTools = (assistantMsg.tool_calls as any[])
+              .map((tc: any) => toolLabel(tc.function.name, (() => { try { return JSON.parse(tc.function.arguments ?? "{}"); } catch { return {}; } })()).done)
+              .join(" + ");
+            ctrl.enqueue(sse({ type: "step", name: "_reason", status: "done", label: `Kế hoạch: ${chosenTools}` }));
+          }
+
+          // Execute all tool calls in parallel
+          loopMessages.push(assistantMsg);
+
+          const toolResults = await Promise.all(
+            (assistantMsg.tool_calls as any[]).map(async (tc) => {
+              let args: Record<string, any> = {};
+              try { args = JSON.parse(tc.function.arguments ?? "{}"); } catch { /* ignore */ }
+
+              const labels = toolLabel(tc.function.name, args);
+              ctrl.enqueue(sse({ type: "step", name: tc.function.name, status: "loading", label: labels.loading }));
+
+              let content: string;
+              try { content = await executeTool(tc.function.name, args, user.id); }
+              catch (e) { content = `Lỗi thực thi ${tc.function.name}: ${String(e)}`; }
+
+              ctrl.enqueue(sse({ type: "step", name: tc.function.name, status: "done", label: labels.done }));
+              return { role: "tool", tool_call_id: tc.id, content };
+            })
+          );
+          loopMessages.push(...toolResults);
         }
 
-        // ── Save assistant response ──
-        const totalTokens = inputTok + outputTok;
+        // ── If fullText empty, do a proper streaming final answer ────────────
+        if (!fullText) {
+          ctrl.enqueue(sse({ type: "step", name: "_synthesis", status: "loading", label: "Đang tổng hợp phân tích..." }));
+
+          if (useAnthropic && ANTHROPIC_API_KEY) {
+            // Anthropic streaming — build messages from loopMessages
+            const anthropicMsgs = loopMessages
+              .filter(m => m.role !== "system")
+              .filter(m => m.role !== "tool") // Anthropic doesn't support tool role in basic flow
+              .map(m => ({ role: m.role as "user" | "assistant", content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }));
+
+            // Inject tool results as assistant context
+            const toolResultSummary = loopMessages
+              .filter(m => m.role === "tool")
+              .map(m => m.content)
+              .join("\n\n---\n\n");
+
+            if (toolResultSummary) {
+              anthropicMsgs.push({
+                role: "user",
+                content: `[Kết quả từ tools:\n${toolResultSummary.slice(0, 8000)}]\n\nDựa trên dữ liệu trên, ${message}`,
+              });
+            }
+
+            const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "claude-sonnet-4-6",
+                max_tokens: 1500,
+                temperature: 0,
+                system: fullSystem,
+                messages: anthropicMsgs,
+                stream: true,
+              }),
+            });
+            if (!aiRes.ok) throw new Error(`Anthropic ${aiRes.status}: ${await aiRes.text()}`);
+
+            const reader = aiRes.body!.getReader();
+            const dec = new TextDecoder();
+            let buf = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (value) buf += dec.decode(value, { stream: !done });
+              const lines2 = buf.split("\n");
+              buf = done ? "" : (lines2.pop() ?? "");
+              for (const line of lines2) {
+                if (!line.startsWith("data: ")) continue;
+                try {
+                  const p = JSON.parse(line.slice(6).trim());
+                  if (p.type === "content_block_delta" && p.delta?.type === "text_delta") {
+                    const chunk = p.delta.text ?? "";
+                    if (chunk) { fullText += chunk; ctrl.enqueue(sse({ type: "chunk", text: chunk })); }
+                  }
+                  if (p.type === "message_delta" && p.usage) {
+                    outputTok = p.usage.output_tokens ?? 0;
+                  }
+                  if (p.type === "message_start" && p.message?.usage) {
+                    inputTok = p.message.usage.input_tokens ?? 0;
+                  }
+                } catch { /* skip */ }
+              }
+              if (done) break;
+            }
+            totalToks += inputTok + outputTok;
+
+          } else {
+            // OpenAI streaming final answer
+            const streamRes = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "gpt-4o-mini",
+                messages: loopMessages,
+                temperature: 0,
+                max_tokens: 1500,
+                stream: true,
+                stream_options: { include_usage: true },
+                tool_choice: "none", // final answer only, no more tool calls
+              }),
+            });
+            if (!streamRes.ok) throw new Error(`OpenAI streaming ${streamRes.status}: ${await streamRes.text()}`);
+
+            const reader = streamRes.body!.getReader();
+            const dec = new TextDecoder();
+            let buf = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (value) buf += dec.decode(value, { stream: !done });
+              const lines2 = buf.split("\n");
+              buf = done ? "" : (lines2.pop() ?? "");
+              for (const line of lines2) {
+                if (!line.startsWith("data: ")) continue;
+                const raw = line.slice(6).trim();
+                if (raw === "[DONE]") continue;
+                try {
+                  const p = JSON.parse(raw);
+                  const chunk = p.choices?.[0]?.delta?.content ?? "";
+                  if (chunk) { fullText += chunk; ctrl.enqueue(sse({ type: "chunk", text: chunk })); }
+                  if (p.usage?.total_tokens) totalToks += p.usage.total_tokens;
+                } catch { /* skip */ }
+              }
+              if (done) break;
+            }
+          }
+          ctrl.enqueue(sse({ type: "step", name: "_synthesis", status: "done", label: "Phân tích hoàn tất" }));
+        }
+
+        // ── Save assistant message ─────────────────────────────────────────
         const { data: assistantMsg } = await sb
           .from("chat_messages")
-          .insert({
-            session_id: sessionId,
-            user_id: user.id,
-            role: "assistant",
-            content: fullText,
-            tokens: totalTokens || null,
-          })
+          .insert({ session_id: sessionId, user_id: user.id, role: "assistant", content: fullText, tokens: totalToks || null })
           .select("id")
           .single();
 
-        // Update session title on first message
+        // Update session
         if (!body.session_id) {
-          const title = message.length > 50 ? message.substring(0, 50) + "…" : message;
-          await sb.from("chat_sessions")
-            .update({ title, updated_at: new Date().toISOString() })
-            .eq("id", sessionId);
+          const title = message.length > 50 ? message.slice(0, 50) + "…" : message;
+          await sb.from("chat_sessions").update({ title, updated_at: new Date().toISOString() }).eq("id", sessionId);
         } else {
-          await sb.from("chat_sessions")
-            .update({ updated_at: new Date().toISOString() })
-            .eq("id", sessionId);
+          await sb.from("chat_sessions").update({ updated_at: new Date().toISOString() }).eq("id", sessionId);
         }
 
-        ctrl.enqueue(sseChunk({
+        ctrl.enqueue(sse({
           type: "done",
           session_id: sessionId,
           message_id: assistantMsg?.id,
-          tokens: totalTokens,
-          model: MODEL_LABEL,
+          tokens: totalToks,
+          model: finalModel,
         }));
 
       } catch (err) {
-        ctrl.enqueue(sseChunk({ type: "error", message: String(err) }));
+        ctrl.enqueue(sse({ type: "error", message: String(err) }));
       } finally {
         ctrl.close();
       }
     },
-    cancel() { controller.abort(); },
   });
 
   return new Response(stream, {
     headers: {
+      ...CORS,
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       "Connection": "keep-alive",
-      "Access-Control-Allow-Origin": "*",
       "X-Session-Id": sessionId ?? "",
     },
   });

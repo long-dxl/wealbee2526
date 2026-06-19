@@ -261,15 +261,19 @@ class SourceRegistry {
 
 // ─── Build news context (tool: news_feed) ────────────────────────────────────
 
-async function buildNewsContext(sources?: Source[], registry?: SourceRegistry, targetSyms?: string[]): Promise<string> {
+async function buildNewsContext(sources?: Source[], registry?: SourceRegistry, targetSyms?: string[], filterSources?: string[]): Promise<string> {
   try {
     const since = new Date(Date.now() - 48 * 3600000).toISOString();
-    const baseQuery = () => sb
-      .from("market_news")
-      .select("title, content_summary, label, impact_score, affected_symbols, published_at, article_url, source")
-      .not("label", "is", null)
-      .neq("label", "trash")
-      .gte("published_at", since);
+    const baseQuery = () => {
+      let q = sb
+        .from("market_news")
+        .select("title, content_summary, label, impact_score, affected_symbols, published_at, article_url, source")
+        .not("label", "is", null)
+        .neq("label", "trash")
+        .gte("published_at", since);
+      if (filterSources && filterSources.length > 0) q = q.in("source", filterSources);
+      return q;
+    };
 
     // Fetch symbol-specific news first (if target symbols provided)
     const symNewsMap = new Map<string, typeof news>();
@@ -713,7 +717,7 @@ async function sendDigestEmail(to: string, subject: string, brief: BriefOutput):
 // ── Daily Market Digest runner (template_id: "daily_digest") ─────────────────
 
 async function runDailyDigest(
-  agent: { id: string; template_id: string; system_prompt: string | null; tools: string[] | null; run_count: number | null; email_notify?: boolean | null; target_symbols?: string[] | null },
+  agent: { id: string; template_id: string; system_prompt: string | null; tools: string[] | null; run_count: number | null; email_notify?: boolean | null; target_symbols?: string[] | null; news_sources?: string[] | null },
   user: { id: string; email?: string | null },
   run: { id: string },
   emit: (data: object) => void,
@@ -742,7 +746,8 @@ async function runDailyDigest(
   if (!watchSymbols.length) throw new Error("Chưa có mã theo dõi. Vui lòng thêm mã vào watchlist.");
 
   emit({ type: "step", step: "build", status: "loading", label: "Đang đọc tin tức từ thị trường..." });
-  const { dataForLLM, timeStr } = await fetchNewsAndBuildData(sb, watchSymbols);
+  const filterSrcs = agent.news_sources?.length ? agent.news_sources : undefined;
+  const { dataForLLM, timeStr } = await fetchNewsAndBuildData(sb, watchSymbols, filterSrcs);
   emit({ type: "step", step: "build", status: "done", label: "Tin tức thị trường (24h)" });
 
   emit({ type: "step", step: "llm", status: "loading", label: "Đang tổng hợp với AI..." });
@@ -788,6 +793,163 @@ async function runDailyDigest(
 
   emit({ type: "done", title, brief_id: savedBrief?.id, run_id: run.id, tokens: tokensUsed, duration_ms: Date.now() - startedAt, brief });
 }
+
+// ─── Tool definitions & execution (true function-calling) ────────────────────
+
+const OPENAI_TOOL_DEFS: Record<string, object> = {
+  price_feed: {
+    type: "function",
+    function: {
+      name: "price_feed",
+      description: "Lấy giá đóng cửa mới nhất của các cổ phiếu VN30 và chỉ số VNINDEX, HNX",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  news_feed: {
+    type: "function",
+    function: {
+      name: "news_feed",
+      description: "Lấy tin tức tài chính 48h gần nhất. Dùng symbols để lọc theo mã cổ phiếu cụ thể.",
+      parameters: {
+        type: "object",
+        properties: {
+          symbols: {
+            type: "array",
+            items: { type: "string" },
+            description: "Danh sách mã cổ phiếu cần lọc tin (ví dụ: ['VCB','HPG']). Để trống để lấy tin thị trường chung.",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  financials: {
+    type: "function",
+    function: {
+      name: "financials",
+      description: "Lấy báo cáo tài chính 4 năm (doanh thu, LNST, EPS, P/E, ROE...), lịch sử cổ tức và giao dịch insider của một mã cổ phiếu",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: "Mã cổ phiếu cần tra cứu, ví dụ: 'VCB'" },
+        },
+        required: ["symbol"],
+      },
+    },
+  },
+  portfolio_read: {
+    type: "function",
+    function: {
+      name: "portfolio_read",
+      description: "Lấy danh mục đầu tư hiện tại của người dùng: holdings, giá vốn, P&L",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  kb_search: {
+    type: "function",
+    function: {
+      name: "kb_search",
+      description: "Tìm kiếm thông tin trong Knowledge Base đã cấu hình của người dùng",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Câu hỏi hoặc từ khóa cần tìm trong Knowledge Base" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+};
+
+function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
+  const defs: object[] = [];
+  for (const name of ["price_feed", "news_feed", "financials", "portfolio_read"]) {
+    if (enabled.includes(name) && OPENAI_TOOL_DEFS[name]) defs.push(OPENAI_TOOL_DEFS[name]);
+  }
+  if (hasKb) defs.push(OPENAI_TOOL_DEFS.kb_search);
+  return defs;
+}
+
+// Anthropic tool format (input_schema instead of parameters)
+function toAnthropicToolDef(t: any) {
+  const fn = t.function;
+  return { name: fn.name, description: fn.description, input_schema: fn.parameters };
+}
+
+async function executeToolCall(
+  name: string,
+  args: Record<string, any>,
+  registry: SourceRegistry,
+  sources: Source[],
+  userId: string,
+  kbDocIds: string[],
+  newsFilter?: string[],
+): Promise<string> {
+  if (name === "price_feed") {
+    return (await buildPriceContext(registry)) || "Không có dữ liệu giá trong hệ thống";
+  }
+  if (name === "news_feed") {
+    const syms: string[] = Array.isArray(args.symbols) ? args.symbols.map(String) : [];
+    const ctx = await buildNewsContext(sources, registry, syms.length ? syms : undefined, newsFilter);
+    return ctx || "Không có tin tức trong 48h gần nhất";
+  }
+  if (name === "financials") {
+    const sym = String(args.symbol ?? "").toUpperCase();
+    if (!sym) return "Lỗi: thiếu tham số symbol";
+    const ctx = await buildFinancialsContext(sym, registry);
+    await buildSymbolSources(sym, sources);
+    return ctx || `Không có dữ liệu tài chính cho ${sym} trong hệ thống`;
+  }
+  if (name === "portfolio_read") {
+    return (await buildPortfolioContext(userId)) || "Chưa có danh mục đầu tư";
+  }
+  if (name === "kb_search") {
+    if (!kbDocIds.length) return "Knowledge Base chưa được cấu hình cho agent này";
+    const query = String(args.query ?? "");
+    try {
+      const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
+      });
+      const embedJson = await embedRes.json();
+      const embedding = embedJson.data?.[0]?.embedding;
+      if (!embedding) return "Lỗi tạo embedding";
+      const { data: chunks } = await sb.rpc("match_knowledge_chunks_by_docs", {
+        query_embedding: embedding, match_user_id: userId,
+        doc_ids: kbDocIds, match_count: 6, match_threshold: 0.35,
+      });
+      if (chunks?.length) {
+        return "## Kết quả từ Knowledge Base\n(Dùng làm ngữ cảnh, không trích dẫn [ref:N])\n"
+          + (chunks as any[]).map(c => `---\n${c.content}`).join("\n");
+      }
+      // Fallback: first chunks of each doc
+      const { data: fallback } = await sb.from("knowledge_chunks")
+        .select("content").in("document_id", kbDocIds).eq("user_id", userId)
+        .order("chunk_index", { ascending: true }).limit(kbDocIds.length * 2);
+      return fallback?.length
+        ? "## Kết quả từ Knowledge Base\n" + (fallback as any[]).map(c => `---\n${c.content}`).join("\n")
+        : "Không tìm thấy nội dung liên quan trong Knowledge Base";
+    } catch (e) { return `Lỗi KB search: ${String(e)}`; }
+  }
+  return `Tool không được hỗ trợ: ${name}`;
+}
+
+function toolStepLabel(name: string, args: Record<string, any>): string {
+  switch (name) {
+    case "price_feed":     return "Giá cổ phiếu & chỉ số thị trường";
+    case "news_feed": {
+      const s: string[] = args.symbols ?? [];
+      return s.length ? `Tin tức ${s.join(", ")} (48h)` : "Tin tức thị trường (48h)";
+    }
+    case "financials":     return `Báo cáo tài chính: ${args.symbol ?? ""}`;
+    case "portfolio_read": return "Danh mục đầu tư";
+    case "kb_search":      return `Knowledge Base: "${String(args.query ?? "").slice(0, 40)}"`;
+    default: return name;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function inferImpactScore(output: string, templateId: string): number {
   const positive = (output.match(/tăng|tích cực|hưởng lợi|cơ hội|khởi sắc|tốt/gi) ?? []).length;
@@ -841,7 +1003,7 @@ Deno.serve(async (req: Request) => {
   // Fetch agent + template
   const { data: agent, error: agentErr } = await sb
     .from("agents")
-    .select("id, user_id, template_id, name, description, system_prompt, tools, run_count, model, email_notify, kb_document_ids, target_symbols")
+    .select("id, user_id, template_id, name, description, system_prompt, tools, run_count, model, email_notify, kb_document_ids, target_symbols, news_sources")
     .eq("id", agent_id)
     .eq("user_id", user.id)
     .single();
@@ -896,115 +1058,32 @@ Deno.serve(async (req: Request) => {
         const savedSym    = firstLine.startsWith(SYM_PREFIX) ? firstLine.slice(SYM_PREFIX.length).trim() : null;
         const cleanPrompt = savedSym ? rawPrompt.replace(/^__TARGET_SYMBOL__:[^\n]*\n\n?/, "") : rawPrompt;
 
-        // Resolve final symbols list (request > saved > none)
         const syms: string[] = target_symbols.length > 0
           ? target_symbols
           : savedSym ? [savedSym] : [];
-        const sym = syms[0]; // keep for backward-compat single-symbol checks
 
-        // ── Tool steps ────────────────────────────────────────────────────────
+        // ── Sources & registry ────────────────────────────────────────────────
 
         const sources: Source[] = [];
         const registry = new SourceRegistry();
 
-        let priceCtx = `Ngày: ${new Date().toLocaleDateString("vi-VN", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Ho_Chi_Minh" })}`;
-        if (enabledTools.includes("price_feed")) {
-          emit({ type: "step", step: "price_feed", status: "loading", label: "Đang lấy dữ liệu giá..." });
-          priceCtx = await buildPriceContext(registry);
-          emit({ type: "step", step: "price_feed", status: "done", label: "Dữ liệu giá & chỉ số" });
-          sources.push({ type: "exchange", title: "VN-Index — FireAnt", url: VS_INDEX_URL.VNINDEX, source: "FireAnt" });
-          sources.push({ type: "exchange", title: "HNX-Index — FireAnt", url: VS_INDEX_URL.HNX, source: "FireAnt" });
-        }
+        // ── Build tool definitions based on agent's enabled tools ─────────────
 
-        let newsCtx = "";
-        if (enabledTools.includes("news_feed")) {
-          emit({ type: "step", step: "news_feed", status: "loading", label: "Đang lấy tin tức thị trường..." });
-          newsCtx = await buildNewsContext(sources, registry, syms.length > 0 ? syms : undefined);
-          const newsLabel = syms.length > 0 ? `Tin tức ${syms.join(", ")} + thị trường (48h)` : "Tin tức thị trường (48h)";
-          emit({ type: "step", step: "news_feed", status: "done", label: newsLabel });
-        }
-
-        let portfolioCtx = "";
-        if (agent.template_id === "portfolio_health" || enabledTools.includes("portfolio_read")) {
-          emit({ type: "step", step: "portfolio", status: "loading", label: "Đang lấy danh mục đầu tư..." });
-          portfolioCtx = await buildPortfolioContext(user.id);
-          emit({ type: "step", step: "portfolio", status: "done", label: "Danh mục đầu tư" });
-        }
-
-        // ── KB RAG (if agent has selected KB docs) ────────────────────────────
-        let kbCtx = "";
         const kbDocIds: string[] = agent.kb_document_ids ?? [];
-        if (kbDocIds.length > 0 && OPENAI_API_KEY) {
-          emit({ type: "step", step: "kb", status: "loading", label: `Đang tìm kiếm trong Knowledge Base (${kbDocIds.length} tài liệu)...` });
-          try {
-            const kbQuery = syms.length > 0
-              ? `Phân tích cổ phiếu ${syms.join(", ")} — tiêu chí định giá, ngành, rủi ro`
-              : agent.description ?? agent.name ?? "phân tích chứng khoán Việt Nam";
+        const toolDefs = getAgentToolDefs(enabledTools, kbDocIds.length > 0);
 
-            const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
-              method: "POST",
-              headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ model: "text-embedding-3-small", input: kbQuery }),
-            });
-            if (embedRes.ok) {
-              const embedJson = await embedRes.json();
-              const embedding = embedJson.data?.[0]?.embedding;
-              if (embedding) {
-                // Dùng RPC mới — search thẳng trong doc_ids đã chọn, không filter JS-side
-                const { data: chunks } = await sb.rpc("match_knowledge_chunks_by_docs", {
-                  query_embedding: embedding,
-                  match_user_id:   user.id,
-                  doc_ids:         kbDocIds,
-                  match_count:     6,
-                  match_threshold: 0.35,
-                });
-
-                if (chunks && chunks.length > 0) {
-                  kbCtx = "\n\n## KIẾN THỨC NỀN TỪ KNOWLEDGE BASE\n"
-                    + "(Dùng làm ngữ cảnh phân tích, không trích dẫn [ref:N] cho phần này)\n"
-                    + (chunks as any[]).map((c) => `---\n${c.content}`).join("\n");
-                  emit({ type: "step", step: "kb", status: "done", label: `Tìm thấy ${chunks.length} đoạn liên quan trong KB` });
-                } else {
-                  // Fallback: nếu semantic không tìm thấy gì, lấy chunks đầu tiên của từng doc
-                  const { data: fallback } = await sb
-                    .from("knowledge_chunks")
-                    .select("document_id, chunk_index, content")
-                    .in("document_id", kbDocIds)
-                    .eq("user_id", user.id)
-                    .order("chunk_index", { ascending: true })
-                    .limit(kbDocIds.length * 2);
-
-                  if (fallback && fallback.length > 0) {
-                    kbCtx = "\n\n## KIẾN THỨC NỀN TỪ KNOWLEDGE BASE\n"
-                      + "(Dùng làm ngữ cảnh phân tích, không trích dẫn [ref:N] cho phần này)\n"
-                      + (fallback as any[]).map((c) => `---\n${c.content}`).join("\n");
-                    emit({ type: "step", step: "kb", status: "done", label: `Đã tải ${fallback.length} đoạn từ KB (fallback)` });
-                  } else {
-                    emit({ type: "step", step: "kb", status: "done", label: "Không tìm thấy nội dung trong KB" });
-                  }
-                }
-              }
-            }
-          } catch { emit({ type: "step", step: "kb", status: "error", label: "Lỗi khi truy vấn Knowledge Base" }); }
+        // For portfolio_health template: add portfolio_read automatically if not already
+        if (agent.template_id === "portfolio_health" && !enabledTools.includes("portfolio_read")) {
+          toolDefs.push(OPENAI_TOOL_DEFS.portfolio_read);
         }
 
-        let financialsCtx = "";
-        if (syms.length > 0 && enabledTools.includes("financials")) {
-          emit({ type: "step", step: "financials", status: "loading", label: `Đang lấy tài chính ${syms.join(", ")}...` });
-          const parts = await Promise.all(syms.map(s => buildFinancialsContext(s, registry)));
-          financialsCtx = parts.join("\n\n");
-          await Promise.all(syms.map(s => buildSymbolSources(s, sources)));
-          emit({ type: "step", step: "financials", status: "done", label: `Tài chính: ${syms.join(", ")}` });
-        }
-
-        // ── Build grounded system prompt ─────────────────────────────────────
+        // ── Build system prompt (no pre-fetched data — data comes from tools) ─
 
         const basePrompt = cleanPrompt.trim()
           || template?.system_prompt
           || "Bạn là trợ lý phân tích chứng khoán Việt Nam.";
-        console.log(`[run-agent] prompt source: ${cleanPrompt.trim() ? "custom" : template?.system_prompt ? "template" : "fallback"}`);
+        console.log(`[run-agent] prompt source: ${cleanPrompt.trim() ? "custom" : template?.system_prompt ? "template" : "fallback"}, tools: [${enabledTools.join(",")}]`);
 
-        // Anti-hallucination grounding rules — injected after user prompt, before data
         const GROUNDING_RULES = `
 
 ## ══ QUY TẮC BẮT BUỘC TUYỆT ĐỐI ══
@@ -1012,57 +1091,46 @@ Deno.serve(async (req: Request) => {
 **ĐỊNH DẠNG OUTPUT — BẮT BUỘC**
 - Chỉ dùng **Markdown thuần** (##, ###, -, **, *italic*)
 - TUYỆT ĐỐI KHÔNG dùng HTML tags (<div>, <span>, <a>, <ul>, <li>, <br>, <style>, v.v.)
-- TUYỆT ĐỐI KHÔNG dùng inline CSS hay style attributes
 - Nếu muốn link: dùng [label](url) — KHÔNG dùng <a href="...">
 
-**CHỈ VIẾT NHỮNG GÌ CÓ TRONG DỮ LIỆU — QUY TẮC CỐT LÕI**
-- Chỉ được đề cập đến thông tin, số liệu, sự kiện XUẤT HIỆN TRỰC TIẾP trong phần "NGUỒN DỮ LIỆU" bên dưới
-- Nếu một chủ đề KHÔNG có trong dữ liệu → **bỏ qua hoàn toàn**, không nhắc đến, không viết "Chưa có dữ liệu về X"
-- KHÔNG dùng kiến thức nền, KHÔNG ước tính, KHÔNG nội suy từ training data
-- Ví dụ: nếu không có dữ liệu insider VCB → không viết gì về insider VCB, bỏ hẳn mục đó
-- Nếu NGUỒN DỮ LIỆU ghi "*Không có số liệu tài chính*" → KHÔNG tạo bảng tài chính, bỏ hẳn mục đó
+**SỬ DỤNG TOOL — BẮT BUỘC${toolDefs.length === 0 ? " (không có tool nào được bật)" : ""}**
+${toolDefs.length > 0
+  ? `- Bắt buộc gọi tool để lấy dữ liệu TRƯỚC KHI viết phân tích
+- Gọi đủ tool cần thiết: price_feed cho giá/chỉ số, news_feed cho tin tức, financials cho BCTC
+- Chỉ sử dụng dữ liệu từ kết quả tool — KHÔNG dùng kiến thức nền hay số liệu từ training data`
+  : `- Không có tool nào được bật — hãy thông báo người dùng bật tool trong Agent Studio để lấy dữ liệu thực tế`}
+
+**CHỈ VIẾT NHỮNG GÌ CÓ TRONG DỮ LIỆU**
+- Chỉ được đề cập thông tin, số liệu XUẤT HIỆN TRỰC TIẾP trong kết quả tool
+- Nếu chủ đề KHÔNG có trong dữ liệu → bỏ qua hoàn toàn, không nhắc đến
+- KHÔNG ước tính, KHÔNG nội suy từ training data
 
 **BẢNG DỮ LIỆU — GIỮ ĐÚNG ĐỊNH DẠNG NGUỒN**
-- KHÔNG được transpose, pivot, hay reformat lại bảng từ nguồn dữ liệu sang cấu trúc khác
-- Nếu nguồn có bảng "Năm | Doanh thu | LNST | ..." thì dùng ĐÚNG cấu trúc đó, không chuyển thành "Chỉ tiêu | 2023 | 2024 | ..."
-- Ô "—" trong bảng nghĩa là không có data — KHÔNG được điền số vào ô đó
+- KHÔNG transpose/pivot/reformat bảng từ nguồn dữ liệu
+- Ô "—" trong bảng = không có data — KHÔNG điền số vào ô đó
 
 **TRÍCH DẪN NGUỒN — BẮT BUỘC VỚI MỌI SỐ LIỆU**
 - Mỗi con số, phần trăm, giá trị cụ thể PHẢI có token [ref:N] liền sau
-- Token [ref:N] đã có sẵn trong NGUỒN DỮ LIỆU — chỉ được dùng những ref đó, KHÔNG tự bịa thêm
-- Ví dụ đúng: "VCB đóng cửa tại **64,200đ** phiên 2026-05-28 [ref:3]"
-- Ví dụ SAI: "VCB đóng cửa tại **64,200đ**" (thiếu ref) hoặc "ROE khoảng 20%" (không có trong data)
+- Token [ref:N] có sẵn trong kết quả tool — chỉ dùng những ref đó, KHÔNG tự bịa thêm
 
 **THỜI GIAN — CHÍNH XÁC**
-- Mỗi dòng giá có "phiên YYYY-MM-DD" — PHẢI dùng đúng ngày đó, không được viết "phiên gần nhất" hay "hôm nay"
+- Mỗi dòng giá có "phiên YYYY-MM-DD" — PHẢI dùng đúng ngày đó
 - Nếu dữ liệu giá ghi "Chưa có dữ liệu trong DB" → bỏ qua mục giá hoàn toàn
 
 **TUÂN THỦ PHÁP LÝ**
 - KHÔNG khuyến nghị mua/bán bất kỳ cổ phiếu nào
 - Cuối output PHẢI có: *"Thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019"*`;
 
-        const systemPrompt = basePrompt + GROUNDING_RULES + `
-
-═══════════════════════════════════════
-NGUỒN DỮ LIỆU XÁC NHẬN — CHỈ DÙNG CÁC SỐ LIỆU NÀY
-Ngày phân tích: ${new Date().toLocaleDateString("vi-VN", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Ho_Chi_Minh" })}
-Dữ liệu giá/chỉ số chỉ được hiển thị nếu ≤ ${PRICE_MAX_AGE_DAYS} ngày tuổi. Nếu ghi "Chưa có dữ liệu" → không suy đoán.
-═══════════════════════════════════════
-${priceCtx}${newsCtx}${portfolioCtx}${financialsCtx}${kbCtx}
-═══════════════════════════════════════
-HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PHẦN TRÊN
-═══════════════════════════════════════`;
+        const systemPrompt = basePrompt + GROUNDING_RULES;
 
         const symList = syms.length > 0 ? syms.join(", ") : null;
         const userMessage = symList
-          ? `Phân tích ${syms.length > 1 ? `các cổ phiếu **${symList}**` : `cổ phiếu **${symList}**`} CHỈ dựa trên NGUỒN DỮ LIỆU XÁC NHẬN ở trên.${syms.length > 1 ? ` Phân tích từng mã riêng biệt theo thứ tự: ${symList}.` : ""} Với chỉ tiêu nào KHÔNG có trong dữ liệu → bỏ qua hoàn toàn, không đề cập. Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`
-          : `Thực hiện nhiệm vụ CHỈ dựa trên NGUỒN DỮ LIỆU XÁC NHẬN ở trên. Thông tin nào không có trong dữ liệu → bỏ qua hoàn toàn. Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`;
+          ? `Phân tích ${syms.length > 1 ? `các cổ phiếu **${symList}**` : `cổ phiếu **${symList}**`}.${toolDefs.length > 0 ? ` Hãy gọi tool để lấy dữ liệu giá, tin tức, tài chính cần thiết TRƯỚC KHI viết phân tích.${syms.length > 1 ? ` Gọi financials riêng cho từng mã: ${symList}.` : ""}` : ""} Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`
+          : `Thực hiện nhiệm vụ.${toolDefs.length > 0 ? " Hãy gọi tool để lấy dữ liệu cần thiết." : ""} Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`;
 
-        // ── Stream LLM (OpenAI or Anthropic based on agent.model) ───────────
+        // ── Model selection ───────────────────────────────────────────────────
 
         let { provider, apiModel } = MODEL_MAP[agent.model ?? ""] ?? DEFAULT_MODEL;
-
-        // Check API key availability — fall back to gpt-4o-mini if key missing
         if (provider === "anthropic" && !ANTHROPIC_API_KEY) {
           console.warn(`[run-agent] ANTHROPIC_API_KEY not set, falling back to gpt-4o-mini`);
           provider = "openai";
@@ -1072,82 +1140,131 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
           emit({ type: "step", step: "gpt", status: "loading", label: `Đang phân tích với ${apiModel}...` });
         }
 
-        let aiRes: Response;
-        if (provider === "anthropic" && ANTHROPIC_API_KEY) {
-          aiRes = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "x-api-key": ANTHROPIC_API_KEY,
-              "anthropic-version": "2023-06-01",
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({
-              model: apiModel,
-              max_tokens: 2000,
-              temperature: 0,
-              system: systemPrompt,
-              messages: [{ role: "user", content: userMessage }],
-              stream: true,
-            }),
-          });
-          if (!aiRes.ok) throw new Error(`Anthropic ${aiRes.status}: ${await aiRes.text()}`);
-        } else {
-          // OpenAI (default fallback for Gemini too)
-          aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: apiModel,
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userMessage },
-              ],
-              max_tokens: 2000,
-              temperature: 0,      // 0 = deterministic, no hallucination
-              stream: true,
-              stream_options: { include_usage: true },
-            }),
-          });
-          if (!aiRes.ok) throw new Error(`OpenAI ${aiRes.status}: ${await aiRes.text()}`);
-        }
+        // ── True tool-call loop ───────────────────────────────────────────────
+        // LLM decides WHEN and WHICH tools to call. No pre-fetching.
 
-        const gptReader = aiRes.body!.getReader();
-        const gptDec    = new TextDecoder();
+        const messages: any[] = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage },
+        ];
+
         let fullOutput = "";
-        let gptBuf     = "";
-        let tokens     = 0;
+        let tokens = 0;
+        const MAX_TOOL_ITERS = 8; // max tool-call rounds before forcing final answer
 
-        while (true) {
-          const { done, value } = await gptReader.read();
-          // Decode kể cả khi done=true để flush byte cuối cùng
-          if (value) gptBuf += gptDec.decode(value, { stream: !done });
-          const lines = gptBuf.split("\n");
-          // Nếu stream chưa kết thúc, giữ lại dòng cuối chưa hoàn chỉnh
-          gptBuf = done ? "" : (lines.pop() ?? "");
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const raw = line.slice(6).trim();
-            if (raw === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(raw);
-              // Anthropic SSE format
-              if (provider === "anthropic") {
-                if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
-                  const chunk = parsed.delta.text ?? "";
-                  if (chunk) { fullOutput += chunk; emit({ type: "chunk", text: chunk }); }
+        for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
+          // ── OpenAI tool-calling (non-streaming for intermediate, streaming for final) ──
+          if (provider === "openai" || (provider === "anthropic" && toolDefs.length > 0)) {
+            const useOpenAI = provider === "openai" || !ANTHROPIC_API_KEY;
+            const callModel = useOpenAI ? apiModel : "gpt-4o-mini"; // use OpenAI for tool loop even if final is Anthropic
+
+            const callBody: Record<string, any> = {
+              model: callModel,
+              messages,
+              temperature: 0,
+              max_tokens: 2000,
+            };
+            if (toolDefs.length > 0) {
+              callBody.tools = toolDefs;
+              callBody.tool_choice = "auto";
+            }
+
+            const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify(callBody),
+            });
+            if (!aiRes.ok) throw new Error(`OpenAI ${aiRes.status}: ${await aiRes.text()}`);
+
+            const json = await aiRes.json();
+            tokens += json.usage?.total_tokens ?? 0;
+            const assistantMsg = json.choices?.[0]?.message;
+
+            if (!assistantMsg?.tool_calls?.length) {
+              // No tool calls → this is the final answer
+              fullOutput = assistantMsg?.content ?? "";
+              emit({ type: "chunk", text: fullOutput });
+              break;
+            }
+
+            // Has tool calls → execute all in parallel
+            messages.push(assistantMsg);
+
+            const toolResults = await Promise.all(
+              (assistantMsg.tool_calls as any[]).map(async (tc) => {
+                const name: string = tc.function.name;
+                let args: Record<string, any> = {};
+                try { args = JSON.parse(tc.function.arguments ?? "{}"); } catch { /* ignore */ }
+
+                const label = toolStepLabel(name, args);
+                emit({ type: "step", step: name, status: "loading", label: `Đang lấy: ${label}...` });
+
+                let content: string;
+                try {
+                  content = await executeToolCall(
+                    name, args, registry, sources, user.id, kbDocIds,
+                    (agent as any).news_sources ?? undefined,
+                  );
+                } catch (e) {
+                  content = `Lỗi thực thi tool ${name}: ${String(e)}`;
                 }
-                if (parsed.type === "message_delta" && parsed.usage) {
-                  tokens = (parsed.usage.input_tokens ?? 0) + (parsed.usage.output_tokens ?? 0);
-                }
-              } else {
-                // OpenAI SSE format
-                const chunk = parsed.choices?.[0]?.delta?.content ?? "";
-                if (chunk) { fullOutput += chunk; emit({ type: "chunk", text: chunk }); }
-                if (parsed.usage?.total_tokens) tokens = parsed.usage.total_tokens;
+
+                emit({ type: "step", step: name, status: "done", label });
+                return { role: "tool", tool_call_id: tc.id, content };
+              })
+            );
+
+            messages.push(...toolResults);
+
+          } else {
+            // ── Anthropic streaming (no tools or Anthropic-native final answer) ──
+            const anthropicMessages = messages
+              .filter(m => m.role !== "system")
+              .map(m => ({ role: m.role, content: m.content ?? "" }));
+
+            const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                model: apiModel,
+                max_tokens: 2000,
+                temperature: 0,
+                system: systemPrompt,
+                messages: anthropicMessages,
+                stream: true,
+              }),
+            });
+            if (!aiRes.ok) throw new Error(`Anthropic ${aiRes.status}: ${await aiRes.text()}`);
+
+            const reader = aiRes.body!.getReader();
+            const dec = new TextDecoder();
+            let buf = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (value) buf += dec.decode(value, { stream: !done });
+              const lines = buf.split("\n");
+              buf = done ? "" : (lines.pop() ?? "");
+              for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                try {
+                  const parsed = JSON.parse(line.slice(6).trim());
+                  if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
+                    const chunk = parsed.delta.text ?? "";
+                    if (chunk) { fullOutput += chunk; emit({ type: "chunk", text: chunk }); }
+                  }
+                  if (parsed.type === "message_delta" && parsed.usage) {
+                    tokens = (parsed.usage.input_tokens ?? 0) + (parsed.usage.output_tokens ?? 0);
+                  }
+                } catch { /* ignore */ }
               }
-            } catch { /* ignore */ }
+              if (done) break;
+            }
+            break; // Anthropic streaming always produces final answer
           }
-          if (done) break;
         }
 
         emit({ type: "step", step: "gpt", status: "done", label: "Phân tích hoàn tất" });

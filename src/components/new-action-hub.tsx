@@ -5,7 +5,74 @@ import {
 } from "lucide-react";
 import { ContextCard, CardType, DRAG_CARD_MIME, cardTypeQuestions } from "../types/cards";
 import { lightTheme, type Theme } from "../lib/theme-context";
-import { sendChatMessage } from "../lib/supabase/bee-ai";
+import { sendChatMessage, type ToolStep } from "../lib/supabase/bee-ai";
+
+// Render inline markdown + wealbee-platform XML tags
+// Handles: **bold**, [text](url), bare URLs, <ticker>, <pos>, <neg>, <cite url="">
+function renderInline(text: string, linkColor: string): React.ReactNode[] {
+  const pattern = /(\[([^\]]+)\]\((https?:\/\/[^)\s]+)\))|(\*\*([^*]+)\*\*)|(https?:\/\/\S+)|(<ticker>([^<]+)<\/ticker>)|(<pos>([^<]+)<\/pos>)|(<neg>([^<]+)<\/neg>)|(<cite url="([^"]*)">(.*?)<\/cite>)/g;
+  const nodes: React.ReactNode[] = [];
+  let last = 0, key = 0, m: RegExpExecArray | null;
+  while ((m = pattern.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    if (m[1]) {
+      // [text](url)
+      nodes.push(<a key={key++} href={m[3]} target="_blank" rel="noopener noreferrer" style={{ color: linkColor, textDecoration: "underline", wordBreak: "break-all" }}>{m[2]}</a>);
+    } else if (m[4]) {
+      // **bold**
+      nodes.push(<strong key={key++}>{m[5]}</strong>);
+    } else if (m[6]) {
+      // bare URL
+      nodes.push(<a key={key++} href={m[6]} target="_blank" rel="noopener noreferrer" style={{ color: linkColor, textDecoration: "underline", fontSize: 12, wordBreak: "break-all" }}>{m[6]}</a>);
+    } else if (m[7]) {
+      // <ticker>SYM</ticker> → styled chip
+      nodes.push(<span key={key++} style={{ display: "inline-block", padding: "1px 6px", borderRadius: 5, background: "rgba(8,73,172,0.09)", color: linkColor, fontSize: "0.88em", fontWeight: 700, margin: "0 1px" }}>{m[8]}</span>);
+    } else if (m[9]) {
+      // <pos>+X%</pos> → green
+      nodes.push(<span key={key++} style={{ color: "#4CAF50", fontWeight: 600 }}>{m[10]}</span>);
+    } else if (m[11]) {
+      // <neg>-X%</neg> → red
+      nodes.push(<span key={key++} style={{ color: "#F44336", fontWeight: 600 }}>{m[12]}</span>);
+    } else if (m[13]) {
+      // <cite url="...">label</cite> → orange underline link
+      nodes.push(<a key={key++} href={m[14]} target="_blank" rel="noopener noreferrer" style={{ color: "#FF6B35", textDecoration: "underline", fontWeight: 600 }}>[{m[15]}]</a>);
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+
+// Render a full message: handles ### headers, --- dividers, and inline markdown per line
+function renderMessage(content: string, linkColor: string, fgSubtle: string): React.ReactNode[] {
+  return content.split("\n").map((line, i) => {
+    // H3 header
+    if (/^###\s+/.test(line)) {
+      const text = line.replace(/^###\s+/, "");
+      return <div key={i} style={{ fontWeight: 700, fontSize: 13, marginTop: 10, marginBottom: 2, letterSpacing: 0.2 }}>{renderInline(text, linkColor)}</div>;
+    }
+    // H2 header
+    if (/^##\s+/.test(line)) {
+      const text = line.replace(/^##\s+/, "");
+      return <div key={i} style={{ fontWeight: 700, fontSize: 14, marginTop: 12, marginBottom: 3 }}>{renderInline(text, linkColor)}</div>;
+    }
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      return <hr key={i} style={{ border: "none", borderTop: `1px solid ${fgSubtle}30`, margin: "6px 0" }} />;
+    }
+    // Warning line (⚠️)
+    if (line.startsWith("⚠️") || line.startsWith("- ⚠️")) {
+      return <div key={i} style={{ background: "rgba(255,149,0,0.10)", border: "0.5px solid rgba(255,149,0,0.3)", borderRadius: 6, padding: "6px 10px", margin: "4px 0", fontSize: 12, color: "#b45309" }}>{renderInline(line.replace(/^-\s*/, ""), linkColor)}</div>;
+    }
+    // Empty line → spacer
+    if (!line.trim()) {
+      return <div key={i} style={{ height: 6 }} />;
+    }
+    // Normal line (with inline markdown)
+    return <div key={i} style={{ lineHeight: 1.65 }}>{renderInline(line, linkColor)}</div>;
+  });
+}
 
 const DEFAULT_WIDTH = 380;
 const MIN_WIDTH = 260;
@@ -33,16 +100,6 @@ const pageQuickActions: Record<string, string[]> = {
   portfolio: ["Danh mục tôi có cân bằng không?", "Rủi ro nào tôi đang gánh chịu?", "Tôi nên rebalance không?"],
 };
 
-const mockResponses: Record<string, string> = {
-  "Hôm nay có gì đáng chú ý?": `HPG tăng **+4.1%** là điểm nổi bật nhất. Tin insider bán 500k cp xuất hiện lúc 07:20 — thường là dấu hiệu cần theo dõi cẩn thận.\n\nDanh mục bạn: VCB và FPT ổn định, MWG đang giảm dưới ngưỡng cảnh báo.\n\n⚠ Lưu ý: Thông tin này chỉ mang tính tham khảo, không phải tư vấn đầu tư.`,
-  "Danh mục tôi đang ổn không?": `Danh mục 5 mã của bạn đang có tổng P&L **+20.7%** YTD.\n\n• VCB, FPT, HPG: tích cực\n• MWG: dưới ngưỡng cảnh báo (-8.7%)\n• VNM: giảm nhẹ nhưng trong biên bình thường\n\nPortfolio Health agent đã gửi alert về MWG lúc 07:55 sáng.`,
-  "Điểm nào quan trọng nhất?": `VN-Index +0.42% nhờ **nhóm thép** (HPG +4.1%, HSG +2.8%). Khối ngoại mua ròng **+124 tỷ** tập trung vào HPG và VCB.\n\nNhóm bất động sản tiếp tục chịu áp lực (DXG -2.9%, PDR kịch sàn).`,
-  "Chỉ số này đang trong xu hướng gì?": `Dựa trên context card bạn vừa thêm, chỉ số đang trong **uptrend ngắn hạn** với 5 phiên tăng liên tiếp. Hỗ trợ gần nhất tại 1.275 điểm.\n\nKhối lượng hôm nay **trên trung bình 20 phiên** — xác nhận đà tăng đang có nền tảng dòng tiền.`,
-  "Dòng tiền ngoại đang mua hay bán?": `Khối ngoại đang **mua ròng +124 tỷ** phiên hôm nay, tập trung vào HPG (+87 tỷ) và VCB (+41 tỷ).\n\nĐây là phiên mua ròng thứ 3 liên tiếp — tín hiệu tích cực cho nhóm large-cap.`,
-  "Danh mục của tôi rủi ro nhất ở đâu?": `Dựa trên context danh mục bạn thêm vào, rủi ro tập trung nhất tại **MWG (-8.7%)** đang tiếp tục test đáy hỗ trợ.\n\nGợi ý: Đặt stop-loss tại 59,500 nếu không muốn cắt lỗ toàn bộ. Các mã còn lại đang trong ngưỡng an toàn.`,
-  "Tin này ảnh hưởng đến danh mục tôi ra sao?": `Với context tin tức bạn thêm vào, tác động trực tiếp lên danh mục:\n\n• **HPG**: hưởng lợi tích cực — giá thép HRC phục hồi thường kéo theo +3-5% trong 1-2 tuần\n• **VCB**: trung lập\n• Các mã còn lại: không có tác động trực tiếp\n\nNên theo dõi thêm 1-2 phiên trước khi quyết định.`,
-  "Tại sao mã này đang biến động mạnh?": `Dựa trên context mã bạn thêm, biến động hôm nay chủ yếu đến từ **2 catalyst**:\n\n1. Báo cáo kết quả kinh doanh Q1 vượt kỳ vọng (+18% YoY)\n2. Thông tin cổ đông lớn tăng tỷ trọng\n\nKhối lượng giao dịch gấp **3.2 lần** trung bình 20 phiên — đây không phải pump nhỏ lẻ.`,
-};
 
 const cardTypeLabel: Record<CardType, string> = {
   index: "Chỉ số",
@@ -72,6 +129,10 @@ interface ChatMessage {
   time: string;
   contextSnapshot?: string[];
   streaming?: boolean;
+  steps?: ToolStep[];
+  cotVisible?: boolean;
+  streamingStartMs?: number;
+  thinkingDurationMs?: number;
 }
 
 const contextLabel: Record<string, string> = {
@@ -99,6 +160,12 @@ export function ActionHub({
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const cancelRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const toggleCot = (idx: number) => {
+    setMessages(prev => prev.map((m, i) =>
+      i === idx ? { ...m, cotVisible: !m.cotVisible } : m
+    ));
+  };
 
   // Resize drag
   const [isDraggingResize, setIsDraggingResize] = useState(false);
@@ -201,7 +268,8 @@ export function ActionHub({
     setIsTyping(true);
 
     // Add empty streaming bubble
-    setMessages((prev) => [...prev, { role: "assistant", content: "", time: "vừa xong", streaming: true }]);
+    const streamStart = Date.now();
+    setMessages((prev) => [...prev, { role: "assistant", content: "", time: "vừa xong", streaming: true, streamingStartMs: streamStart }]);
 
     try {
       const cardPayloads = contextCards.map(c => ({ id: c.id, type: c.type, label: c.label, badge: c.badge, summary: c.summary }));
@@ -215,11 +283,24 @@ export function ActionHub({
             return prev;
           });
         },
+        onStep: (step) => {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (!last?.streaming) return prev;
+            const steps = last.steps ?? [];
+            const existingIdx = steps.findIndex(s => s.name === step.name);
+            const newSteps = existingIdx >= 0
+              ? steps.map((s, i) => i === existingIdx ? step : s)
+              : [...steps, step];
+            return [...prev.slice(0, -1), { ...last, steps: newSteps }];
+          });
+        },
         onDone: ({ sessionId: newId }) => {
+          const elapsed = Date.now() - streamStart;
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last?.streaming) {
-              return [...prev.slice(0, -1), { ...last, streaming: false }];
+              return [...prev.slice(0, -1), { ...last, streaming: false, thinkingDurationMs: elapsed }];
             }
             return prev;
           });
@@ -263,6 +344,7 @@ export function ActionHub({
     <style>{`
       @keyframes pulse { 0%,100%{opacity:0.4;transform:scale(0.9)} 50%{opacity:1;transform:scale(1.1)} }
       @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+      @keyframes spin { to{transform:rotate(360deg)} }
     `}</style>
     <aside
       onDragEnter={handleDragEnter}
@@ -572,17 +654,90 @@ export function ActionHub({
                       Wealbee · {msg.time}
                     </span>
                   </div>
+                  {/* Tool step indicators */}
+                  {msg.steps && msg.steps.length > 0 && (
+                    msg.streaming ? (
+                      /* While streaming: show inline live steps */
+                      <div style={{
+                        marginBottom: 8,
+                        display: "flex", flexDirection: "column", gap: 4,
+                        background: isDark ? "rgba(255,255,255,0.04)" : "rgba(8,73,172,0.04)",
+                        border: "0.5px solid " + t.border,
+                        borderRadius: 8, padding: "8px 10px",
+                      }}>
+                        <span style={{ fontSize: 10, color: t.fgSubtle, fontWeight: 600, letterSpacing: 0.4, textTransform: "uppercase", fontFamily: "'Montserrat', system-ui, sans-serif", marginBottom: 2 }}>
+                          Đang phân tích
+                        </span>
+                        {msg.steps.map((step) => (
+                          <div key={step.name} style={{
+                            display: "flex", alignItems: "center", gap: 7,
+                            fontSize: 12, color: step.status === "done" ? t.fgSubtle : t.fg,
+                            fontFamily: "'Montserrat', system-ui, sans-serif",
+                          }}>
+                            {step.status === "loading" ? (
+                              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", border: `2px solid ${t.brand}`, borderTopColor: "transparent", animation: "spin 0.7s linear infinite", flexShrink: 0 }} />
+                            ) : (
+                              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", background: "#34c759", flexShrink: 0 }}>
+                                <span style={{ color: "#fff", fontSize: 8, fontWeight: 700 }}>✓</span>
+                              </span>
+                            )}
+                            <span style={{ opacity: step.status === "done" ? 0.55 : 1 }}>{step.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      /* After done: collapsible CoT button like wealbee-platform */
+                      <div style={{ marginBottom: 8 }}>
+                        <button
+                          onClick={() => toggleCot(i)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 6,
+                            padding: "5px 10px 5px 8px", borderRadius: 8, width: "100%",
+                            border: "0.5px solid " + t.borderStrong,
+                            background: msg.cotVisible
+                              ? (isDark ? "rgba(8,73,172,0.08)" : "rgba(8,73,172,0.05)")
+                              : "transparent",
+                            cursor: "pointer", fontFamily: "'Montserrat', system-ui, sans-serif",
+                            transition: "background 150ms", textAlign: "left",
+                          }}
+                        >
+                          <span style={{ fontSize: 12, color: t.brand, flexShrink: 0 }}>✦</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: t.brand, flex: 1 }}>
+                            Xem quá trình phân tích&nbsp;
+                            {msg.thinkingDurationMs !== undefined
+                              ? `${(msg.thinkingDurationMs / 1000).toFixed(1)}s`
+                              : `${msg.steps.length} bước`}
+                          </span>
+                          <span style={{ fontSize: 10, color: t.fgDisabled }}>{msg.cotVisible ? "∧" : "∨"}</span>
+                        </button>
+                        {msg.cotVisible && (
+                          <div style={{
+                            marginTop: 5, padding: "10px 12px",
+                            borderRadius: "4px 10px 10px 10px",
+                            border: "0.5px solid " + t.borderStrong,
+                            background: isDark ? "rgba(8,73,172,0.04)" : "rgba(8,73,172,0.02)",
+                            display: "flex", flexDirection: "column", gap: 6,
+                          }}>
+                            {msg.steps.map((step, j) => (
+                              <div key={step.name} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                                <span style={{ fontSize: 10, color: "#4CAF50", fontWeight: 700, marginTop: 1, flexShrink: 0 }}>✓</span>
+                                <span style={{ fontSize: 12, color: t.fgSubtle, lineHeight: 1.45, flex: 1, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{step.label}</span>
+                                <span style={{ fontSize: 10, color: t.fgDisabled, flexShrink: 0 }}>+{j}s</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  )}
                   <div style={{
                     background: t.bgMuted, border: "0.5px solid " + t.border,
                     borderRadius: "4px 14px 14px 14px", padding: "12px 14px",
                     fontSize: 14, color: t.fg,
                     fontFamily: "'Montserrat', system-ui, sans-serif",
-                    lineHeight: 1.6, whiteSpace: "pre-line",
                   }}>
                     {msg.content
-                      ? msg.content.split("**").map((part, idx) =>
-                          idx % 2 === 1 ? <strong key={idx}>{part}</strong> : part
-                        )
+                      ? renderMessage(msg.content, t.brand, t.fgSubtle)
                       : (
                         <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
                           {[0,1,2].map(j => (

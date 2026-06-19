@@ -8,7 +8,7 @@
 import { useState, useEffect, useMemo, createContext, useContext, useRef } from "react";
 import { useParams, useNavigate, useOutletContext } from "react-router";
 import {
-  ArrowLeft, ExternalLink, BarChart2, BookOpen, Scale, Banknote,
+  ArrowLeft, ExternalLink, BarChart2, BookOpen,
   RefreshCw, AlertCircle, Info, Users, Coins, Newspaper,
 } from "lucide-react";
 import {
@@ -173,7 +173,7 @@ function EmptyState({ message }: { message: string }) {
 
 // ─── Financial Panel ──────────────────────────────────────────────────────────
 
-type FinTab = "metrics" | "income" | "balance" | "cashflow";
+type FinTab = "metrics" | "income";
 
 interface FinancialRow {
   year: number;
@@ -190,11 +190,11 @@ const TAB_CONFIG: Record<FinTab, { icon: React.ElementType; label: string; rows:
   metrics: {
     icon: BarChart2, label: "Chỉ số", unit: "",
     rows: [
-      { label: "P/E Ratio",  key: "pe_ratio",       fmt: v => v.toFixed(2),               unit: "" },
-      { label: "P/B Ratio",  key: "pb_ratio",       fmt: v => v.toFixed(2),               unit: "" },
-      { label: "ROE",        key: "roe",            fmt: v => `${(v * 100).toFixed(1)}%`, unit: "%" },
-      { label: "ROA",        key: "roa",            fmt: v => `${(v * 100).toFixed(2)}%`, unit: "%" },
-      { label: "Nợ / Vốn",  key: "debt_to_equity", fmt: v => v.toFixed(2),               unit: "" },
+      { label: "P/E Ratio",       key: "pe_ratio",       fmt: v => v.toFixed(2),               unit: "" },
+      { label: "P/B Ratio",       key: "pb_ratio",       fmt: v => v.toFixed(2),               unit: "" },
+      { label: "Nợ / Vốn (D/E)", key: "debt_to_equity", fmt: v => v.toFixed(2),               unit: "" },
+      { label: "ROE",             key: "roe",            fmt: v => `${(v * 100).toFixed(1)}%`, unit: "%" },
+      { label: "ROA",             key: "roa",            fmt: v => `${(v * 100).toFixed(1)}%`, unit: "%" },
     ],
   },
   income: {
@@ -205,22 +205,7 @@ const TAB_CONFIG: Record<FinTab, { icon: React.ElementType; label: string; rows:
       { label: "EPS (đồng)",         key: "eps",        fmt: v => fmtN(Math.round(v)),        unit: "đ" },
     ],
   },
-  balance: {
-    icon: Scale, label: "Bảng cân đối", unit: "",
-    rows: [
-      { label: "Nợ / Vốn (D/E)", key: "debt_to_equity", fmt: v => v.toFixed(2), unit: "" },
-      { label: "ROE",             key: "roe",            fmt: v => `${(v * 100).toFixed(1)}%`, unit: "%" },
-      { label: "ROA",             key: "roa",            fmt: v => `${(v * 100).toFixed(2)}%`, unit: "%" },
-    ],
-  },
-  cashflow: {
-    icon: Banknote, label: "Dòng tiền", unit: "tỷ",
-    rows: [
-      { label: "Lợi nhuận sau thuế", key: "net_profit", fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
-      { label: "EPS (đồng)",         key: "eps",        fmt: v => fmtN(Math.round(v)),        unit: "đ" },
-    ],
-  },
-};
+} as Record<FinTab, { icon: React.ElementType; label: string; rows: RowDef[]; unit: string }>;
 
 function FinancialPanel({ data, tab }: { data: FinancialRow[]; tab: FinTab }) {
   const tk = useTK();
@@ -468,10 +453,8 @@ export function TickerDetailPage() {
   const STOCK_C = stockPeriodPct >= 0 ? GREEN : RED;
 
   const FIN_TABS: { id: FinTab; icon: React.ElementType; label: string }[] = [
-    { id: "metrics",  icon: BarChart2, label: "Chỉ số" },
-    { id: "income",   icon: BookOpen,  label: "Doanh thu" },
-    { id: "balance",  icon: Scale,     label: "Bảng cân đối" },
-    { id: "cashflow", icon: Banknote,  label: "Dòng tiền" },
+    { id: "metrics", icon: BarChart2, label: "Chỉ số" },
+    { id: "income",  icon: BookOpen,  label: "Doanh thu" },
   ];
   const EXTRA_TABS: { id: "dividends" | "insiders" | "news"; icon: React.ElementType; label: string; count: number }[] = [
     { id: "dividends", icon: Coins,     label: "Cổ tức",  count: dividends.length },

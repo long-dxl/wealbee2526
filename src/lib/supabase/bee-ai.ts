@@ -5,8 +5,15 @@
 
 import { supabase } from "./client";
 
+export interface ToolStep {
+  name: string;
+  status: "loading" | "done";
+  label: string;
+}
+
 export interface ChatStreamCallbacks {
   onChunk: (text: string) => void;
+  onStep?: (step: ToolStep) => void;
   onDone: (info: { sessionId: string; tokens?: number; model?: string }) => void;
   onError: (error: string) => void;
 }
@@ -100,6 +107,8 @@ export async function sendChatMessage(
             const event = JSON.parse(raw);
             if (event.type === "chunk" && event.text) {
               callbacks.onChunk(event.text);
+            } else if (event.type === "step" && callbacks.onStep) {
+              callbacks.onStep({ name: event.name, status: event.status, label: event.label });
             } else if (event.type === "done") {
               callbacks.onDone({
                 sessionId: event.session_id,

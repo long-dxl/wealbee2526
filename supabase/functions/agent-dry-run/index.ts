@@ -278,7 +278,44 @@ Deno.serve(async (req) => {
   if (authErr || !user) return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: { ...CORS, "Content-Type": "application/json" } });
 
   const body = await req.json().catch(() => ({}));
-  const { templateId = "daily_digest", systemPrompt, model, watchSymbols: bodySymbols } = body;
+  const {
+    templateId = "daily_digest",
+    systemPrompt,
+    model,
+    watchSymbols: bodySymbols,
+    agentId,
+    agentName,
+    tools,
+  } = body;
+
+  const saveSession = async (
+    status: "success" | "error",
+    output: string | null,
+    tokensUsed: number,
+    runTimeS: number,
+    error?: string,
+  ) => {
+    try {
+      await sb.from("agent_test_sessions").insert({
+        user_id: user.id,
+        agent_id: agentId ?? null,
+        template_id: templateId,
+        status,
+        output,
+        tokens_used: tokensUsed,
+        run_time_s: runTimeS,
+        error: error ?? null,
+        config: {
+          systemPrompt: systemPrompt ?? null,
+          model: model ?? null,
+          tools: tools ?? null,
+          watchSymbols: bodySymbols ?? null,
+          templateId,
+          agentName: agentName ?? null,
+        },
+      });
+    } catch { /* fire-and-forget: don't fail the response if save fails */ }
+  };
 
   const gptModel = resolveModel(model);
 
@@ -297,12 +334,15 @@ Deno.serve(async (req) => {
     }
 
     const prompt = systemPrompt ?? "Bạn là chuyên gia phân tích chứng khoán Việt Nam. Phân tích mã __TARGET_SYMBOL__.";
+    const t0 = Date.now();
     try {
       const { output, tokensUsed, refs } = await runDeepResearchDry(prompt, targetSymbol, gptModel);
+      await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
       return new Response(JSON.stringify({ output, tokensUsed, targetSymbol, refs }), {
         headers: { ...CORS, "Content-Type": "application/json" },
       });
     } catch (err) {
+      await saveSession("error", null, 0, (Date.now() - t0) / 1000, String(err));
       return new Response(JSON.stringify({ error: String(err) }), { status: 502, headers: { ...CORS, "Content-Type": "application/json" } });
     }
   }
@@ -325,12 +365,15 @@ Deno.serve(async (req) => {
   const { dataForLLM } = await fetchNewsAndBuildData(sb, watchSymbols);
   const fullPrompt = buildSystemPrompt(systemPrompt ?? DEFAULT_USER_PROMPT);
 
+  const t0 = Date.now();
   try {
     const { brief, tokensUsed } = await generateBrief(OPENAI_API_KEY, fullPrompt, dataForLLM, gptModel);
+    await saveSession("success", JSON.stringify(brief), tokensUsed, (Date.now() - t0) / 1000);
     return new Response(JSON.stringify({ brief, tokensUsed, _debug: { watchSymbols, hasNews: (dataForLLM as any).hasNews } }), {
       headers: { ...CORS, "Content-Type": "application/json" },
     });
   } catch (err) {
+    await saveSession("error", null, 0, (Date.now() - t0) / 1000, String(err));
     return new Response(JSON.stringify({ error: String(err) }), { status: 502, headers: { ...CORS, "Content-Type": "application/json" } });
   }
 });
