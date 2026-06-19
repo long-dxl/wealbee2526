@@ -6,7 +6,7 @@ import {
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
-import { MdContent } from "../../components/MdContent";
+import { RichContent } from "../../components/MdContent";
 
 function makeDragHandlers(card: ContextCard) {
   return {
@@ -409,7 +409,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
             </div>
           ) : (
             <div style={{ background: isDark ? "#131824" : "#fff", borderRadius: 16, border: `1px solid ${divider}`, padding: "20px 24px" }}>
-              <MdContent text={selected.rawContent} refs={selected.refs} />
+              <RichContent text={selected.rawContent} refs={selected.refs} />
             </div>
           )}
         </div>

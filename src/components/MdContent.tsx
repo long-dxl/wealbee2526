@@ -1,14 +1,21 @@
+import React from "react";
 import { ExternalLink } from "lucide-react";
 
 interface RefEntry { index: number; label: string; url: string; }
 
 function renderInline(text: string, refs?: RefEntry[]): React.ReactNode[] {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[ref:\d+\]|\[[^\]]+\]\([^)]+\))/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[ref:\d+\]|\[[^\]]+\]\([^)]+\)|<span[^>]*>[^<]*<\/span>)/g);
   return parts.map((p, i) => {
     if (p.startsWith("**") && p.endsWith("**"))
       return <strong key={i} style={{ fontWeight: 700, color: "#1a1a2e" }}>{p.slice(2, -2)}</strong>;
     if (p.startsWith("`") && p.endsWith("`"))
       return <code key={i} style={{ fontFamily: "'Montserrat', system-ui, sans-serif", fontSize: "0.8em", background: "rgba(8,73,172,0.07)", padding: "1px 5px", borderRadius: 4, color: "#0849ac" }}>{p.slice(1, -1)}</code>;
+    // Inline color span: <span style="color:red">text</span>
+    const spanMatch = p.match(/^<span[^>]*style="([^"]*)"[^>]*>([^<]*)<\/span>$/i);
+    if (spanMatch) {
+      const colorMatch = spanMatch[1].match(/color\s*:\s*([^;]+)/i);
+      return <span key={i} style={colorMatch ? { color: colorMatch[1].trim(), fontWeight: 600 } : undefined}>{spanMatch[2]}</span>;
+    }
     const refMatch = p.match(/^\[ref:(\d+)\]$/);
     if (refMatch) {
       if (refs) {
@@ -61,17 +68,23 @@ function MdTable({ lines, refs }: { lines: string[]; refs?: RefEntry[] }) {
   );
 }
 
+function parseHtmlToMd(text: string): string {
+  // Keep <span style="color:...">...</span> as-is for renderInline to handle.
+  // Convert structural HTML to Markdown equivalents, strip the rest.
+  return text
+    .replace(/<a\s+(?:[^>]*?\s+)?href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)")
+    .replace(/<(?:strong|b)>([\s\S]*?)<\/(?:strong|b)>/gi, "**$1**")
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<(?!\/?(span)\b)[^>]+>/gi, "") // strip everything except <span> tags
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function MdContent({ text, refs }: { text: string; refs?: RefEntry[] }) {
   let stripped = text.replace(/^```[^\n]*\n?([\s\S]*?)```\s*$/m, "$1").trim();
   if (stripped.includes("<div") || stripped.includes("<span") || stripped.includes("<a ")) {
-    stripped = stripped
-      .replace(/<a\s+(?:[^>]*?\s+)?href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)")
-      .replace(/<(?:strong|b)>([\s\S]*?)<\/(?:strong|b)>/gi, "**$1**")
-      .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1")
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+    stripped = parseHtmlToMd(stripped);
   }
   const lines = stripped.split("\n");
   const nodes: React.ReactNode[] = [];
@@ -156,3 +169,6 @@ export function MdContent({ text, refs }: { text: string; refs?: RefEntry[] }) {
   }
   return <div style={{ fontFamily: "'Montserrat',system-ui,sans-serif" }}>{nodes}</div>;
 }
+
+// RichContent = MdContent with HTML color span support baked in via renderInline
+export { MdContent as RichContent };

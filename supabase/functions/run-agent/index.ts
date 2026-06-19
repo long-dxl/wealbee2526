@@ -8,13 +8,6 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  fetchNewsAndBuildData,
-  buildSystemPrompt,
-  generateBrief,
-  DEFAULT_USER_PROMPT,
-  type BriefOutput,
-} from "../_shared/generate-brief.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -657,142 +650,6 @@ function extractTickers(text: string): string[] {
 
 // ─── Infer impact score from output ──────────────────────────────────────────
 
-// ── Daily Market Digest: email HTML builder ───────────────────────────────────
-
-function briefToEmailHtml(brief: BriefOutput): string {
-  const labelMap: Record<string, { bg: string; color: string; text: string }> = {
-    very_positive: { bg: "#C8E6C9", color: "#1B5E20", text: "RẤT TÍCH CỰC" },
-    positive:      { bg: "#E8F5E9", color: "#2E7D32", text: "TÍCH CỰC" },
-    negative:      { bg: "#FDE8EC", color: "#D4183D", text: "TIÊU CỰC" },
-    very_negative: { bg: "#F8D7DA", color: "#7B0D1E", text: "RẤT TIÊU CỰC" },
-  };
-  const typeMap: Record<string, string> = {
-    vi_mo: "Vĩ mô", hoat_dong_kd: "Hoạt động KD", thi_truong: "Thị trường",
-    vi_mo_dn: "Vĩ mô ngành", phap_ly: "Pháp lý", du_bao: "Dự báo",
-  };
-  let html = `<div style="background:#ECF2FF;padding:14px 20px;"><span style="color:#0849AC;font-size:15px;font-weight:700;">Bản tin hàng ngày · ${brief.time}</span></div>`;
-  for (const section of brief.sections ?? []) {
-    if (section.type === "portfolio_chips") {
-      html += `<div style="background:#fff;padding:10px 20px 14px;"><p style="margin:0 0 8px;color:#030213;font-size:11px;font-weight:700;text-transform:uppercase;">Danh mục hôm nay</p><div style="display:flex;flex-wrap:wrap;gap:6px;">`;
-      for (const s of section.has_news) html += `<span style="background:#E8F5E9;color:#2E7D32;font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;">${s}</span>`;
-      for (const s of section.no_news) html += `<span style="background:#F3F4F6;color:#9CA3AF;font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;">${s}</span>`;
-      html += `</div></div>`;
-    } else if (section.type === "news_card") {
-      const lc = labelMap[section.label] ?? { bg: "#F3F4F6", color: "#374151", text: section.label };
-      html += `<div style="background:#fff;padding:6px 20px;"><div style="background:#F8F9FB;border-radius:10px;border-left:4px solid ${lc.color};padding:14px 16px;">`;
-      html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;"><span style="background:${lc.bg};color:${lc.color};font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;">${lc.text}</span>`;
-      if (section.news_type) html += `<span style="background:#F0F0F8;color:#5A5A7A;font-size:10px;font-weight:600;padding:3px 8px;border-radius:20px;">${typeMap[section.news_type] ?? section.news_type}</span>`;
-      if (section.source) html += `<span style="color:#717182;font-size:11px;">${section.source}</span>`;
-      html += `</div><a href="${section.url}" style="color:#030213;font-size:14px;font-weight:600;text-decoration:none;display:block;line-height:1.5;margin-bottom:8px;">${section.title}</a>`;
-      if (section.summary?.length) html += `<ul style="margin:0 0 8px;padding-left:16px;">${section.summary.map(b => `<li style="color:#374151;font-size:13px;line-height:1.6;">${b}</li>`).join("")}</ul>`;
-      html += `<p style="margin:0 0 10px;"><a href="${section.url}" style="color:#0849AC;font-size:12px;font-weight:600;text-decoration:none;">Đọc bài báo gốc →</a></p>`;
-      if (section.reasoning?.length) html += `<div style="background:#ECF2FF;border-radius:8px;padding:10px 14px;"><ul style="margin:0;padding-left:16px;">${section.reasoning.map(r => `<li style="color:#4A5568;font-size:12px;line-height:1.6;">${r}</li>`).join("")}</ul></div>`;
-      html += `</div></div>`;
-    } else if (section.type === "text_block") {
-      html += `<div style="background:#fff;padding:10px 20px;"><p style="margin:0;color:#374151;font-size:13px;line-height:1.7;">${section.content}</p></div>`;
-    }
-  }
-  return html;
-}
-
-async function sendDigestEmail(to: string, subject: string, brief: BriefOutput): Promise<void> {
-  if (!RESEND_API_KEY) return;
-  const bodyHtml = briefToEmailHtml(brief);
-  const emailHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background:#F5F5F7;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
-  <div style="background:#0849AC;padding:16px 24px;text-align:center;"><span style="color:#fff;font-size:20px;font-weight:800;">Wealbee</span></div>
-  <div style="max-width:680px;margin:0 auto;padding:16px 0;">${bodyHtml}</div>
-  <div style="background:#E8EDF5;padding:16px 24px;text-align:center;margin-top:8px;">
-    <p style="margin:0;color:#9CA3AF;font-size:11px;">Wealbee · Phân tích chứng khoán thông minh</p>
-    <p style="margin:4px 0 0;color:#9CA3AF;font-size:10px;">Không phải tư vấn đầu tư theo Luật Chứng khoán 2019</p>
-  </div>
-</body></html>`;
-  await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, html: emailHtml }),
-  });
-}
-
-// ── Daily Market Digest runner (template_id: "daily_digest") ─────────────────
-
-async function runDailyDigest(
-  agent: { id: string; template_id: string; system_prompt: string | null; tools: string[] | null; run_count: number | null; email_notify?: boolean | null; target_symbols?: string[] | null; news_sources?: string[] | null },
-  user: { id: string; email?: string | null },
-  run: { id: string },
-  emit: (data: object) => void,
-  requestSymbols: string[] = [],
-): Promise<void> {
-  emit({ type: "step", step: "news_feed", status: "loading", label: "Đang lấy danh sách theo dõi..." });
-
-  let watchSymbols: string[] = [];
-
-  // Priority: request override > agent.target_symbols > digest_subscribers (legacy fallback)
-  if (requestSymbols.length > 0) {
-    watchSymbols = requestSymbols;
-  } else if (agent.target_symbols?.length) {
-    watchSymbols = agent.target_symbols;
-  } else {
-    let { data: sub } = await sb.from("digest_subscribers").select("watch_symbols").eq("user_id", user.id).maybeSingle();
-    if (!sub && user.email) {
-      const r = await sb.from("digest_subscribers").select("watch_symbols").eq("email", user.email).maybeSingle();
-      sub = r.data;
-    }
-    watchSymbols = sub?.watch_symbols ?? [];
-  }
-
-  emit({ type: "step", step: "news_feed", status: "done", label: `Theo dõi: ${watchSymbols.join(", ") || "(chưa cấu hình)"}` });
-
-  if (!watchSymbols.length) throw new Error("Chưa có mã theo dõi. Vui lòng thêm mã vào watchlist.");
-
-  emit({ type: "step", step: "build", status: "loading", label: "Đang đọc tin tức từ thị trường..." });
-  const filterSrcs = agent.news_sources?.length ? agent.news_sources : undefined;
-  const { dataForLLM, timeStr } = await fetchNewsAndBuildData(sb, watchSymbols, filterSrcs);
-  emit({ type: "step", step: "build", status: "done", label: "Tin tức thị trường (24h)" });
-
-  emit({ type: "step", step: "llm", status: "loading", label: "Đang tổng hợp với AI..." });
-  const userPrompt = agent.system_prompt ?? DEFAULT_USER_PROMPT;
-  const fullPrompt = buildSystemPrompt(userPrompt);
-  const { brief, tokensUsed } = await generateBrief(OPENAI_API_KEY, fullPrompt, dataForLLM);
-  emit({ type: "step", step: "llm", status: "done", label: `AI tổng hợp xong · ${tokensUsed} tokens` });
-
-  const title = `Bản tin hàng ngày · ${timeStr}`;
-  const startedAt = Date.now();
-
-  emit({ type: "step", step: "save", status: "loading", label: "Đang lưu vào Inbox..." });
-  await sb.from("agent_runs").update({
-    status: "completed", output: JSON.stringify(brief),
-    duration_ms: Date.now() - startedAt, finished_at: new Date().toISOString(),
-  }).eq("id", run.id);
-
-  const symbolsWithNews = (dataForLLM as { hasNews: string[] }).hasNews;
-  const summary = symbolsWithNews.length ? `Có tin cho: ${symbolsWithNews.join(", ")}` : "Không có tin nổi bật hôm nay";
-
-  const { data: savedBrief, error: briefErr } = await sb.from("briefs").insert({
-    user_id: user.id, agent_id: agent.id, agent_run_id: run.id,
-    type: "daily_digest", title, summary, content: JSON.stringify(brief), is_read: false,
-  }).select("id").single();
-  if (briefErr) throw new Error(`Lưu brief thất bại: ${briefErr.message}`);
-
-  await sb.from("agents").update({
-    last_run_at: new Date().toISOString(),
-    run_count: (agent.run_count ?? 0) + 1,
-  }).eq("id", agent.id);
-
-  emit({ type: "step", step: "save", status: "done", label: "Đã lưu vào Inbox" });
-
-  if (agent.email_notify && user.email) {
-    emit({ type: "step", step: "email_send", status: "loading", label: "Đang gửi email..." });
-    try {
-      await sendDigestEmail(user.email, `[Wealbee] ${title}`, brief);
-      emit({ type: "step", step: "email_send", status: "done", label: `Email đã gửi tới ${user.email}` });
-    } catch (emailErr) {
-      emit({ type: "step", step: "email_send", status: "error", label: `Lỗi gửi email: ${String(emailErr)}` });
-    }
-  }
-
-  emit({ type: "done", title, brief_id: savedBrief?.id, run_id: run.id, tokens: tokensUsed, duration_ms: Date.now() - startedAt, brief });
-}
 
 // ─── Tool definitions & execution (true function-calling) ────────────────────
 
@@ -1044,12 +901,6 @@ Deno.serve(async (req: Request) => {
       const startedAt = Date.now();
 
       try {
-        // ── Daily Market Digest: separate pipeline ────────────────────────────
-        if (agent.template_id === "daily_digest") {
-          await runDailyDigest(agent, user, run, emit, target_symbols);
-          return;
-        }
-
         const enabledTools: string[] = agent.tools ?? [];
 
         const SYM_PREFIX  = "__TARGET_SYMBOL__: ";
@@ -1077,22 +928,49 @@ Deno.serve(async (req: Request) => {
           toolDefs.push(OPENAI_TOOL_DEFS.portfolio_read);
         }
 
+        // For daily_digest: ensure news_feed and price_feed are always available
+        if (agent.template_id === "daily_digest") {
+          if (!enabledTools.includes("news_feed")) toolDefs.push(OPENAI_TOOL_DEFS.news_feed);
+          if (!enabledTools.includes("price_feed")) toolDefs.push(OPENAI_TOOL_DEFS.price_feed);
+        }
+
         // ── Build system prompt (no pre-fetched data — data comes from tools) ─
 
+        const DEFAULT_DAILY_DIGEST_PROMPT = `Bạn là trợ lý phân tích chứng khoán Wealbee. Nhiệm vụ: tạo bản tin thị trường hàng ngày.
+
+Cấu trúc bản tin:
+1. **Tổng quan thị trường** — VN-Index, HNX, top tăng/giảm trong phiên gần nhất
+2. **Tin tức nổi bật** — các tin có tác động cao nhất trong 24-48h, kèm nguồn và ngày đăng
+3. **Danh mục đáng chú ý** — nếu có tin liên quan mã trong danh sách theo dõi
+4. Disclaimer pháp lý
+
+Nguyên tắc:
+- Chỉ viết dữ liệu có trong kết quả tool, KHÔNG bịa số liệu
+- Mỗi số liệu phải có [ref:N] liền sau
+- Tin tức phải có tên nguồn và ngày đăng rõ ràng`;
+
         const basePrompt = cleanPrompt.trim()
+          || (agent.template_id === "daily_digest" ? DEFAULT_DAILY_DIGEST_PROMPT : "")
           || template?.system_prompt
           || "Bạn là trợ lý phân tích chứng khoán Việt Nam.";
         console.log(`[run-agent] prompt source: ${cleanPrompt.trim() ? "custom" : template?.system_prompt ? "template" : "fallback"}, tools: [${enabledTools.join(",")}]`);
 
-        const GROUNDING_RULES = `
-
-## ══ QUY TẮC BẮT BUỘC TUYỆT ĐỐI ══
-
-**ĐỊNH DẠNG OUTPUT — BẮT BUỘC**
+        const GROUNDING_RULES_FORMAT = isDailyDigest
+          ? `**ĐỊNH DẠNG MÀU SẮC — KHI NGƯỜI DÙNG YÊU CẦU TÔ MÀU**
+- Dùng HTML inline: \`<span style="color:red">con số</span>\` cho màu đỏ
+- Dùng \`<span style="color:green">con số</span>\` cho màu xanh, tương tự với các màu khác
+- CHỈ wrap phần text cần tô màu, không wrap cả câu
+`
+          : `**ĐỊNH DẠNG OUTPUT — BẮT BUỘC**
 - Chỉ dùng **Markdown thuần** (##, ###, -, **, *italic*)
 - TUYỆT ĐỐI KHÔNG dùng HTML tags (<div>, <span>, <a>, <ul>, <li>, <br>, <style>, v.v.)
 - Nếu muốn link: dùng [label](url) — KHÔNG dùng <a href="...">
+`;
 
+        const GROUNDING_RULES = `
+
+## ══ QUY TẮC BẮT BUỘC TUYỆT ĐỐI ══
+${GROUNDING_RULES_FORMAT}
 **SỬ DỤNG TOOL — BẮT BUỘC${toolDefs.length === 0 ? " (không có tool nào được bật)" : ""}**
 ${toolDefs.length > 0
   ? `- Bắt buộc gọi tool để lấy dữ liệu TRƯỚC KHI viết phân tích
@@ -1124,8 +1002,13 @@ ${toolDefs.length > 0
         const systemPrompt = basePrompt + GROUNDING_RULES;
 
         const symList = syms.length > 0 ? syms.join(", ") : null;
+
+        // daily_digest without specific symbols → market overview prompt
+        const isDailyDigest = agent.template_id === "daily_digest";
         const userMessage = symList
           ? `Phân tích ${syms.length > 1 ? `các cổ phiếu **${symList}**` : `cổ phiếu **${symList}**`}.${toolDefs.length > 0 ? ` Hãy gọi tool để lấy dữ liệu giá, tin tức, tài chính cần thiết TRƯỚC KHI viết phân tích.${syms.length > 1 ? ` Gọi financials riêng cho từng mã: ${symList}.` : ""}` : ""} Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`
+          : isDailyDigest
+          ? `Tạo bản tin hàng ngày theo đúng yêu cầu đã cấu hình.${toolDefs.length > 0 ? " Gọi news_feed để lấy tin tức mới nhất, price_feed để lấy giá và chỉ số thị trường." : ""} Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`
           : `Thực hiện nhiệm vụ.${toolDefs.length > 0 ? " Hãy gọi tool để lấy dữ liệu cần thiết." : ""} Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`;
 
         // ── Model selection ───────────────────────────────────────────────────

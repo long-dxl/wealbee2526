@@ -7,7 +7,7 @@ import {
   Search, BarChart2, Activity, Globe, Calculator,
 } from "lucide-react";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
-import { MdContent } from "../../components/MdContent";
+import { MdContent, RichContent } from "../../components/MdContent";
 import { supabase } from "../../lib/supabase/client";
 import { projectId } from "../../utils/supabase/info";
 
@@ -322,7 +322,9 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   const [rightTab, setRightTab] = useState<"preview" | "history">("preview");
   const [sessions, setSessions] = useState<TestSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [sessionsHasMore, setSessionsHasMore] = useState(false);
+  const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
+  const [viewingSessionLabel, setViewingSessionLabel] = useState<string | null>(null);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const [isSaved, setIsSaved] = useState(false);
@@ -396,6 +398,7 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   };
 
   // ── Load sessions ─────────────────────────────────────────────────────────
+  const PAGE = 10;
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
     try {
@@ -403,14 +406,37 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
         .from("agent_test_sessions")
         .select("id, created_at, template_id, status, tokens_used, run_time_s, error, output, config")
         .order("created_at", { ascending: false })
-        .limit(20);
+        .limit(PAGE + 1);
       if (agentId) query = query.eq("agent_id", agentId);
       const { data } = await query;
-      setSessions((data as TestSession[]) ?? []);
+      const rows = (data as TestSession[]) ?? [];
+      setSessionsHasMore(rows.length > PAGE);
+      setSessions(rows.slice(0, PAGE));
     } catch { /* ignore */ } finally {
       setSessionsLoading(false);
     }
   }, [agentId]);
+
+  const loadMoreSessions = async () => {
+    setSessionsLoadingMore(true);
+    try {
+      const oldest = sessions[sessions.length - 1]?.created_at;
+      if (!oldest) return;
+      let query = supabase
+        .from("agent_test_sessions")
+        .select("id, created_at, template_id, status, tokens_used, run_time_s, error, output, config")
+        .order("created_at", { ascending: false })
+        .lt("created_at", oldest)
+        .limit(PAGE + 1);
+      if (agentId) query = query.eq("agent_id", agentId);
+      const { data } = await query;
+      const rows = (data as TestSession[]) ?? [];
+      setSessionsHasMore(rows.length > PAGE);
+      setSessions(prev => [...prev, ...rows.slice(0, PAGE)]);
+    } catch { /* ignore */ } finally {
+      setSessionsLoadingMore(false);
+    }
+  };
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
@@ -444,11 +470,16 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
 
   // ── Run test ──────────────────────────────────────────────────────────────
   const handleRunTest = async () => {
+    if (templateId === "daily_digest" && allSymbols.length === 0) {
+      setRunError("Vui lòng thêm ít nhất 1 mã cổ phiếu vào danh sách theo dõi trước khi chạy thử.");
+      return;
+    }
     setIsRunning(true);
     setRunResult(null);
     setRunResultText(null);
     setRunResultRefs([]);
     setRunError(null);
+    setViewingSessionLabel(null);
     const start = Date.now();
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -471,12 +502,8 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
       );
       const json = await res.json();
       if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
-      if (templateId === "daily_digest") {
-        setRunResult(json.brief as BriefOutput);
-      } else {
-        setRunResultText(json.output as string);
-        if (json.refs) setRunResultRefs(json.refs);
-      }
+      setRunResultText(json.output as string);
+      if (json.refs) setRunResultRefs(json.refs);
       setRunTokens(json.tokensUsed ?? 0);
     } catch (err: unknown) {
       setRunError(err instanceof Error ? err.message : String(err));
@@ -563,9 +590,9 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
         </button>
         <button
           onClick={handleSave}
-          disabled={isSaved || (!runResult && !runResultText && !runError)}
-          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: isSaved ? "#34C759" : (runResult || runResultText || runError) ? brand : isDark ? "rgba(77,143,232,0.20)" : "rgba(8,73,172,0.20)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: (runResult || runResultText || runError) && !isSaved ? "pointer" : "not-allowed", fontFamily: FONT }}>
-          {isSaved ? <><CheckCircle2 size={13} strokeWidth={2} /> Đã lưu!</> : (runResult || runResultText || runError) ? <><Save size={13} strokeWidth={1.5} /> Lưu Agent</> : <><AlertTriangle size={13} strokeWidth={1.5} /> Chạy thử trước</>}
+          disabled={isSaved}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: isSaved ? "#34C759" : brand, color: "#fff", fontSize: 13, fontWeight: 700, cursor: isSaved ? "not-allowed" : "pointer", fontFamily: FONT }}>
+          {isSaved ? <><CheckCircle2 size={13} strokeWidth={2} /> Đã lưu!</> : <><Save size={13} strokeWidth={1.5} /> Lưu Agent</>}
         </button>
       </div>
 
@@ -856,74 +883,42 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
               )}
               {!sessionsLoading && sessions.map(s => {
                 const isSuccess = s.status === "success";
-                const isExpanded = expandedSessionId === s.id;
                 const dt = new Date(s.created_at);
                 const label = dt.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" }) + " " + dt.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-                let briefOutput: BriefOutput | null = null;
-                let textOutput: string | null = null;
-                if (s.output) {
-                  if (s.template_id === "daily_digest") { try { briefOutput = JSON.parse(s.output); } catch { textOutput = s.output; } }
-                  else { textOutput = s.output; }
-                }
-                const previewText = briefOutput
-                  ? ((briefOutput as any)?.summary ?? (briefOutput as any)?.title ?? "Bản tin hàng ngày")
-                  : textOutput ? textOutput.slice(0, 100) : s.error?.slice(0, 100);
+                const handleViewSession = () => {
+                  if (!isSuccess || !s.output) return;
+                  let briefOutput: BriefOutput | null = null;
+                  let textOutput: string | null = null;
+                  if (s.template_id === "daily_digest") {
+                    try { briefOutput = JSON.parse(s.output); if (typeof briefOutput !== "object" || !briefOutput || !("sections" in briefOutput)) { briefOutput = null; textOutput = s.output; } }
+                    catch { textOutput = s.output; }
+                  } else { textOutput = s.output; }
+                  if (briefOutput) { setRunResult(briefOutput); setRunResultText(null); }
+                  else { setRunResultText(textOutput); setRunResult(null); }
+                  setRunResultRefs([]);
+                  setRunTokens(s.tokens_used ?? 0);
+                  setRunTime(s.run_time_s ?? 0);
+                  setViewingSessionLabel(label);
+                  if (s.config) { if (s.config.systemPrompt != null) setPrompt(s.config.systemPrompt); if (s.config.model) setSelectedModel(s.config.model); if (s.config.tools) setSelectedTools(new Set(s.config.tools)); if (s.config.watchSymbols) setWatchlist(s.config.watchSymbols); }
+                  setRightTab("preview");
+                };
                 return (
-                  <div key={s.id} style={{ borderRadius: 10, border: "0.5px solid " + (isExpanded ? brand : (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.12)")), background: bgPanel, overflow: "hidden", transition: "border-color 150ms" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderBottom: "0.5px solid " + dividerFaint }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: isSuccess ? "#34C759" : "#FF3B30", flexShrink: 0 }} />
-                      <span style={{ fontSize: 12, fontWeight: 700, color: fg, flex: 1 }}>{label}</span>
-                      <span style={{ fontSize: 10, color: fgDisabled }}>{s.run_time_s}s · {(s.tokens_used ?? 0).toLocaleString()} tok</span>
-                    </div>
-                    {!isExpanded && <div style={{ padding: "8px 12px 6px", fontSize: 11, color: fgSubtle, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" } as React.CSSProperties}>{previewText || (isSuccess ? "Thành công" : "Có lỗi xảy ra")}</div>}
-                    {isExpanded && s.output && (
-                      <div style={{ borderBottom: "0.5px solid " + dividerFaint }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", borderBottom: "0.5px solid " + dividerFaint }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em" }}>Output</span>
-                          <button onClick={() => setExpandedSessionId(null)} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", color: fgMuted, fontSize: 11, fontWeight: 600, fontFamily: FONT, padding: "2px 6px", borderRadius: 5 }}>
-                            <ChevronUp size={12} strokeWidth={2} /> Ẩn
-                          </button>
-                        </div>
-                        <div style={{ padding: 12, maxHeight: 400, overflowY: "auto", background: bgMuted }}>
-                          {briefOutput && <BriefRenderer brief={briefOutput} isDark={isDark} />}
-                          {textOutput && <MdContent text={textOutput} refs={[]} />}
-                        </div>
-                      </div>
-                    )}
-                    {isExpanded && !s.output && s.error && (
-                      <div style={{ borderBottom: "0.5px solid " + dividerFaint }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", borderBottom: "0.5px solid " + dividerFaint, background: bgMuted }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em" }}>Lỗi</span>
-                          <button onClick={() => setExpandedSessionId(null)} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", color: fgMuted, fontSize: 11, fontWeight: 600, fontFamily: FONT, padding: "2px 6px", borderRadius: 5 }}><ChevronUp size={12} strokeWidth={2} /> Ẩn</button>
-                        </div>
-                        <div style={{ padding: 12, background: "rgba(255,59,48,0.06)" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}><AlertTriangle size={12} color="#FF3B30" strokeWidth={2} /></div>
-                          <span style={{ fontSize: 11, color: fgMuted }}>{s.error}</span>
-                        </div>
-                      </div>
-                    )}
-                    <div style={{ padding: "6px 12px 8px" }}>
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 7 }}>
-                        {s.config?.model && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", color: brand, fontWeight: 600 }}>{s.config.model}</span>}
-                        {s.config?.watchSymbols?.slice(0, 3).map(sym => <span key={sym} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.06)", color: fgMuted, fontWeight: 600 }}>{sym}</span>)}
-                        {(s.config?.watchSymbols?.length ?? 0) > 3 && <span style={{ fontSize: 10, color: fgDisabled }}>+{(s.config.watchSymbols?.length ?? 0) - 3}</span>}
-                      </div>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        {isSuccess && s.output && (
-                          <button onClick={() => setExpandedSessionId(isExpanded ? null : s.id)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "6px 0", borderRadius: 7, cursor: "pointer", border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.10)" : "rgba(26,26,46,0.12)"), background: isExpanded ? (isDark ? "rgba(255,255,255,0.06)" : "rgba(26,26,46,0.05)") : bgPanel, color: isExpanded ? fgMuted : fg, fontSize: 11, fontWeight: 600, fontFamily: FONT }}>
-                            <Eye size={11} strokeWidth={1.5} />{isExpanded ? "Ẩn output" : "Xem output"}
-                          </button>
-                        )}
-                        {isSuccess && s.config && (
-                          <button onClick={() => { if (s.config.systemPrompt != null) setPrompt(s.config.systemPrompt); if (s.config.model) setSelectedModel(s.config.model); if (s.config.tools) setSelectedTools(new Set(s.config.tools)); if (s.config.watchSymbols) setWatchlist(s.config.watchSymbols); if (s.config.templateId) setTemplateId(s.config.templateId); if (s.config.agentName) setAgentName(s.config.agentName); setRightTab("preview"); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "6px 0", borderRadius: 7, cursor: "pointer", border: "0.5px solid " + (isDark ? "rgba(77,143,232,0.25)" : "rgba(8,73,172,0.20)"), background: isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)", color: brand, fontSize: 11, fontWeight: 600, fontFamily: FONT }}>
-                            <RotateCcw size={11} strokeWidth={2} /> Khôi phục
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                  <div key={s.id} onClick={handleViewSession} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.10)"), background: bgPanel, cursor: isSuccess && s.output ? "pointer" : "default", transition: "border-color 120ms" }}>
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: isSuccess ? "#34C759" : "#FF3B30", flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: isSuccess ? fg : fgMuted, flex: 1 }}>{label}</span>
+                    <span style={{ fontSize: 10, color: fgDisabled }}>{s.run_time_s}s · {(s.tokens_used ?? 0).toLocaleString()} tok</span>
+                    {isSuccess && s.output && <span style={{ fontSize: 10, color: brand, marginLeft: 4, fontWeight: 600 }}>→</span>}
                   </div>
                 );
               })}
+              {sessionsHasMore && (
+                <button
+                  onClick={loadMoreSessions}
+                  disabled={sessionsLoadingMore}
+                  style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.10)" : "rgba(8,73,172,0.15)"), background: "none", color: brand, fontSize: 12, fontWeight: 600, cursor: sessionsLoadingMore ? "not-allowed" : "pointer", fontFamily: FONT, opacity: sessionsLoadingMore ? 0.6 : 1 }}>
+                  {sessionsLoadingMore ? "Đang tải..." : "Xem thêm"}
+                </button>
+              )}
             </div>
           )}
 
@@ -973,15 +968,16 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
               )}
               {(runResult || runResultText) && !isRunning && (
                 <>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8, background: "rgba(52,199,89,0.08)", border: "0.5px solid rgba(52,199,89,0.20)", flexShrink: 0 }}>
-                    <CheckCircle2 size={14} color="#34C759" strokeWidth={2} />
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "#1a7a3a" }}>Chạy thử thành công</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8, background: viewingSessionLabel ? (isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.06)") : "rgba(52,199,89,0.08)", border: "0.5px solid " + (viewingSessionLabel ? (isDark ? "rgba(77,143,232,0.25)" : "rgba(8,73,172,0.18)") : "rgba(52,199,89,0.20)"), flexShrink: 0 }}>
+                    {viewingSessionLabel ? <History size={13} color={brand} strokeWidth={2} /> : <CheckCircle2 size={14} color="#34C759" strokeWidth={2} />}
+                    <span style={{ fontSize: 12, fontWeight: 700, color: viewingSessionLabel ? brand : "#1a7a3a" }}>{viewingSessionLabel ? `Lịch sử · ${viewingSessionLabel}` : "Chạy thử thành công"}</span>
                     <span style={{ marginLeft: "auto", fontSize: 11, color: fgDisabled }}>{runTime}s · {runTokens.toLocaleString()} tok</span>
+                    {viewingSessionLabel && <button onClick={() => { setRunResult(null); setRunResultText(null); setViewingSessionLabel(null); }} style={{ display: "flex", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", color: fgMuted, fontSize: 11, fontWeight: 600, fontFamily: FONT, padding: "2px 4px" }}>✕</button>}
                   </div>
                   <div style={{ background: bgMuted, borderRadius: 12, padding: 14 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>OUTPUT MẪU</div>
                     {runResult && <BriefRenderer brief={runResult} isDark={isDark} />}
-                    {runResultText && <MdContent text={runResultText} refs={runResultRefs} />}
+                    {runResultText && <RichContent text={runResultText} refs={runResultRefs} />}
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, flexShrink: 0 }}>
                     {[{ label: "Thời gian", value: `${runTime}s` }, { label: "Tokens", value: runTokens.toLocaleString() }, { label: "Tools gọi", value: `${selectedTools.size}` }].map(s => (
@@ -998,10 +994,10 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
 
           {/* Save button */}
           <div style={{ padding: "12px 14px", borderTop: "0.5px solid " + divider, flexShrink: 0 }}>
-            <button onClick={handleSave} disabled={isSaved || (!runResult && !runResultText && !runError)} style={{ width: "100%", padding: "12px 0", borderRadius: 12, border: "none", background: isSaved ? "#34C759" : (runResult || runResultText || runError) ? brand : isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.15)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: (runResult || runResultText || runError) && !isSaved ? "pointer" : "not-allowed", fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "background 200ms ease" }}>
-              {isSaved ? <><CheckCircle2 size={16} strokeWidth={2} /> Agent đã lưu!</> : (runResult || runResultText || runError) ? <><Save size={15} strokeWidth={1.5} /> Lưu Agent tối ưu</> : <><AlertTriangle size={14} strokeWidth={1.5} /> Chạy thử trước khi lưu</>}
+            <button onClick={handleSave} disabled={isSaved} style={{ width: "100%", padding: "12px 0", borderRadius: 12, border: "none", background: isSaved ? "#34C759" : brand, color: "#fff", fontSize: 14, fontWeight: 700, cursor: isSaved ? "not-allowed" : "pointer", fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "background 200ms ease" }}>
+              {isSaved ? <><CheckCircle2 size={16} strokeWidth={2} /> Agent đã lưu!</> : <><Save size={15} strokeWidth={1.5} /> Lưu Agent</>}
             </button>
-            {(runResult || runResultText || runError) && !isSaved && (
+            {!isSaved && (
               <p style={{ margin: "6px 0 0", fontSize: 10, color: fgDisabled, textAlign: "center", fontFamily: FONT }}>Agent sẽ bắt đầu chạy theo lịch sau khi lưu</p>
             )}
           </div>

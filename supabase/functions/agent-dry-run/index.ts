@@ -2,17 +2,11 @@
  * agent-dry-run — Preview agent output (no DB write, no email)
  *
  * POST { templateId?, systemPrompt?, model?, watchSymbols?: string[] }
- * - daily_digest  → { brief: BriefOutput, tokensUsed }
- * - deep_research → { output: string, tokensUsed, targetSymbol }
+ * - daily_digest  → { output: string, tokensUsed, refs }
+ * - deep_research → { output: string, tokensUsed, targetSymbol, refs }
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  fetchNewsAndBuildData,
-  buildSystemPrompt,
-  generateBrief,
-  DEFAULT_USER_PROMPT,
-} from "../_shared/generate-brief.ts";
 
 const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -150,6 +144,7 @@ async function buildFinancialsContext(symbol: string, registry: SourceRegistry):
 
 // ── Anti-hallucination grounding rules (identical to run-agent) ───────────────
 
+// Used for deep_research — includes strict Markdown format constraint
 const GROUNDING_RULES = `
 
 ## ══ QUY TẮC BẮT BUỘC TUYỆT ĐỐI ══
@@ -171,6 +166,27 @@ const GROUNDING_RULES = `
 - KHÔNG khuyến nghị mua/bán bất kỳ cổ phiếu nào
 - Cuối output PHẢI có: *"Thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019"*`;
 
+// Used for daily_digest — no format constraint so user's prompt controls the structure
+const GROUNDING_RULES_DATA_ONLY = `
+
+## ══ QUY TẮC BẮT BUỘC ══
+
+**CHỈ VIẾT NHỮNG GÌ CÓ TRONG DỮ LIỆU — QUY TẮC CỐT LÕI**
+- Chỉ được đề cập đến thông tin, số liệu XUẤT HIỆN TRỰC TIẾP trong NGUỒN DỮ LIỆU bên dưới
+- Nếu một chủ đề KHÔNG có trong dữ liệu → bỏ qua hoàn toàn, không nhắc đến
+- KHÔNG dùng kiến thức nền, KHÔNG ước tính, KHÔNG nội suy từ training data
+
+**TRÍCH DẪN NGUỒN — BẮT BUỘC VỚI MỌI SỐ LIỆU**
+- Mỗi con số, phần trăm, giá trị cụ thể PHẢI có token [ref:N] liền sau
+
+**ĐỊNH DẠNG MÀU SẮC — KHI NGƯỜI DÙNG YÊU CẦU TÔ MÀU**
+- Dùng HTML inline: \`<span style="color:red">con số</span>\` cho màu đỏ
+- Dùng \`<span style="color:green">con số</span>\` cho màu xanh, tương tự với các màu khác
+- CHỈ wrap phần text cần tô màu, không wrap cả câu
+
+**TUÂN THỦ PHÁP LÝ**
+- KHÔNG khuyến nghị mua/bán bất kỳ cổ phiếu nào`;
+
 // ── Model map ─────────────────────────────────────────────────────────────────
 
 function resolveModel(model?: string): string {
@@ -183,6 +199,124 @@ function resolveModel(model?: string): string {
     "gemini-flash":  "gpt-4o-mini",
   };
   return MAP[model ?? ""] ?? "gpt-4o-mini";
+}
+
+const DEFAULT_DAILY_DIGEST_PROMPT = `Bạn là trợ lý phân tích chứng khoán Wealbee. Nhiệm vụ: tạo bản tin thị trường hàng ngày.
+
+Cấu trúc bản tin:
+1. **Danh mục hôm nay** — mã nào có tin tức, mã nào không có tin gì
+2. **Tin tức theo mã** — với từng mã có tin, tạo section riêng, liệt kê các tin kèm nguồn và ngày đăng
+3. Disclaimer pháp lý
+
+Nguyên tắc:
+- Chỉ viết dữ liệu có trong NGUỒN DỮ LIỆU, KHÔNG bịa số liệu
+- Mỗi số liệu phải có [ref:N] liền sau`;
+
+// ── Daily digest dry-run (with real news from DB) ─────────────────────────────
+
+async function runDailyDigestDry(
+  systemPrompt: string,
+  watchSymbols: string[],
+  model: string,
+): Promise<{ output: string; tokensUsed: number; refs: Array<{ index: number; label: string; url: string }> }> {
+  const registry = new SourceRegistry();
+  const syms = watchSymbols.map(s => s.toUpperCase());
+
+  // Fetch recent news for watch symbols
+  const since = new Date(Date.now() - 48 * 3600000).toISOString();
+  const { data: newsRows } = await sb
+    .from("market_news")
+    .select("title,article_url,published_at,source,content_summary,impact_score,label,affected_symbols")
+    .gte("published_at", since)
+    .not("label", "is", null)
+    .neq("label", "trash")
+    .order("impact_score", { ascending: false, nullsFirst: false })
+    .limit(50);
+
+  // Filter to watch symbols
+  const relevant = (newsRows ?? []).filter(n =>
+    (n.affected_symbols ?? []).some((s: string) => syms.includes(s.toUpperCase()))
+  );
+
+  const hasNews = new Set<string>();
+  const lines: string[] = [`\n## Tin tức thị trường (48h gần nhất)\nDanh mục theo dõi: ${syms.join(", ")}\n`];
+
+  for (const n of relevant) {
+    const related = (n.affected_symbols ?? [])
+      .filter((s: string) => syms.includes(s.toUpperCase()))
+      .map((s: string) => s.toUpperCase());
+    related.forEach((s: string) => hasNews.add(s));
+    const ref = n.article_url ? ` ${registry.add(n.source ?? "Tin tức", n.article_url)}` : "";
+    const summary = n.content_summary;
+    const summaryText = Array.isArray(summary) ? summary[0] : (typeof summary === "string" ? summary.split("\n")[0] : "");
+    lines.push(`### ${n.title}${ref}`);
+    lines.push(`Mã: ${related.join(", ")} | Nhãn: ${n.label} | Nguồn: ${n.source ?? "?"} | Ngày: ${n.published_at?.substring(0, 10) ?? "?"}`);
+    if (summaryText) lines.push(summaryText);
+    lines.push("");
+  }
+
+  const noNews = syms.filter(s => !hasNews.has(s));
+  lines.push(`## Tóm tắt danh mục`);
+  lines.push(`Có tin: ${hasNews.size > 0 ? [...hasNews].join(", ") : "(không có)"}`);
+  lines.push(`Không có tin: ${noNews.length > 0 ? noNews.join(", ") : "(tất cả đều có tin)"}`);
+
+  const groundedSystemPrompt = (systemPrompt.trim() || DEFAULT_DAILY_DIGEST_PROMPT) + GROUNDING_RULES_DATA_ONLY + `
+
+═══════════════════════════════════════
+NGUỒN DỮ LIỆU XÁC NHẬN — CHỈ DÙNG CÁC SỐ LIỆU NÀY
+Ngày phân tích: ${new Date().toLocaleDateString("vi-VN", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Ho_Chi_Minh" })}
+═══════════════════════════════════════
+${lines.join("\n")}
+═══════════════════════════════════════
+HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PHẦN TRÊN
+═══════════════════════════════════════`;
+
+  const userMessage = `Tạo bản tin hàng ngày theo đúng yêu cầu đã cấu hình. Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`;
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      max_tokens: 3000,
+      stream: true,
+      stream_options: { include_usage: true },
+      messages: [
+        { role: "system", content: groundedSystemPrompt },
+        { role: "user", content: userMessage },
+      ],
+    }),
+  });
+
+  if (!res.ok) throw new Error(`GPT API error: ${await res.text()}`);
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let accumulated = "";
+  let tokensUsed = 0;
+  let leftover = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = leftover + decoder.decode(value, { stream: true });
+    const rawLines = chunk.split("\n");
+    leftover = rawLines.pop() ?? "";
+    for (const line of rawLines) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6).trim();
+      if (payload === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(payload);
+        const delta = parsed.choices?.[0]?.delta?.content;
+        if (delta) accumulated += delta;
+        if (parsed.usage?.total_tokens) tokensUsed = parsed.usage.total_tokens;
+      } catch { /* skip */ }
+    }
+  }
+
+  return { output: accumulated, tokensUsed, refs: registry.toArray() };
 }
 
 // ── Deep research dry-run (with real DB data) ─────────────────────────────────
@@ -348,28 +482,17 @@ Deno.serve(async (req) => {
   }
 
   // ── Daily digest ──────────────────────────────────────────────────────────
-  let watchSymbols: string[] = bodySymbols ?? [];
-  if (!watchSymbols.length) {
-    let { data: sub } = await sb.from("digest_subscribers").select("watch_symbols").eq("user_id", user.id).maybeSingle();
-    if (!sub && user.email) {
-      const r = await sb.from("digest_subscribers").select("watch_symbols").eq("email", user.email).maybeSingle();
-      sub = r.data;
-    }
-    watchSymbols = sub?.watch_symbols ?? [];
-  }
+  const watchSymbols: string[] = bodySymbols ?? [];
 
   if (!watchSymbols.length) {
-    return new Response(JSON.stringify({ error: "Không có mã theo dõi. Vui lòng thêm mã vào watchlist." }), { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: "Vui lòng thêm ít nhất 1 mã cổ phiếu vào danh sách theo dõi." }), { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
   }
-
-  const { dataForLLM } = await fetchNewsAndBuildData(sb, watchSymbols);
-  const fullPrompt = buildSystemPrompt(systemPrompt ?? DEFAULT_USER_PROMPT);
 
   const t0 = Date.now();
   try {
-    const { brief, tokensUsed } = await generateBrief(OPENAI_API_KEY, fullPrompt, dataForLLM, gptModel);
-    await saveSession("success", JSON.stringify(brief), tokensUsed, (Date.now() - t0) / 1000);
-    return new Response(JSON.stringify({ brief, tokensUsed, _debug: { watchSymbols, hasNews: (dataForLLM as any).hasNews } }), {
+    const { output, tokensUsed, refs } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, gptModel);
+    await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
+    return new Response(JSON.stringify({ output, tokensUsed, refs }), {
       headers: { ...CORS, "Content-Type": "application/json" },
     });
   } catch (err) {
