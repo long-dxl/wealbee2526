@@ -9,11 +9,14 @@
  */
 import { useState, useEffect } from "react";
 import {
-  ArrowUpRight, AlertTriangle, TrendingUp, TrendingDown,
-  RefreshCw, Eye, FileText, Sparkles, Lightbulb, ChevronDown,
+  ArrowUpRight, TrendingUp, TrendingDown,
+  RefreshCw, Eye, FileText, Sparkles, ChevronDown,
+  AlertTriangle, Lightbulb, ExternalLink, X, BookOpen,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
+import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
+import { MdContent } from "../../components/MdContent";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface MoverRow   { symbol: string; price: number; pct: number; vol: string; isCeil: boolean; isFloor: boolean; }
@@ -149,6 +152,41 @@ function IndexCard({ idx, isDark }: { idx: IndexState; isDark: boolean }) {
 
 interface BriefRow { id: string; title: string; summary: string; type: string; tickers: string[] | null; created_at: string; }
 
+interface DrawerBrief {
+  id: string; title: string; type: string;
+  date: string; time: string;
+  parsedBrief: BriefOutput | null;
+  rawContent: string;
+  refs: Array<{ index: number; label: string; url: string }>;
+}
+
+function parseBriefContent(content: string): BriefOutput | null {
+  try {
+    const parsed = JSON.parse(content);
+    const candidate = (parsed.sections || parsed.time) ? parsed
+      : Object.values(parsed).find((v) =>
+          v !== null && typeof v === "object" && ("sections" in (v as object) || "time" in (v as object))
+        ) ?? null;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+    const brief = candidate as BriefOutput;
+    if (!Array.isArray(brief.sections)) return null;
+    return brief;
+  } catch { return null; }
+}
+interface Headline { text: string; source_name: string; source_url: string; symbols: string[]; }
+interface BriefRef { id: string; title: string; type: string; created_at: string; }
+interface HighlightResult {
+  headlines: Headline[];
+  deep_summary: string | null;
+  deep_brief_id: string | null;
+  portfolio_impacts: string[];
+  watchlist_items: string[];
+  brief_refs: BriefRef[];
+  from_briefs: boolean;
+  from_cache: boolean;
+  generated_at: string;
+}
+
 const tagColors: Record<string, { bg: string; text: string }> = {
   "Tích cực": { bg: "rgba(52,199,89,0.12)", text: "#34C759" },
   "Sự kiện":  { bg: "rgba(8,73,172,0.10)",  text: "#0849AC" },
@@ -168,6 +206,32 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   const hoverBg     = isDark ? "#1a2438" : "#E8F0FE";
 
   const [marketExpanded, setMarketExpanded] = useState(true);
+  const [drawerBrief, setDrawerBrief]     = useState<DrawerBrief | null>(null);
+  const [drawerLoading, setDrawerLoading] = useState(false);
+
+  async function openBriefDrawer(briefId: string) {
+    setDrawerLoading(true);
+    setDrawerBrief(null);
+    const { data } = await supabase
+      .from("briefs")
+      .select("id, title, type, content, created_at, refs")
+      .eq("id", briefId)
+      .single();
+    if (data) {
+      const d = new Date(data.created_at);
+      setDrawerBrief({
+        id: data.id,
+        title: data.title ?? "",
+        type: data.type ?? "",
+        date: d.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" }),
+        time: d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
+        parsedBrief: parseBriefContent(data.content ?? ""),
+        rawContent: data.content ?? "",
+        refs: Array.isArray(data.refs) ? data.refs : [],
+      });
+    }
+    setDrawerLoading(false);
+  }
 
   // ── Real data state ──────────────────────────────────────────────────────
   const [gainers,       setGainers]       = useState<MoverRow[]>([]);
@@ -177,6 +241,8 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   const [watchHoldings, setWatchHoldings] = useState<WatchRow[]>([]);
   const [marketIndices, setMarketIndices] = useState<IndexState[]>([]);
   const [briefs,        setBriefs]        = useState<BriefRow[]>([]);
+  const [highlight,     setHighlight]     = useState<HighlightResult | null>(null);
+  const [highlightLoading, setHighlightLoading] = useState(true);
   const [moversLoading, setMoversLoading] = useState(true);
   const [newsLoading,   setNewsLoading]   = useState(true);
   const [watchLoading,  setWatchLoading]  = useState(true);
@@ -191,7 +257,10 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
     let cancelled = false;
 
     // ── Movers + Indices + Sectors ──────────────────────────────────────────
-    async function loadMarket() {
+    async function loadMarketReturn(): Promise<{ gainers: MoverRow[]; losers: MoverRow[]; indices: IndexState[] } | null> {
+      return loadMarket();
+    }
+    async function loadMarket(): Promise<{ gainers: MoverRow[]; losers: MoverRow[]; indices: IndexState[] } | null> {
       setMoversLoading(true);
       try {
         // Get latest date in prices_daily
@@ -264,9 +333,14 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
           });
         }
         if (!cancelled && idxResult.length > 0) setMarketIndices(idxResult);
+
+        const g = sorted.slice(0, 5).map((s: any) => ({ symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, isCeil: s.pct >= 6.9, isFloor: false }));
+        const l = sorted.slice(-5).reverse().map((s: any) => ({ symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, isCeil: false, isFloor: s.pct <= -6.9 }));
+        return { gainers: g, losers: l, indices: idxResult };
       } finally {
         if (!cancelled) setMoversLoading(false);
       }
+      return null;
     }
 
     // ── News ─────────────────────────────────────────────────────────────────
@@ -359,10 +433,44 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       }
     }
 
-    loadMarket();
-    loadNews();
-    loadWatchlist();
-    loadBriefs();
+    // ── AI Highlight card (calls dashboard-highlight edge function) ────────────
+    async function loadHighlight(marketData: { gainers: MoverRow[]; losers: MoverRow[]; indices: IndexState[] }) {
+      setHighlightLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token || cancelled) return;
+        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/dashboard-highlight`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ market: marketData }),
+        });
+        if (res.ok && !cancelled) {
+          const data = await res.json() as HighlightResult;
+          // Filter out company profile headlines (server-side filter may miss edge cases)
+          if (data.headlines) {
+            data.headlines = data.headlines.filter(h =>
+              h.text && !/^[-–—]\s/.test(h.text) && !h.text.includes("Hoạt động KD")
+            );
+          }
+          setHighlight(data);
+        }
+      } catch { /* ignore, fallback to market bullets */ }
+      finally { if (!cancelled) setHighlightLoading(false); }
+    }
+
+    async function loadAll() {
+      // Load market first, then use it for highlight context
+      const marketData = await loadMarketReturn();
+      if (!cancelled && marketData) {
+        loadHighlight(marketData);
+      }
+      loadNews();
+      loadWatchlist();
+      loadBriefs();
+    }
+
+    loadAll();
 
     return () => { cancelled = true; };
   }, []);
@@ -394,6 +502,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   };
 
   return (
+    <>
     <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px", fontFamily: "'Montserrat', system-ui, sans-serif", background: isDark ? "#0B0D18" : undefined }}>
 
       {/* Greeting header */}
@@ -408,59 +517,138 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
         </button>
       </div>
 
-      {/* AI Highlights — mẫu, sẽ được AI generate */}
+      {/* AI Highlights — parsed from real briefs + LLM impacts */}
       <div style={{ background: cardBg, borderRadius: 14, padding: 20, boxShadow: cardShadow, marginBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: brand, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-          <Sparkles size={12} strokeWidth={1.5} color={brand} /> ĐIỂM NỔI BẬT HÔM NAY
-        </div>
-        <div style={{ height: "0.5px", background: divider, marginBottom: 12 }} />
-        <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
-          {gainers[0] && (
-            <li style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 15, color: fg, lineHeight: 1.5 }}>
-              <span style={{ color: brand, marginTop: 2, flexShrink: 0 }}>•</span>
-              <span>{gainers[0].symbol} tăng <PctBadge value={gainers[0].pct} /> — dẫn đầu nhóm tăng hôm nay</span>
-            </li>
-          )}
-          {losers[0] && (
-            <li style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 15, color: fg, lineHeight: 1.5 }}>
-              <span style={{ color: brand, marginTop: 2, flexShrink: 0 }}>•</span>
-              <span>{losers[0].symbol} giảm <PctBadge value={losers[0].pct} /> — cần theo dõi</span>
-            </li>
-          )}
-          {marketIndices[0] && (
-            <li style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 15, color: fg, lineHeight: 1.5 }}>
-              <span style={{ color: brand, marginTop: 2, flexShrink: 0 }}>•</span>
-              <span>{marketIndices[0].name}: {marketIndices[0].value.toLocaleString("vi-VN")} <PctBadge value={marketIndices[0].pct} /></span>
-            </li>
-          )}
-        </ul>
-        <div style={{ height: "0.5px", background: divider, margin: "16px 0" }} />
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6366F1", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-          <Lightbulb size={12} strokeWidth={1.5} color="#6366F1" /> Ý NGHĨA
-        </div>
-        <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
-          <li style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 15, color: fg, lineHeight: 1.5 }}>
-            <span style={{ color: "#6366F1", marginTop: 2, flexShrink: 0 }}>•</span>
-            <span>Xem chi tiết từng mã để phân tích sâu hơn với dữ liệu tài chính và tin tức thực</span>
-          </li>
-        </ul>
-        <div style={{ height: "0.5px", background: divider, margin: "16px 0" }} />
-        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#FF9500", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-          <AlertTriangle size={12} strokeWidth={1.5} color="#FF9500" /> CẦN THEO DÕI
-        </div>
-        <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
-          {losers.slice(0, 2).map(s => (
-            <li key={s.symbol} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-              <span style={{ color: "#FF9500", marginTop: 2, flexShrink: 0 }}>•</span>
-              <span style={{ fontSize: 15, color: fg, lineHeight: 1.5 }}>
-                {s.symbol} <PctBadge value={s.pct} /> ·{" "}
-                <button onClick={() => onSelectTicker?.(s.symbol)} style={{ background: "none", border: "none", color: brand, cursor: "pointer", fontSize: 15, fontFamily: "'Montserrat', system-ui, sans-serif", padding: 0, textDecoration: "underline" }}>
-                  Xem chi tiết →
-                </button>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: brand, display: "flex", alignItems: "center", gap: 6 }}>
+            <Sparkles size={12} strokeWidth={1.5} color={brand} /> ĐIỂM NỔI BẬT HÔM NAY
+          </div>
+          {!highlightLoading && highlight?.brief_refs?.[0] && (
+            <button onClick={() => openBriefDrawer(highlight.brief_refs[0].id)}
+              style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)", color: brand }}>
+                {highlight.brief_refs[0].type === "daily_digest" ? "Bản tin hàng ngày" : "Deep Research"} · {relativeTime(highlight.brief_refs[0].created_at)}
               </span>
-            </li>
-          ))}
-        </ul>
+              <ExternalLink size={10} strokeWidth={1.5} color={fgSubtle} />
+            </button>
+          )}
+        </div>
+
+        <div style={{ height: "0.5px", background: divider, marginBottom: 12 }} />
+
+        {/* Loading skeleton */}
+        {highlightLoading && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {[100, 90, 85, 70].map((w, i) => (
+              <div key={i} style={{ height: 18, borderRadius: 5, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.06)", width: `${w}%` }} />
+            ))}
+            <div style={{ fontSize: 12, color: fgSubtle, marginTop: 2 }}>AI đang tổng hợp bản tin của bạn…</div>
+          </div>
+        )}
+
+        {!highlightLoading && !highlight?.from_briefs && (
+          <p style={{ margin: 0, fontSize: 14, color: fgSubtle, textAlign: "center", padding: "12px 0" }}>
+            Chưa có bản tin nào trong 30 ngày · Đặt lịch chạy agent <strong>Tổng hợp Tin tức</strong> để cập nhật mỗi sáng
+          </p>
+        )}
+
+        {!highlightLoading && highlight?.from_briefs && (
+          <>
+            {/* Headlines with inline source citations */}
+            {(highlight.headlines ?? []).length > 0 ? (
+              <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
+                {highlight.headlines.map((h, i) => (
+                  <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 15, color: fg, lineHeight: 1.5 }}>
+                    <span style={{ color: brand, marginTop: 2, flexShrink: 0 }}>•</span>
+                    <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word", overflowWrap: "break-word" }}>
+                      {h.text}
+                      {h.source_name && (
+                        h.source_url
+                          ? <a href={h.source_url} target="_blank" rel="noopener noreferrer"
+                              style={{ marginLeft: 3, textDecoration: "none" }}
+                              title={`Nguồn: ${h.source_name}`}>
+                              <sup style={{ fontSize: 10, color: brand, fontWeight: 700, textDecoration: "underline" }}>[{h.source_name}]</sup>
+                            </a>
+                          : <button onClick={() => onNavigate("inbox")}
+                              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginLeft: 3 }}>
+                              <sup style={{ fontSize: 10, color: brand, fontWeight: 700, textDecoration: "underline" }}>[{h.source_name}]</sup>
+                            </button>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p style={{ margin: 0, fontSize: 14, color: fgSubtle }}>
+                {highlight.deep_summary
+                  ? null
+                  : "Không có tin tức thị trường hôm nay · Xem phân tích chi tiết trong bản tin"}
+              </p>
+            )}
+
+            {/* Deep Research insight */}
+            {highlight.deep_summary && (
+              <>
+                <div style={{ height: "0.5px", background: divider, margin: "14px 0" }} />
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: "rgba(124,58,237,0.10)", color: "#7C3AED", flexShrink: 0, marginTop: 1 }}>
+                    Deep Research
+                  </span>
+                  <button
+                    onClick={() => highlight.deep_brief_id ? openBriefDrawer(highlight.deep_brief_id) : onNavigate("inbox")}
+                    style={{ background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", flex: 1, minWidth: 0, display: "block", width: "100%" }}>
+                    <span style={{ fontSize: 14, color: fgMuted, lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "break-word", whiteSpace: "normal", display: "block" }}>{highlight.deep_summary}</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Ý nghĩa với danh mục */}
+            {(highlight.portfolio_impacts ?? []).length > 0 && (
+              <>
+                <div style={{ height: "0.5px", background: divider, margin: "16px 0" }} />
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6366F1", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Lightbulb size={12} strokeWidth={1.5} color="#6366F1" /> Ý NGHĨA VỚI DANH MỤC
+                </div>
+                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {highlight.portfolio_impacts.map((impact, i) => (
+                    <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 15, color: fg, lineHeight: 1.5 }}>
+                      <span style={{ color: "#6366F1", marginTop: 2, flexShrink: 0 }}>•</span>
+                      <span>{impact}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {/* Cần theo dõi */}
+            {(highlight.watchlist_items ?? []).length > 0 && (
+              <>
+                <div style={{ height: "0.5px", background: divider, margin: "16px 0" }} />
+                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#FF9500", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                  <AlertTriangle size={12} strokeWidth={1.5} color="#FF9500" /> CẦN THEO DÕI
+                </div>
+                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {highlight.watchlist_items.map((item, i) => (
+                    <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                      <span style={{ color: "#FF9500", marginTop: 2, flexShrink: 0 }}>•</span>
+                      <span style={{ fontSize: 15, color: fg, lineHeight: 1.5 }}>
+                        {item}{" "}
+                        <button
+                          onClick={() => highlight?.brief_refs?.[0] ? openBriefDrawer(highlight.brief_refs[0].id) : onNavigate("inbox")}
+                          style={{ background: "none", border: "none", color: brand, cursor: "pointer", fontSize: 13, fontFamily: "'Montserrat', system-ui, sans-serif", padding: 0, textDecoration: "underline" }}>
+                          → xem brief
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </>
+        )}
       </div>
 
       {/* Market section */}
@@ -730,7 +918,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 5 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: fg, lineHeight: 1.4, flex: 1, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{brief.title}</div>
-                        <button onClick={e => { e.stopPropagation(); onNavigate("inbox"); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: "transparent", color: brand, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                        <button onClick={e => { e.stopPropagation(); openBriefDrawer(brief.id); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: "transparent", color: brand, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                           <Eye size={12} strokeWidth={1.5} /> Xem
                         </button>
                       </div>
@@ -751,5 +939,72 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       </div>
 
     </div>
+
+    {/* ── Brief Drawer ────────────────────────────────────────────────────── */}
+    {(drawerLoading || drawerBrief) && (
+      <>
+        {/* Backdrop */}
+        <div
+          onClick={() => { setDrawerBrief(null); setDrawerLoading(false); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, backdropFilter: "blur(2px)" }}
+        />
+        {/* Panel */}
+        <div style={{
+          position: "fixed", top: 0, right: 0, bottom: 0,
+          width: "min(740px, 100vw)",
+          background: isDark ? "#131824" : "#fff",
+          zIndex: 201, display: "flex", flexDirection: "column",
+          boxShadow: "-4px 0 32px rgba(0,0,0,0.25)",
+        }}>
+          {/* Drawer header */}
+          <div style={{
+            padding: "14px 20px", borderBottom: `0.5px solid ${divider}`,
+            display: "flex", alignItems: "center", gap: 12, flexShrink: 0,
+          }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 9, flexShrink: 0,
+              background: drawerBrief?.type === "deep_research"
+                ? "linear-gradient(135deg,#6366F1,#8B5CF6)"
+                : "linear-gradient(135deg,#0849AC,#1a56c8)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <BookOpen size={14} color="white" strokeWidth={1.5} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: fgSubtle, marginBottom: 1 }}>
+                {drawerBrief?.type === "deep_research" ? "Deep Research" : "Bản tin hàng ngày"}
+                {drawerBrief && ` · ${drawerBrief.date} · ${drawerBrief.time}`}
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: fg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {drawerLoading ? "Đang tải…" : (drawerBrief?.title ?? "")}
+              </div>
+            </div>
+            <button
+              onClick={() => { setDrawerBrief(null); setDrawerLoading(false); }}
+              style={{ padding: 6, borderRadius: 8, border: `0.5px solid ${divider}`, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", color: fgMuted }}
+            >
+              <X size={16} strokeWidth={1.5} />
+            </button>
+          </div>
+
+          {/* Drawer content */}
+          <div style={{ flex: 1, overflow: "auto", padding: "20px 24px 48px" }}>
+            {drawerLoading && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {[100, 75, 90, 65, 80, 55, 88].map((w, i) => (
+                  <div key={i} style={{ height: 15, borderRadius: 5, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)", width: `${w}%` }} />
+                ))}
+              </div>
+            )}
+            {!drawerLoading && drawerBrief && (
+              drawerBrief.parsedBrief
+                ? <BriefRenderer brief={drawerBrief.parsedBrief} isDark={isDark} />
+                : <MdContent text={drawerBrief.rawContent} refs={drawerBrief.refs} />
+            )}
+          </div>
+        </div>
+      </>
+    )}
+    </>
   );
 }

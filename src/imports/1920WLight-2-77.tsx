@@ -164,7 +164,7 @@ function BackgroundBorder() {
       <div className="-translate-y-1/2 absolute flex flex-col font-['Montserrat:Regular',sans-serif] font-normal h-[20px] justify-center leading-[0] left-[32px] text-[#6b7280] text-[14px] top-[82.5px] w-[200px]">
         <p className="leading-[20px]">Làm quen tính năng cơ bản</p>
       </div>
-      <div className="-translate-y-1/2 absolute flex flex-col font-['Sora:Bold',sans-serif] font-bold h-[61px] justify-center leading-[0] left-[32px] text-[#111827] text-[40px] top-[140px] w-[73px]">
+      <div className="-translate-y-1/2 absolute flex flex-col font-['Montserrat:Bold',sans-serif] font-bold h-[61px] justify-center leading-[0] left-[32px] text-[#111827] text-[40px] top-[140px] w-[73px]">
         <p className="leading-[48px]">0đ</p>
       </div>
       <div className="-translate-y-1/2 absolute flex flex-col font-['Montserrat:Regular',sans-serif] font-normal h-[22px] justify-center leading-[0] left-[94px] text-[#6b7280] text-[18px] top-[147.5px] w-[76px]">
@@ -323,7 +323,7 @@ function BackgroundShadow() {
       <div className="-translate-y-1/2 absolute flex flex-col font-['Montserrat:Regular',sans-serif] font-normal h-[20px] justify-center leading-[0] left-[32px] text-[#e8f2ff] text-[14px] top-[82.5px] w-[181px]">
         <p className="leading-[20px]">Mở khoá tất cả tiềm năng</p>
       </div>
-      <div className="-translate-y-1/2 absolute flex flex-col font-['Sora:Bold',sans-serif] font-bold h-[61px] justify-center leading-[0] left-[32px] text-[40px] text-white top-[139px] w-[194px]">
+      <div className="-translate-y-1/2 absolute flex flex-col font-['Montserrat:Bold',sans-serif] font-bold h-[61px] justify-center leading-[0] left-[32px] text-[40px] text-white top-[139px] w-[194px]">
         <p className="leading-[48px]">50.000đ</p>
       </div>
       <div className="-translate-y-1/2 absolute flex flex-col font-['Montserrat:Regular',sans-serif] font-normal h-[22px] justify-center leading-[0] left-[226px] text-[#e8f2ff] text-[18px] top-[146.5px] w-[66.802px]">

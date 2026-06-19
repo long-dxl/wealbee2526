@@ -21,6 +21,7 @@ import { Tickers } from "./tickers";
 export interface AppOutletContext {
   onNavigate: (page: string) => void;
   addContextCard: (card: ContextCard) => void;
+  removeContextCard: (id: string) => void;
   isDark: boolean;
   theme: Theme;
 }

@@ -276,7 +276,7 @@ function BackgroundBorder() {
       <div className="-translate-y-1/2 absolute flex flex-col font-['Montserrat:Regular',sans-serif] font-normal h-[15px] justify-center leading-[0] left-[58px] text-[#6b7280] text-[10px] top-[20px] w-[63.22px]">
         <p className="leading-[15px]">Daily Report</p>
       </div>
-      <div className="-translate-y-1/2 absolute flex flex-col font-['Sora:Bold',sans-serif] font-bold h-[16px] justify-center leading-[0] left-[58px] text-[#111827] text-[12px] top-[35.5px] w-[42.238px]">
+      <div className="-translate-y-1/2 absolute flex flex-col font-['Montserrat:Bold',sans-serif] font-bold h-[16px] justify-center leading-[0] left-[58px] text-[#111827] text-[12px] top-[35.5px] w-[42.238px]">
         <p className="leading-[16px]">+12.4%</p>
       </div>
     </div>

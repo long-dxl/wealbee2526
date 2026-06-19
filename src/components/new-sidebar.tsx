@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   House, Inbox, Bot, Plus, LayoutTemplate, Wrench,
-  BookOpen, Wallet, Settings, TrendingUp, List,
+  BookOpen, Wallet, Settings, List,
   ChevronsLeft, ChevronsRight,
 } from "lucide-react";
 import { WealbeeLogo } from "./WealbeeIcon";
@@ -29,7 +29,6 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { id: "dashboard", icon: House,      label: "Tổng quan" },
-  { id: "feed",      icon: TrendingUp, label: "Thị trường" },
   // { id: "tickers",   icon: List,       label: "Cổ phiếu" },
   { id: "inbox",     icon: Inbox,      label: "Hộp thư" },
   { id: "agents",    icon: Bot,        label: "Agent của tôi" },

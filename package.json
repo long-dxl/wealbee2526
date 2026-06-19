@@ -1,5 +1,5 @@
 {
-      "name": "Wealbee",
+      "name": "wealbee",
       "version": "0.1.0",
       "private": true,
       "type": "module",
@@ -75,5 +75,18 @@
       "scripts": {
             "dev": "vite",
             "build": "vite build"
-      }
+      },
+      "description": "",
+      "main": "index.js",
+      "repository": {
+            "type": "git",
+            "url": "git+https://github.com/QuangMinhPham/wealbee2526.git"
+      },
+      "keywords": [],
+      "author": "",
+      "license": "ISC",
+      "bugs": {
+            "url": "https://github.com/QuangMinhPham/wealbee2526/issues"
+      },
+      "homepage": "https://github.com/QuangMinhPham/wealbee2526#readme"
 }

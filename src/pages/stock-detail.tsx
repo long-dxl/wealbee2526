@@ -10,11 +10,10 @@ import { formatVND, formatPercent, formatDate, getSafetyColor, getSafetyLabel } 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area, ReferenceLine } from 'recharts';
 import { FinancialChart } from '../components/FinancialChart';
 import { StockAISidebar } from '../components/StockAISidebar';
-import { 
-  financialHealthData, 
-  payoutRatioColorLogic, 
-  sharesOutstandingColorLogic, 
-  fcfColorLogic, 
+import {
+  payoutRatioColorLogic,
+  sharesOutstandingColorLogic,
+  fcfColorLogic,
   epsColorLogic,
   revenueColorLogic,
   netIncomeColorLogic
@@ -40,6 +39,9 @@ export function StockDetail() {
   // Price history from market_data_stock_history
   const [priceHistory, setPriceHistory] = useState<{ date: string; price: number }[]>([]);
   const [priceLoading, setPriceLoading] = useState(false);
+
+  // Fundamentals from market_stocks_fundamentals (SELECT *)
+  const [fundamentalsRow, setFundamentalsRow] = useState<Record<string, any> | null>(null);
 
   // Fetch stock data when ticker changes
   useEffect(() => {
@@ -75,6 +77,21 @@ export function StockDetail() {
     });
     return () => { cancelled = true; };
   }, [searchQuery]);
+
+  // Fetch fundamentals from market_stocks_fundamentals
+  useEffect(() => {
+    if (!ticker) return;
+    let cancelled = false;
+    db.from('market_stocks_fundamentals')
+      .select('*')
+      .eq('symbol', ticker.toUpperCase())
+      .single()
+      .then(({ data }: { data: Record<string, any> | null }) => {
+        if (!cancelled) setFundamentalsRow(data ?? null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [ticker]);
 
   // Fetch price history from market_data_stock_history
   useEffect(() => {
@@ -134,38 +151,87 @@ export function StockDetail() {
     navigate(`/app/stock/${selectedTicker}`);
   };
 
-  // Mock fundamentals data
+  // ── Real fundamentals from Supabase ──────────────────────────────────────────
+  const f = fundamentalsRow;
+
+  // Helper: numeric field with fallback
+  const fNum = (field: string, fallback = 0) => Number(f?.[field] ?? fallback) || fallback;
+
+  // Calculated from stock (already real data from market_data_stocks)
+  const revenueTTM = stock.revenueYoY;     // mapped from revenue_ttm
+  const netIncomeTTM = stock.netIncomeYoY; // mapped from net_income_ttm
+  const fcfTTM = stock.fcfYoY;             // mapped from free_cash_flow
+  const ebitdaTTM = stock.ebitdaYoY;       // mapped from ebitda_ttm
+
+  const netMarginCalc = revenueTTM > 0 ? (netIncomeTTM / revenueTTM) * 100 : 0;
+  const ebitdaMarginCalc = revenueTTM > 0 && ebitdaTTM > 0 ? (ebitdaTTM / revenueTTM) * 100 : 0;
+
   const fundamentalsData = {
     margins: {
-      grossMargin: 32.5,
-      operatingMargin: 18.3,
-      netMargin: 14.2,
-      ebitdaMargin: 22.1
+      grossMargin: fNum('gross_margin'),
+      operatingMargin: fNum('operating_margin'),
+      netMargin: netMarginCalc,
+      ebitdaMargin: ebitdaMarginCalc,
     },
     efficiency: {
-      roa: 8.5,
-      roe: 15.8,
-      roic: 12.3,
-      assetTurnover: 1.2
+      roa: fNum('roa') || fNum('return_on_assets'),
+      roe: fNum('roe') || fNum('return_on_equity'),
+      roic: fNum('roic') || fNum('return_on_invested_capital'),
+      assetTurnover: fNum('asset_turnover'),
     },
     leverage: {
       debtToEquity: stock.debtToEquity,
-      debtToAssets: 0.35,
-      currentRatio: 1.8,
-      quickRatio: 1.2
-    }
+      debtToAssets: fNum('debt_to_assets'),
+      currentRatio: fNum('current_ratio'),
+      quickRatio: fNum('quick_ratio'),
+    },
   };
 
+  // EPS TTM: reverse from payoutRatio + annualPayout
+  const epsTTM = stock.payoutRatio > 0 ? stock.annualPayout / (stock.payoutRatio / 100) : 0;
+
+  // PE: prefer fundamentals field, fall back to price/EPS
+  const peCalc = epsTTM > 0 ? stock.price / epsTTM : 0;
+  const peVal = fNum('pe_ratio') || fNum('pe_ttm') || peCalc;
+
+  // PS: market cap / revenue
+  const psCalc = revenueTTM > 0 && stock.marketCap > 0 ? stock.marketCap / revenueTTM : 0;
+
+  // Price/FCF: market cap / FCF
+  const pfcfCalc = fcfTTM > 0 && stock.marketCap > 0 ? stock.marketCap / fcfTTM : 0;
+
+  // EV/EBITDA: prefer fundamentals, fall back to market_cap/ebitda
+  const evEbitdaCalc = ebitdaTTM > 0 && stock.marketCap > 0 ? stock.marketCap / ebitdaTTM : 0;
+
   const valuationData = {
-    pe: 18.5,
-    forwardPE: 16.2,
-    ps: 2.3,
-    pb: 2.8,
-    peg: 1.5,
-    evToEbitda: 12.5,
-    evToSales: 2.1,
-    priceToFCF: 22.3
+    pe: peVal,
+    forwardPE: fNum('forward_pe') || fNum('forward_pe_ratio') || peVal,
+    ps: fNum('ps_ratio') || fNum('price_to_sales') || psCalc,
+    pb: fNum('pb_ratio') || fNum('price_to_book'),
+    peg: fNum('peg_ratio'),
+    evToEbitda: fNum('ev_to_ebitda') || evEbitdaCalc,
+    evToSales: fNum('ev_to_revenue') || fNum('ev_to_sales') || psCalc,
+    priceToFCF: pfcfCalc,
   };
+
+  // ── FinancialChart data (TTM — single period) ─────────────────────────────
+  const currentYear = new Date().getFullYear().toString();
+  const sharesM = stock.price > 0 && stock.marketCap > 0
+    ? Math.round(stock.marketCap / stock.price / 1_000_000)
+    : 0;
+
+  const epsChartData = epsTTM > 0
+    ? [{ year: 'TTM', value: Math.round(epsTTM), yoyGrowth: 0 }] : [];
+  const payoutChartData = stock.payoutRatio > 0
+    ? [{ year: 'TTM', value: stock.payoutRatio, yoyGrowth: 0 }] : [];
+  const fcfChartData = fcfTTM > 0
+    ? [{ year: 'TTM', value: fcfTTM, yoyGrowth: 0 }] : [];
+  const sharesChartData = sharesM > 0
+    ? [{ year: currentYear, value: sharesM, yoyGrowth: 0 }] : [];
+  const revenueChartData = revenueTTM > 0
+    ? [{ year: 'TTM', value: revenueTTM, yoyGrowth: 0 }] : [];
+  const netIncomeChartData = netIncomeTTM > 0
+    ? [{ year: 'TTM', value: netIncomeTTM, yoyGrowth: 0 }] : [];
 
   // Tooltips for metrics
   const metricTooltips: Record<string, string> = {
@@ -306,11 +372,15 @@ export function StockDetail() {
             </div>
             <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-slate-700 dark:border-slate-700">
               <h3 className="text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">P/E hiện tại</h3>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{valuationData.pe.toFixed(1)}</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">
+                {valuationData.pe > 0 ? valuationData.pe.toFixed(1) : 'N/A'}
+              </p>
             </div>
             <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-slate-700 dark:border-slate-700">
               <h3 className="text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">P/E dự phóng</h3>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{valuationData.forwardPE.toFixed(1)}</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">
+                {valuationData.forwardPE > 0 ? valuationData.forwardPE.toFixed(1) : 'N/A'}
+              </p>
             </div>
             <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-slate-700 dark:border-slate-700">
               <h3 className="text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">Tỷ suất cổ tức</h3>
@@ -432,10 +502,10 @@ export function StockDetail() {
               <div className="mb-6">
                 <h3 className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">Biên lợi nhuận (Margins)</h3>
                 <div className="space-y-3">
-                  <MetricRow label="Gross Margin" value={`${fundamentalsData.margins.grossMargin}%`} tooltip={metricTooltips.grossMargin} />
-                  <MetricRow label="Operating Margin" value={`${fundamentalsData.margins.operatingMargin}%`} tooltip={metricTooltips.operatingMargin} />
-                  <MetricRow label="Net Margin" value={`${fundamentalsData.margins.netMargin}%`} tooltip={metricTooltips.netMargin} />
-                  <MetricRow label="EBITDA Margin" value={`${fundamentalsData.margins.ebitdaMargin}%`} tooltip={metricTooltips.ebitdaMargin} />
+                  <MetricRow label="Gross Margin" value={fundamentalsData.margins.grossMargin > 0 ? `${fundamentalsData.margins.grossMargin.toFixed(1)}%` : 'N/A'} tooltip={metricTooltips.grossMargin} />
+                  <MetricRow label="Operating Margin" value={fundamentalsData.margins.operatingMargin > 0 ? `${fundamentalsData.margins.operatingMargin.toFixed(1)}%` : 'N/A'} tooltip={metricTooltips.operatingMargin} />
+                  <MetricRow label="Net Margin" value={fundamentalsData.margins.netMargin > 0 ? `${fundamentalsData.margins.netMargin.toFixed(1)}%` : 'N/A'} tooltip={metricTooltips.netMargin} />
+                  <MetricRow label="EBITDA Margin" value={fundamentalsData.margins.ebitdaMargin > 0 ? `${fundamentalsData.margins.ebitdaMargin.toFixed(1)}%` : 'N/A'} tooltip={metricTooltips.ebitdaMargin} />
                 </div>
               </div>
 
@@ -443,10 +513,10 @@ export function StockDetail() {
               <div className="mb-6">
                 <h3 className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">Hiệu quả hoạt động</h3>
                 <div className="space-y-3">
-                  <MetricRow label="ROA" value={`${fundamentalsData.efficiency.roa}%`} tooltip={metricTooltips.roa} />
-                  <MetricRow label="ROE" value={`${fundamentalsData.efficiency.roe}%`} tooltip={metricTooltips.roe} />
-                  <MetricRow label="ROIC" value={`${fundamentalsData.efficiency.roic}%`} tooltip={metricTooltips.roic} />
-                  <MetricRow label="Asset Turnover" value={`${fundamentalsData.efficiency.assetTurnover}x`} tooltip={metricTooltips.assetTurnover} />
+                  <MetricRow label="ROA" value={fundamentalsData.efficiency.roa > 0 ? `${fundamentalsData.efficiency.roa.toFixed(1)}%` : 'N/A'} tooltip={metricTooltips.roa} />
+                  <MetricRow label="ROE" value={fundamentalsData.efficiency.roe > 0 ? `${fundamentalsData.efficiency.roe.toFixed(1)}%` : 'N/A'} tooltip={metricTooltips.roe} />
+                  <MetricRow label="ROIC" value={fundamentalsData.efficiency.roic > 0 ? `${fundamentalsData.efficiency.roic.toFixed(1)}%` : 'N/A'} tooltip={metricTooltips.roic} />
+                  <MetricRow label="Asset Turnover" value={fundamentalsData.efficiency.assetTurnover > 0 ? `${fundamentalsData.efficiency.assetTurnover.toFixed(2)}x` : 'N/A'} tooltip={metricTooltips.assetTurnover} />
                 </div>
               </div>
 
@@ -454,10 +524,10 @@ export function StockDetail() {
               <div>
                 <h3 className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">Đòn bẩy tài chính (Leverage)</h3>
                 <div className="space-y-3">
-                  <MetricRow label="Debt/Equity (D/E)" value={fundamentalsData.leverage.debtToEquity.toFixed(2)} tooltip={metricTooltips.debtToEquity} />
-                  <MetricRow label="Debt/Assets" value={fundamentalsData.leverage.debtToAssets.toFixed(2)} tooltip={metricTooltips.debtToAssets} />
-                  <MetricRow label="Current Ratio" value={fundamentalsData.leverage.currentRatio.toFixed(2)} tooltip={metricTooltips.currentRatio} />
-                  <MetricRow label="Quick Ratio" value={fundamentalsData.leverage.quickRatio.toFixed(2)} tooltip={metricTooltips.quickRatio} />
+                  <MetricRow label="Debt/Equity (D/E)" value={stock.debtToEquity > 0 ? stock.debtToEquity.toFixed(2) : 'N/A'} tooltip={metricTooltips.debtToEquity} />
+                  <MetricRow label="Debt/Assets" value={fundamentalsData.leverage.debtToAssets > 0 ? fundamentalsData.leverage.debtToAssets.toFixed(2) : 'N/A'} tooltip={metricTooltips.debtToAssets} />
+                  <MetricRow label="Current Ratio" value={fundamentalsData.leverage.currentRatio > 0 ? fundamentalsData.leverage.currentRatio.toFixed(2) : 'N/A'} tooltip={metricTooltips.currentRatio} />
+                  <MetricRow label="Quick Ratio" value={fundamentalsData.leverage.quickRatio > 0 ? fundamentalsData.leverage.quickRatio.toFixed(2) : 'N/A'} tooltip={metricTooltips.quickRatio} />
                 </div>
               </div>
             </div>
@@ -470,14 +540,14 @@ export function StockDetail() {
               </h2>
 
               <div className="space-y-3">
-                <MetricRow label="P/E (Price to Earnings)" value={valuationData.pe.toFixed(1)} tooltip={metricTooltips.pe} />
-                <MetricRow label="Forward P/E" value={valuationData.forwardPE.toFixed(1)} tooltip={metricTooltips.forwardPE} />
-                <MetricRow label="P/S (Price to Sales)" value={valuationData.ps.toFixed(1)} tooltip={metricTooltips.ps} />
-                <MetricRow label="P/B (Price to Book)" value={valuationData.pb.toFixed(1)} tooltip={metricTooltips.pb} />
-                <MetricRow label="PEG Ratio" value={valuationData.peg.toFixed(1)} tooltip={metricTooltips.peg} />
-                <MetricRow label="EV/EBITDA" value={valuationData.evToEbitda.toFixed(1)} tooltip={metricTooltips.evToEbitda} />
-                <MetricRow label="EV/Sales" value={valuationData.evToSales.toFixed(1)} tooltip={metricTooltips.evToSales} />
-                <MetricRow label="Price/FCF" value={valuationData.priceToFCF.toFixed(1)} tooltip={metricTooltips.priceToFCF} />
+                <MetricRow label="P/E (Price to Earnings)" value={valuationData.pe > 0 ? valuationData.pe.toFixed(1) : 'N/A'} tooltip={metricTooltips.pe} />
+                <MetricRow label="Forward P/E" value={valuationData.forwardPE > 0 ? valuationData.forwardPE.toFixed(1) : 'N/A'} tooltip={metricTooltips.forwardPE} />
+                <MetricRow label="P/S (Price to Sales)" value={valuationData.ps > 0 ? valuationData.ps.toFixed(1) : 'N/A'} tooltip={metricTooltips.ps} />
+                <MetricRow label="P/B (Price to Book)" value={valuationData.pb > 0 ? valuationData.pb.toFixed(1) : 'N/A'} tooltip={metricTooltips.pb} />
+                <MetricRow label="PEG Ratio" value={valuationData.peg > 0 ? valuationData.peg.toFixed(1) : 'N/A'} tooltip={metricTooltips.peg} />
+                <MetricRow label="EV/EBITDA" value={valuationData.evToEbitda > 0 ? valuationData.evToEbitda.toFixed(1) : 'N/A'} tooltip={metricTooltips.evToEbitda} />
+                <MetricRow label="EV/Sales" value={valuationData.evToSales > 0 ? valuationData.evToSales.toFixed(1) : 'N/A'} tooltip={metricTooltips.evToSales} />
+                <MetricRow label="Price/FCF" value={valuationData.priceToFCF > 0 ? valuationData.priceToFCF.toFixed(1) : 'N/A'} tooltip={metricTooltips.priceToFCF} />
               </div>
             </div>
           </div>
@@ -605,70 +675,92 @@ export function StockDetail() {
 
           {/* Financial Health Charts Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* EPS Growth Chart */}
-            <FinancialChart
-              title="Lợi nhuận trên cổ phiếu (EPS)"
-              data={financialHealthData.eps}
-              caption="Tăng trưởng ổn định cho thấy công ty phát triển bền vững"
-              formatter={(value) => formatVND(value)}
-              unit="đ/CP"
-              colorLogic={epsColorLogic}
-            />
+            {/* EPS Chart */}
+            {epsChartData.length > 0 && (
+              <FinancialChart
+                title="Lợi nhuận trên cổ phiếu (EPS)"
+                data={epsChartData}
+                caption="EPS TTM tính từ cổ tức và payout ratio thực tế"
+                formatter={(value) => formatVND(value)}
+                unit="đ/CP"
+                colorLogic={epsColorLogic}
+              />
+            )}
 
-            {/* Payout Ratio Chart with Safety Threshold */}
-            <FinancialChart
-              title="Tỷ lệ chi trả cổ tức (%)"
-              data={financialHealthData.payoutRatio}
-              caption="Tỷ lệ thấp hơn 60% đảm bảo an toàn cho cổ tức"
-              formatter={(value) => value.toFixed(1)}
-              unit="%"
-              thresholdLine={{
-                value: 60,
-                label: 'Ngưỡng an toàn < 60%',
-                color: '#64748b'
-              }}
-              colorLogic={payoutRatioColorLogic}
-            />
+            {/* Payout Ratio Chart */}
+            {payoutChartData.length > 0 && (
+              <FinancialChart
+                title="Tỷ lệ chi trả cổ tức (%)"
+                data={payoutChartData}
+                caption="Tỷ lệ thấp hơn 60% đảm bảo an toàn cho cổ tức"
+                formatter={(value) => value.toFixed(1)}
+                unit="%"
+                thresholdLine={{ value: 60, label: 'Ngưỡng an toàn < 60%', color: '#64748b' }}
+                colorLogic={payoutRatioColorLogic}
+              />
+            )}
 
             {/* Free Cash Flow Chart */}
-            <FinancialChart
-              title="Dòng tiền tự do (FCF)"
-              data={financialHealthData.fcf}
-              caption="Chỉ số quan trọng nhất để đánh giá khả năng chi trả cổ tức"
-              formatter={(value) => `${(value / 1000).toFixed(1)}B`}
-              unit="VNĐ"
-              colorLogic={fcfColorLogic}
-            />
+            {fcfChartData.length > 0 && (
+              <FinancialChart
+                title="Dòng tiền tự do (FCF)"
+                data={fcfChartData}
+                caption="Chỉ số quan trọng nhất để đánh giá khả năng chi trả cổ tức"
+                formatter={(value) => `${(value / 1_000_000_000).toFixed(1)}B`}
+                unit="VNĐ"
+                colorLogic={fcfColorLogic}
+              />
+            )}
 
             {/* Shares Outstanding Chart */}
-            <FinancialChart
-              title="Số lượng cổ phiếu lưu hành"
-              data={financialHealthData.sharesOutstanding}
-              caption="Giảm số lượng CP = Tăng quyền sở hữu của bạn (Buyback)"
-              formatter={(value) => `${value.toFixed(0)}M`}
-              unit="triệu CP"
-              colorLogic={sharesOutstandingColorLogic}
-            />
+            {sharesChartData.length > 0 && (
+              <FinancialChart
+                title="Số lượng cổ phiếu lưu hành"
+                data={sharesChartData}
+                caption="Tính từ vốn hóa ÷ giá hiện tại"
+                formatter={(value) => `${value.toFixed(0)}M`}
+                unit="triệu CP"
+                colorLogic={sharesOutstandingColorLogic}
+              />
+            )}
 
             {/* Revenue Chart */}
-            <FinancialChart
-              title="Doanh thu (Revenue)"
-              data={financialHealthData.revenue}
-              caption="Tăng trưởng doanh thu ổn định qua các năm"
-              formatter={(value) => `${(value / 1000).toFixed(1)}B`}
-              unit="VNĐ"
-              colorLogic={revenueColorLogic}
-            />
+            {revenueChartData.length > 0 && (
+              <FinancialChart
+                title="Doanh thu TTM (Revenue)"
+                data={revenueChartData}
+                caption="Doanh thu 12 tháng gần nhất từ Supabase"
+                formatter={(value) => `${(value / 1_000_000_000).toFixed(1)}B`}
+                unit="VNĐ"
+                colorLogic={revenueColorLogic}
+              />
+            )}
 
             {/* Net Income Chart */}
-            <FinancialChart
-              title="Lợi nhuận ròng (Net Income)"
-              data={financialHealthData.netIncome}
-              caption="Khả năng sinh lời sau khi trừ mọi chi phí"
-              formatter={(value) => `${(value / 1000).toFixed(1)}B`}
-              unit="VNĐ"
-              colorLogic={netIncomeColorLogic}
-            />
+            {netIncomeChartData.length > 0 && (
+              <FinancialChart
+                title="Lợi nhuận ròng TTM (Net Income)"
+                data={netIncomeChartData}
+                caption="Khả năng sinh lời sau khi trừ mọi chi phí"
+                formatter={(value) => `${(value / 1_000_000_000).toFixed(1)}B`}
+                unit="VNĐ"
+                colorLogic={netIncomeColorLogic}
+              />
+            )}
+
+            {/* Fallback when no financial data is available */}
+            {epsChartData.length === 0 && payoutChartData.length === 0 &&
+             fcfChartData.length === 0 && revenueChartData.length === 0 && (
+              <div className="col-span-3 flex flex-col items-center justify-center py-12 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl">
+                <Activity className="size-8 text-gray-300 dark:text-slate-600 mb-3" />
+                <p className="text-sm text-gray-500 dark:text-slate-400 font-medium">
+                  Dữ liệu tài chính đang được cập nhật
+                </p>
+                <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">
+                  Pipeline sẽ cập nhật dữ liệu tự động
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Key Metrics Summary */}
@@ -722,9 +814,9 @@ export function StockDetail() {
           roe: fundamentalsData.efficiency.roe,
           roa: fundamentalsData.efficiency.roa,
           debtToEquity: stock.debtToEquity,
-          revenueYoY: stock.revenueYoY,
-          netIncomeYoY: stock.netIncomeYoY,
-          fcfYoY: stock.fcfYoY
+          revenueYoY: revenueTTM,
+          netIncomeYoY: netIncomeTTM,
+          fcfYoY: fcfTTM
         }}
       />
     </div>

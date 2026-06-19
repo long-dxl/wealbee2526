@@ -1,6 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Search, X, TrendingUp, TrendingDown } from "lucide-react";
+import { supabase } from "../lib/supabase/client";
 import { TICKER_LIST } from "../data/tickerData";
+
+interface TickerRow {
+  symbol: string;
+  name: string;
+  sector: string;
+  exchange: string;
+  price: number;
+  changePct: number;
+}
 
 interface Props {
   onSelectTicker: (symbol: string) => void;
@@ -20,56 +30,114 @@ const SECTOR_COLORS: Record<string, string> = {
   "Hàng tiêu dùng":"#DB2777",
 };
 
-function sectorBg(sector: string) {
-  const c = SECTOR_COLORS[sector] ?? "#4B5563";
-  return `${c}22`;
-}
-function sectorColor(sector: string) {
-  return SECTOR_COLORS[sector] ?? "#4B5563";
+function sectorBg(sector: string)    { return `${SECTOR_COLORS[sector] ?? "#4B5563"}22`; }
+function sectorColor(sector: string) { return SECTOR_COLORS[sector] ?? "#4B5563"; }
+
+// Fallback data từ mock nếu Supabase chưa có data
+const FALLBACK: TickerRow[] = TICKER_LIST.map((t) => ({
+  symbol:    t.symbol,
+  name:      t.name,
+  sector:    t.sector,
+  exchange:  t.exchange,
+  price:     t.price,
+  changePct: t.changePct,
+}));
+
+function useTickers(): TickerRow[] {
+  const [tickers, setTickers] = useState<TickerRow[]>(FALLBACK);
+
+  useEffect(() => {
+    async function load() {
+      // 1. Lấy danh sách tickers
+      const { data: tickerRows } = await supabase
+        .from("tickers")
+        .select("symbol, name, sector, exchange")
+        .order("symbol");
+
+      if (!tickerRows?.length) return;
+
+      // 2. Lấy giá của 2 ngày giao dịch gần nhất
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 7);
+      const { data: priceRows } = await supabase
+        .from("prices_daily")
+        .select("symbol, date, close")
+        .gte("date", cutoff.toISOString().slice(0, 10))
+        .order("date", { ascending: false });
+
+      // 3. Lấy giá mới nhất và trước đó mỗi mã
+      const latest:  Record<string, number> = {};
+      const prev:    Record<string, number> = {};
+      for (const p of (priceRows ?? [])) {
+        const c = Number(p.close);
+        if (!(p.symbol in latest))     { latest[p.symbol] = c; }
+        else if (!(p.symbol in prev))  { prev[p.symbol]   = c; }
+      }
+
+      const rows: TickerRow[] = tickerRows.map((t) => {
+        const cur  = latest[t.symbol] ?? 0;
+        const pre  = prev[t.symbol]   ?? cur;
+        const pct  = pre > 0 ? ((cur - pre) / pre) * 100 : 0;
+        return {
+          symbol:    t.symbol,
+          name:      t.name,
+          sector:    t.sector ?? "Khác",
+          exchange:  t.exchange ?? "",
+          price:     cur,
+          changePct: parseFloat(pct.toFixed(2)),
+        };
+      });
+
+      setTickers(rows);
+    }
+
+    load();
+  }, []);
+
+  return tickers;
 }
 
 export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Props) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
+  const [query,  setQuery]  = useState("");
+  const [open,   setOpen]   = useState(false);
   const [cursor, setCursor] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef     = useRef<HTMLInputElement>(null);
+
+  const allTickers = useTickers();
 
   const q = query.trim().toLowerCase();
-
   const results = q.length === 0
-    ? TICKER_LIST.slice(0, 6)
-    : TICKER_LIST.filter((t) =>
+    ? allTickers.slice(0, 6)
+    : allTickers.filter((t) =>
         t.symbol.toLowerCase().includes(q) ||
         t.name.toLowerCase().includes(q) ||
-        t.shortName.toLowerCase().includes(q) ||
         t.sector.toLowerCase().includes(q)
       ).slice(0, 8);
 
   const isRecent = q.length === 0;
 
   // Theme tokens
-  const inputBg        = isDark ? (open ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.06)") : (open ? "#fff" : "rgba(255,255,255,0.72)");
-  const inputBorder    = isDark ? (open ? "1.5px solid #4D8FE8" : "1px solid rgba(255,255,255,0.12)") : (open ? "1.5px solid #0849AC" : "1px solid rgba(8,73,172,0.14)");
-  const inputShadow    = isDark ? (open ? "0 0 0 3px rgba(77,143,232,0.12)" : "none") : (open ? "0 0 0 3px rgba(8,73,172,0.08)" : "none");
-  const searchIconColor = isDark ? (open ? "#4D8FE8" : "rgba(240,242,255,0.35)") : (open ? "#0849AC" : "rgba(26,26,46,0.35)");
-  const inputTextColor  = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const dropdownBg      = isDark ? "#131824" : "#fff";
-  const dropdownBorder  = isDark ? "1.5px solid #4D8FE8" : "1.5px solid #0849AC";
+  const inputBg           = isDark ? (open ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.06)") : (open ? "#fff" : "rgba(255,255,255,0.72)");
+  const inputBorder       = isDark ? (open ? "1.5px solid #4D8FE8" : "1px solid rgba(255,255,255,0.12)") : (open ? "1.5px solid #0849AC" : "1px solid rgba(8,73,172,0.14)");
+  const inputShadow       = isDark ? (open ? "0 0 0 3px rgba(77,143,232,0.12)" : "none") : (open ? "0 0 0 3px rgba(8,73,172,0.08)" : "none");
+  const searchIconColor   = isDark ? (open ? "#4D8FE8" : "rgba(240,242,255,0.35)") : (open ? "#0849AC" : "rgba(26,26,46,0.35)");
+  const inputTextColor    = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
+  const dropdownBg        = isDark ? "#131824" : "#fff";
+  const dropdownBorder    = isDark ? "1.5px solid #4D8FE8" : "1.5px solid #0849AC";
   const dropdownTopBorder = isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(8,73,172,0.10)";
-  const dropdownShadow  = isDark ? "0 12px 36px rgba(0,0,0,0.50), 0 2px 8px rgba(0,0,0,0.30)" : "0 12px 36px rgba(8,73,172,0.14), 0 2px 8px rgba(0,0,0,0.06)";
-  const sectionLabel    = isDark ? "rgba(240,242,255,0.30)" : "rgba(26,26,46,0.38)";
-  const emptyText       = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
-  const rowBorderColor  = isDark ? "rgba(255,255,255,0.05)" : "rgba(8,73,172,0.06)";
-  const rowActiveBg     = isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.05)";
-  const symbolColor     = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const nameColor       = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
-  const priceColor      = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const footerBg        = isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.02)";
-  const footerBorder    = isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(8,73,172,0.08)";
-  const footerColor     = isDark ? "#4D8FE8" : "#0849AC";
+  const dropdownShadow    = isDark ? "0 12px 36px rgba(0,0,0,0.50), 0 2px 8px rgba(0,0,0,0.30)" : "0 12px 36px rgba(8,73,172,0.14), 0 2px 8px rgba(0,0,0,0.06)";
+  const sectionLabel      = isDark ? "rgba(240,242,255,0.30)" : "rgba(26,26,46,0.38)";
+  const emptyText         = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const rowBorderColor    = isDark ? "rgba(255,255,255,0.05)" : "rgba(8,73,172,0.06)";
+  const rowActiveBg       = isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.05)";
+  const symbolColor       = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
+  const nameColor         = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const priceColor        = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
+  const footerBg          = isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.02)";
+  const footerBorder      = isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(8,73,172,0.08)";
+  const footerColor       = isDark ? "#4D8FE8" : "#0849AC";
 
-  // Close on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -110,16 +178,11 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
     <div ref={containerRef} style={{ position: "relative", width: 340, fontFamily: FONT }}>
       {/* Input */}
       <div style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        background: inputBg,
-        border: inputBorder,
+        display: "flex", alignItems: "center", gap: 8,
+        background: inputBg, border: inputBorder,
         borderRadius: open ? "12px 12px 0 0" : 12,
-        padding: "0 12px",
-        height: 38,
-        transition: "all 140ms ease",
-        boxShadow: inputShadow,
+        padding: "0 12px", height: 38,
+        transition: "all 140ms ease", boxShadow: inputShadow,
         backdropFilter: isDark ? "blur(8px)" : undefined,
       }}>
         <Search size={15} strokeWidth={2} color={searchIconColor} style={{ flexShrink: 0 }} />
@@ -130,15 +193,7 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
           onFocus={() => setOpen(true)}
           onKeyDown={handleKey}
           placeholder="Tìm cổ phiếu, chỉ số..."
-          style={{
-            flex: 1,
-            border: "none",
-            outline: "none",
-            background: "transparent",
-            fontSize: 13,
-            fontFamily: FONT,
-            color: inputTextColor,
-          }}
+          style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 13, fontFamily: FONT, color: inputTextColor }}
         />
         {query && (
           <button onClick={() => { setQuery(""); inputRef.current?.focus(); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", alignItems: "center" }}>
@@ -150,19 +205,11 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
       {/* Dropdown */}
       {open && (
         <div style={{
-          position: "absolute",
-          top: 38,
-          left: 0,
-          right: 0,
-          background: dropdownBg,
-          border: dropdownBorder,
-          borderTop: dropdownTopBorder,
-          borderRadius: "0 0 14px 14px",
-          boxShadow: dropdownShadow,
-          zIndex: 200,
-          overflow: "hidden",
+          position: "absolute", top: 38, left: 0, right: 0,
+          background: dropdownBg, border: dropdownBorder,
+          borderTop: dropdownTopBorder, borderRadius: "0 0 14px 14px",
+          boxShadow: dropdownShadow, zIndex: 200, overflow: "hidden",
         }}>
-          {/* Section header */}
           <div style={{ padding: "8px 14px 4px", fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", color: sectionLabel, textTransform: "uppercase" }}>
             {isRecent ? "Gần đây" : `Kết quả cho "${query}"`}
           </div>
@@ -174,7 +221,7 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
           ) : (
             <div>
               {results.map((ticker, i) => {
-                const isUp = ticker.changePct >= 0;
+                const isUp     = ticker.changePct >= 0;
                 const isActive = cursor === i;
                 return (
                   <div
@@ -182,17 +229,13 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
                     onMouseEnter={() => setCursor(i)}
                     onMouseDown={() => select(ticker.symbol)}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "9px 14px",
-                      cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "9px 14px", cursor: "pointer",
                       background: isActive ? rowActiveBg : "transparent",
                       transition: "background 80ms",
                       borderTop: i === 0 ? "none" : `0.5px solid ${rowBorderColor}`,
                     }}
                   >
-                    {/* Logo placeholder */}
                     <div style={{
                       width: 32, height: 32, borderRadius: 8, flexShrink: 0,
                       background: sectorBg(ticker.sector),
@@ -203,31 +246,32 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
                       {ticker.symbol.slice(0, 2)}
                     </div>
 
-                    {/* Symbol + name */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 13, fontWeight: 700, color: symbolColor }}>{ticker.symbol}</span>
                         <span style={{ fontSize: 10, fontWeight: 600, color: sectorColor(ticker.sector), background: sectorBg(ticker.sector), padding: "1px 6px", borderRadius: 4 }}>{ticker.sector}</span>
                       </div>
                       <div style={{ fontSize: 11, color: nameColor, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {ticker.shortName}
+                        {ticker.name}
                       </div>
                     </div>
 
-                    {/* Price + change */}
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: priceColor }}>
-                        {ticker.price.toLocaleString("vi-VN")}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 3, justifyContent: "flex-end", marginTop: 1 }}>
-                        {isUp
-                          ? <TrendingUp size={10} color="#28C840" />
-                          : <TrendingDown size={10} color="#FF3B30" />
-                        }
-                        <span style={{ fontSize: 11, fontWeight: 600, color: isUp ? "#28C840" : "#FF3B30" }}>
-                          {isUp ? "+" : ""}{ticker.changePct.toFixed(2)}%
-                        </span>
-                      </div>
+                      {ticker.price > 0 ? (
+                        <>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: priceColor }}>
+                            {ticker.price.toLocaleString("vi-VN")}
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 3, justifyContent: "flex-end", marginTop: 1 }}>
+                            {isUp ? <TrendingUp size={10} color="#28C840" /> : <TrendingDown size={10} color="#FF3B30" />}
+                            <span style={{ fontSize: 11, fontWeight: 600, color: isUp ? "#28C840" : "#FF3B30" }}>
+                              {isUp ? "+" : ""}{ticker.changePct.toFixed(2)}%
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 11, color: nameColor }}>—</span>
+                      )}
                     </div>
                   </div>
                 );
@@ -235,7 +279,6 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
             </div>
           )}
 
-          {/* Footer */}
           <div
             onMouseDown={() => { onNavigate("tickers"); setOpen(false); setQuery(""); }}
             style={{ padding: "9px 14px", borderTop: footerBorder, fontSize: 12, color: footerColor, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", background: footerBg }}

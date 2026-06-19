@@ -25,7 +25,6 @@ import {
   KnowledgeBaseRoute,
   PortfolioRoute,
   SettingsRoute,
-  MarketPulseRoute,
   TickersRoute,
 } from "./pages/app/page-wrappers";
 
@@ -56,8 +55,7 @@ export const router = createBrowserRouter([
     Component: NewLayout,
     children: [
       { index: true,             Component: DashboardRoute    },
-      { path: "feed",            Component: MarketPulseRoute  },
-      { path: "inbox",           Component: InboxRoute        },
+{ path: "inbox",           Component: InboxRoute        },
       { path: "agents",          Component: AgentsPage        },
       { path: "agent-studio",    Component: AgentStudioRoute  },
       { path: "templates",       Component: TemplatesRoute    },

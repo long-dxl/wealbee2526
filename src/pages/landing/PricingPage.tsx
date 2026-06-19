@@ -27,7 +27,7 @@ function FreePlan() {
       <h3 className="text-[24px] font-bold text-[#111827] font-['Montserrat',sans-serif] mb-1">Free</h3>
       <p className="text-[14px] text-[#6b7280] font-['Montserrat',sans-serif] mb-6">Làm quen tính năng cơ bản</p>
       <div className="flex items-baseline gap-1 mb-8">
-        <span className="text-[40px] font-bold text-[#111827] font-['Sora',sans-serif] leading-[48px]">0đ</span>
+        <span className="text-[40px] font-bold text-[#111827] font-['Montserrat',sans-serif] leading-[48px]">0đ</span>
         <span className="text-[18px] text-[#6b7280] font-['Montserrat',sans-serif]">/Tháng</span>
       </div>
 
@@ -116,7 +116,7 @@ function ProPlan() {
       </div>
       <p className="text-[14px] text-[#e8f2ff] font-['Montserrat',sans-serif] mb-6">Mở khoá tất cả tiềm năng</p>
       <div className="flex items-baseline gap-1 mb-8">
-        <span className="text-[40px] font-bold text-white font-['Sora',sans-serif] leading-[48px]">50.000đ</span>
+        <span className="text-[40px] font-bold text-white font-['Montserrat',sans-serif] leading-[48px]">50.000đ</span>
         <span className="text-[18px] text-[#e8f2ff] font-['Montserrat',sans-serif]">/Tháng</span>
       </div>
 
