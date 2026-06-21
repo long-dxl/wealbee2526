@@ -236,7 +236,9 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   // ── Real data state ──────────────────────────────────────────────────────
   const [gainers,       setGainers]       = useState<MoverRow[]>([]);
   const [losers,        setLosers]        = useState<MoverRow[]>([]);
+  const [allMovers,     setAllMovers]     = useState<(MoverRow & { sector: string })[]>([]);
   const [sectors,       setSectors]       = useState<SectorRow[]>([]);
+  const [selectedSector, setSelectedSector] = useState<string | null>(null);
   const [dashNews,      setDashNews]      = useState<NewsItem[]>([]);
   const [watchHoldings, setWatchHoldings] = useState<WatchRow[]>([]);
   const [marketIndices, setMarketIndices] = useState<IndexState[]>([]);
@@ -268,9 +270,8 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
           .from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
         if (!latestRow || cancelled) return;
 
-        const [pricesRes, stocksRes, indicesRes] = await Promise.all([
+        const [pricesRes, indicesRes] = await Promise.all([
           supabase.from("prices_daily").select("symbol,open,close,volume").eq("date", latestRow.date),
-          supabase.from("stocks").select("symbol,sector_name"),
           supabase.from("market_indices")
             .select("index_code,close,change_pct,date")
             .in("index_code", ["VNINDEX", "HNX"])
@@ -282,6 +283,13 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
 
         // — Movers & Sectors —
         const prices = pricesRes.data ?? [];
+
+        // Filter stocks query to only the symbols we have price data for (avoids 1000-row Supabase default limit missing symbols)
+        const priceSymbols = prices.map((p: any) => p.symbol);
+        const { data: stocksData } = priceSymbols.length > 0
+          ? await supabase.from("stocks").select("symbol,sector_name").in("symbol", priceSymbols)
+          : { data: [] };
+        const stocksRes = { data: stocksData };
         const sectorMap: Record<string, string> = {};
         stocksRes.data?.forEach((s: any) => { sectorMap[s.symbol] = s.sector_name || "Khác"; });
 
@@ -294,6 +302,10 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
         }));
 
         const sorted = [...withPct].sort((a: any, b: any) => b.pct - a.pct);
+        setAllMovers(sorted.map((s: any) => ({
+          symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, sector: s.sector,
+          isCeil: s.pct >= 6.9, isFloor: s.pct <= -6.9,
+        })));
         setGainers(sorted.slice(0, 5).map((s: any) => ({
           symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol,
           isCeil: s.pct >= 6.9, isFloor: false,
@@ -477,6 +489,17 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
 
   // ── Computed portfolio summary ────────────────────────────────────────────
   const portfolioTotal = watchHoldings.reduce((s, h) => s + h.price * h.quantity, 0);
+
+  // Sector-filtered movers (or full market when no sector selected)
+  const filteredMovers = selectedSector
+    ? allMovers.filter(m => m.sector === selectedSector)
+    : allMovers;
+  const displayGainers = selectedSector
+    ? filteredMovers.filter(m => m.pct >= 0).sort((a, b) => b.pct - a.pct).slice(0, 5).map(m => ({ ...m, isFloor: false }))
+    : gainers;
+  const displayLosers = selectedSector
+    ? filteredMovers.filter(m => m.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5).map(m => ({ ...m, isCeil: false }))
+    : losers;
 
   const handleNewsDragStart = (e: React.DragEvent, item: NewsItem) => {
     const card: ContextCard = { id: `news-${item.title.slice(0, 20)}`, type: "news", label: item.title.length > 32 ? item.title.slice(0, 32) + "…" : item.title, badge: item.tag, summary: `${item.source} · ${item.time} trước` };
@@ -678,7 +701,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           {/* TĂNG MẠNH */}
           {(() => {
-            const gainCard: ContextCard = { id: "top-gainers", type: "mover", label: "Tăng mạnh hôm nay", badge: `${gainers.length} mã`, summary: gainers.map(s => `${s.symbol} +${s.pct.toFixed(2)}%`).join(" · ") };
+            const gainCard: ContextCard = { id: "top-gainers", type: "mover", label: "Tăng mạnh hôm nay", badge: `${displayGainers.length} mã`, summary: displayGainers.map(s => `${s.symbol} +${s.pct.toFixed(2)}%`).join(" · ") };
             return (
               <div {...makeDragHandlers(gainCard)}
                 style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, position: "relative", cursor: "grab", userSelect: "none" }}
@@ -690,11 +713,12 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
                   <TrendingUp size={15} color="#34C759" strokeWidth={2} />
                   <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fg }}>TĂNG MẠNH</span>
+                  {selectedSector && <span style={{ fontSize: 10, fontWeight: 700, color: brand, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", padding: "2px 7px", borderRadius: 10 }}>{selectedSector}</span>}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  {moversLoading && gainers.length === 0
+                  {moversLoading && displayGainers.length === 0
                     ? Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
-                    : gainers.map(s => {
+                    : displayGainers.map(s => {
                       const rowCard: ContextCard = { id: `gain-${s.symbol}`, type: "mover", label: s.symbol, badge: `+${s.pct.toFixed(2)}%`, summary: `${s.price.toLocaleString("vi-VN")} · Vol: ${s.vol}` };
                       return (
                         <div key={s.symbol} {...makeDragHandlers(rowCard)} onClick={() => onSelectTicker?.(s.symbol)}
@@ -715,7 +739,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
 
           {/* GIẢM MẠNH */}
           {(() => {
-            const lossCard: ContextCard = { id: "top-losers", type: "mover", label: "Giảm mạnh hôm nay", badge: `${losers.length} mã`, summary: losers.map(s => `${s.symbol} ${s.pct.toFixed(2)}%`).join(" · ") };
+            const lossCard: ContextCard = { id: "top-losers", type: "mover", label: "Giảm mạnh hôm nay", badge: `${displayLosers.length} mã`, summary: displayLosers.map(s => `${s.symbol} ${s.pct.toFixed(2)}%`).join(" · ") };
             return (
               <div {...makeDragHandlers(lossCard)}
                 style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, position: "relative", cursor: "grab", userSelect: "none" }}
@@ -727,11 +751,12 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
                   <TrendingDown size={15} color="#FF3B30" strokeWidth={2} />
                   <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fg }}>GIẢM MẠNH</span>
+                  {selectedSector && <span style={{ fontSize: 10, fontWeight: 700, color: brand, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", padding: "2px 7px", borderRadius: 10 }}>{selectedSector}</span>}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  {moversLoading && losers.length === 0
+                  {moversLoading && displayLosers.length === 0
                     ? Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
-                    : losers.map(s => {
+                    : displayLosers.map(s => {
                       const rowCard: ContextCard = { id: `loss-${s.symbol}`, type: "mover", label: s.symbol, badge: `${s.pct.toFixed(2)}%`, summary: `${s.price.toLocaleString("vi-VN")} · Vol: ${s.vol}` };
                       return (
                         <div key={s.symbol} {...makeDragHandlers(rowCard)} onClick={() => onSelectTicker?.(s.symbol)}
@@ -766,8 +791,11 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
                 {sectors.map(s => {
                   const col = getSectorColor(s.pct);
+                  const isSelected = selectedSector === s.name;
                   return (
-                    <div key={s.name} style={{ padding: "12px 14px", borderRadius: 10, background: col.bg, cursor: "pointer", transition: "opacity 150ms ease" }}
+                    <div key={s.name}
+                      onClick={() => setSelectedSector(isSelected ? null : s.name)}
+                      style={{ padding: "12px 14px", borderRadius: 10, background: col.bg, cursor: "pointer", transition: "all 150ms ease", outline: isSelected ? `2px solid ${brand}` : "2px solid transparent", outlineOffset: 2 }}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = "0.8"; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: fg, marginBottom: 4 }}>{s.name}</div>

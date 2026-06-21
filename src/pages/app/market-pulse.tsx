@@ -129,11 +129,15 @@ export function MarketPulse({
       const dateStr = new Date(latestRow.date).toLocaleDateString("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit" });
       if (!cancelled) setLastDate(dateStr);
 
-      const [{ data: prices }, { data: stocksInfo }] = await Promise.all([
-        supabase.from("prices_daily").select("symbol,open,close,volume").eq("date", latestRow.date),
-        supabase.from("stocks").select("symbol,sector_name"),
-      ]);
+      const { data: prices } = await supabase
+        .from("prices_daily").select("symbol,open,close,volume").eq("date", latestRow.date);
       if (!prices || cancelled) return;
+
+      // Filter to only symbols in price data to avoid Supabase 1000-row default limit missing VN30 symbols
+      const priceSymbols = prices.map((p: any) => p.symbol);
+      const { data: stocksInfo } = priceSymbols.length > 0
+        ? await supabase.from("stocks").select("symbol,sector_name").in("symbol", priceSymbols)
+        : { data: [] };
 
       const sectorMap: Record<string, string> = {};
       stocksInfo?.forEach((s: any) => { sectorMap[s.symbol] = s.sector_name || "Khác"; });

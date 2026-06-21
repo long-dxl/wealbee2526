@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo, createContext, useContext, useRef } from 
 import { useParams, useNavigate, useOutletContext } from "react-router";
 import {
   ArrowLeft, ExternalLink, BarChart2, BookOpen,
-  RefreshCw, AlertCircle, Info, Users, Coins, Newspaper,
+  RefreshCw, AlertCircle, Info, Users, Coins, Newspaper, Scale, TrendingUp,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar,
@@ -173,41 +173,69 @@ function EmptyState({ message }: { message: string }) {
 
 // ─── Financial Panel ──────────────────────────────────────────────────────────
 
-type FinTab = "metrics" | "income";
+type FinTab = "metrics" | "income" | "balance" | "cashflow";
 
 interface FinancialRow {
   year: number;
   revenue: number | null;
-  net_profit: number | null; eps: number | null;
-  pe_ratio: number | null; pb_ratio: number | null;
-  roe: number | null; roa: number | null;
+  gross_profit: number | null;
+  ebt: number | null;
+  net_profit: number | null;
+  eps: number | null;
+  pe_ratio: number | null;
+  pb_ratio: number | null;
+  roe: number | null;
+  roa: number | null;
   debt_to_equity: number | null;
+  current_ratio: number | null;
+}
+
+interface BSRow {
+  period: string;
+  period_date: string;
+  total_assets: number | null;
+  cash: number | null;
+  total_debt: number | null;
+  equity: number | null;
+  current_ratio: number | null;
+}
+
+interface CFRow {
+  period: string;
+  period_date: string;
+  operating_cf: number | null;
+  capex: number | null;
+  fcf: number | null;
+  net_cash_change: number | null;
 }
 
 interface RowDef { label: string; key: keyof FinancialRow; fmt: (v: number) => string; unit: string; }
 
-const TAB_CONFIG: Record<FinTab, { icon: React.ElementType; label: string; rows: RowDef[]; unit: string }> = {
+const TAB_CONFIG: Record<"metrics" | "income", { icon: React.ElementType; label: string; rows: RowDef[]; unit: string }> = {
   metrics: {
     icon: BarChart2, label: "Chỉ số", unit: "",
     rows: [
-      { label: "P/E Ratio",       key: "pe_ratio",       fmt: v => v.toFixed(2),               unit: "" },
-      { label: "P/B Ratio",       key: "pb_ratio",       fmt: v => v.toFixed(2),               unit: "" },
-      { label: "Nợ / Vốn (D/E)", key: "debt_to_equity", fmt: v => v.toFixed(2),               unit: "" },
-      { label: "ROE",             key: "roe",            fmt: v => `${(v * 100).toFixed(1)}%`, unit: "%" },
-      { label: "ROA",             key: "roa",            fmt: v => `${(v * 100).toFixed(1)}%`, unit: "%" },
+      { label: "P/E Ratio",        key: "pe_ratio",       fmt: v => v.toFixed(2),               unit: "" },
+      { label: "P/B Ratio",        key: "pb_ratio",       fmt: v => v.toFixed(2),               unit: "" },
+      { label: "Nợ / Vốn (D/E)",  key: "debt_to_equity", fmt: v => v.toFixed(2),               unit: "" },
+      { label: "ROE",              key: "roe",            fmt: v => `${(v * 100).toFixed(1)}%`, unit: "%" },
+      { label: "ROA",              key: "roa",            fmt: v => `${(v * 100).toFixed(1)}%`, unit: "%" },
+      { label: "Current Ratio",    key: "current_ratio",  fmt: v => v.toFixed(2),               unit: "" },
     ],
   },
   income: {
     icon: BookOpen, label: "Doanh thu", unit: "tỷ",
     rows: [
-      { label: "Doanh thu",          key: "revenue",    fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
-      { label: "Lợi nhuận sau thuế", key: "net_profit", fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
-      { label: "EPS (đồng)",         key: "eps",        fmt: v => fmtN(Math.round(v)),        unit: "đ" },
+      { label: "Doanh thu",            key: "revenue",      fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "Lợi nhuận gộp",        key: "gross_profit", fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "Lợi nhuận trước thuế", key: "ebt",          fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "Lợi nhuận sau thuế",   key: "net_profit",   fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "EPS (đồng)",           key: "eps",          fmt: v => fmtN(Math.round(v)),        unit: "đ" },
     ],
   },
-} as Record<FinTab, { icon: React.ElementType; label: string; rows: RowDef[]; unit: string }>;
+};
 
-function FinancialPanel({ data, tab }: { data: FinancialRow[]; tab: FinTab }) {
+function FinancialPanel({ data, tab }: { data: FinancialRow[]; tab: "metrics" | "income" }) {
   const tk = useTK();
   const config = TAB_CONFIG[tab];
   const [activeKey, setActiveKey] = useState<keyof FinancialRow>(config.rows[0]?.key ?? "revenue");
@@ -301,6 +329,179 @@ function FinancialPanel({ data, tab }: { data: FinancialRow[]; tab: FinTab }) {
   );
 }
 
+// ─── Balance Sheet Panel ──────────────────────────────────────────────────────
+
+type BSKey = keyof BSRow;
+const BS_ROWS: { label: string; key: BSKey; color: string; fmt: (v: number) => string }[] = [
+  { label: "Tổng tài sản",      key: "total_assets",  color: "#4D8FE8", fmt: v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : `${v.toFixed(0)}` },
+  { label: "Tiền và tương đương",key: "cash",          color: GREEN,     fmt: v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : `${v.toFixed(0)}` },
+  { label: "Tổng nợ phải trả",  key: "total_debt",    color: RED,       fmt: v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : `${v.toFixed(0)}` },
+  { label: "Vốn chủ sở hữu",   key: "equity",        color: "#8B5CF6", fmt: v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : `${v.toFixed(0)}` },
+  { label: "Current Ratio",     key: "current_ratio", color: "#F59E0B", fmt: v => v.toFixed(2) },
+];
+
+function BalanceSheetPanel({ data }: { data: BSRow[] }) {
+  const tk = useTK();
+  const [activeKey, setActiveKey] = useState<BSKey>("total_assets");
+
+  if (!data.length) return <EmptyState message="Chưa có dữ liệu bảng cân đối" />;
+
+  const recent = [...data].sort((a, b) => a.period_date.localeCompare(b.period_date)).slice(-8);
+  const activeRow = BS_ROWS.find(r => r.key === activeKey)!;
+
+  const chartData = recent.map(r => ({
+    period: r.period,
+    value: Math.abs((r[activeKey] as number | null) ?? 0),
+  }));
+
+  return (
+    <div>
+      {/* Trend chart */}
+      <div style={{ background: tk.CARD2, borderRadius: 14, border: `1px solid ${tk.BORDER}`, padding: "18px 20px", marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: tk.TEXT, marginBottom: 14 }}>{activeRow.label} (tỷ VND)</div>
+        <div style={{ height: 160 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={tk.GRID_STROKE} vertical={false} />
+              <XAxis dataKey="period" tick={{ fontSize: 10, fill: tk.MUTED }} tickLine={false} axisLine={false} />
+              <YAxis hide />
+              <Tooltip content={<FinTooltip unit="tỷ" />} />
+              <Bar dataKey="value" fill={activeRow.color} radius={[4,4,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT }}>
+          <thead>
+            <tr style={{ background: tk.CARD2 }}>
+              <th style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: tk.MUTED2, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `0.5px solid ${tk.BORDER}`, minWidth: 180 }}>Chỉ tiêu</th>
+              {recent.map(r => (
+                <th key={r.period} style={{ padding: "10px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: tk.MUTED2, borderBottom: `0.5px solid ${tk.BORDER}`, whiteSpace: "nowrap" }}>{r.period}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {BS_ROWS.map((row, i) => {
+              const isActive = activeKey === row.key;
+              return (
+                <tr key={row.key} onClick={() => setActiveKey(row.key)}
+                  style={{ background: isActive ? tk.ACCENT_HL : i % 2 === 0 ? "transparent" : tk.ROW_HOV, borderBottom: `0.5px solid ${tk.BORDER}`, cursor: "pointer" }}>
+                  <td style={{ padding: "11px 16px", fontSize: 13, color: isActive ? row.color : tk.TEXT, fontWeight: isActive ? 700 : 500 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {isActive && <div style={{ width: 3, height: 16, background: row.color, borderRadius: 2 }} />}
+                      {row.label}
+                    </div>
+                  </td>
+                  {recent.map(r => {
+                    const val = r[row.key] as number | null;
+                    return (
+                      <td key={r.period} style={{ padding: "11px 10px", textAlign: "right", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? row.color : tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                        {val != null ? row.fmt(val) : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: 8, fontSize: 11, color: tk.MUTED2, textAlign: "right" }}>Nguồn: Simplize · tỷ VND</div>
+    </div>
+  );
+}
+
+// ─── Cash Flow Panel ──────────────────────────────────────────────────────────
+
+type CFKey = keyof CFRow;
+const CF_ROWS: { label: string; key: CFKey; color: string }[] = [
+  { label: "CF hoạt động kinh doanh", key: "operating_cf",    color: "#4D8FE8" },
+  { label: "Dòng tiền tự do (FCF)",   key: "fcf",             color: GREEN },
+  { label: "CapEx",                   key: "capex",           color: RED },
+  { label: "Biến động tiền thuần",    key: "net_cash_change", color: "#F59E0B" },
+];
+
+function CashFlowPanel({ data }: { data: CFRow[] }) {
+  const tk = useTK();
+  const [activeKey, setActiveKey] = useState<CFKey>("operating_cf");
+
+  if (!data.length) return <EmptyState message="Chưa có dữ liệu dòng tiền" />;
+
+  const recent = [...data].sort((a, b) => a.period_date.localeCompare(b.period_date)).slice(-8);
+  const activeRow = CF_ROWS.find(r => r.key === activeKey)!;
+
+  const fmtTy = (v: number | null) => v == null ? "—" : v < 0 ? `(${Math.abs(v).toFixed(0)})` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : `${v.toFixed(0)}`;
+  const colorOf = (v: number | null) => v == null ? tk.MUTED : v >= 0 ? GREEN : RED;
+
+  const chartData = recent.map(r => ({
+    period: r.period,
+    value: (r[activeKey] as number | null) ?? 0,
+  }));
+
+  return (
+    <div>
+      {/* Trend chart */}
+      <div style={{ background: tk.CARD2, borderRadius: 14, border: `1px solid ${tk.BORDER}`, padding: "18px 20px", marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: tk.TEXT, marginBottom: 14 }}>{activeRow.label} (tỷ VND)</div>
+        <div style={{ height: 160 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={tk.GRID_STROKE} vertical={false} />
+              <XAxis dataKey="period" tick={{ fontSize: 10, fill: tk.MUTED }} tickLine={false} axisLine={false} />
+              <YAxis hide />
+              <ReferenceLine y={0} stroke={tk.REF_STROKE} />
+              <Tooltip content={<FinTooltip unit="tỷ" />} />
+              <Bar dataKey="value" fill={activeRow.color} radius={[4,4,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT }}>
+          <thead>
+            <tr style={{ background: tk.CARD2 }}>
+              <th style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: tk.MUTED2, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `0.5px solid ${tk.BORDER}`, minWidth: 220 }}>Chỉ tiêu</th>
+              {recent.map(r => (
+                <th key={r.period} style={{ padding: "10px 10px", textAlign: "right", fontSize: 10, fontWeight: 700, color: tk.MUTED2, borderBottom: `0.5px solid ${tk.BORDER}`, whiteSpace: "nowrap" }}>{r.period}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {CF_ROWS.map((row, i) => {
+              const isActive = activeKey === row.key;
+              return (
+                <tr key={row.key} onClick={() => setActiveKey(row.key)}
+                  style={{ background: isActive ? tk.ACCENT_HL : i % 2 === 0 ? "transparent" : tk.ROW_HOV, borderBottom: `0.5px solid ${tk.BORDER}`, cursor: "pointer" }}>
+                  <td style={{ padding: "11px 16px", fontSize: 13, color: isActive ? row.color : tk.TEXT, fontWeight: isActive ? 700 : 500 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {isActive && <div style={{ width: 3, height: 16, background: row.color, borderRadius: 2 }} />}
+                      {row.label}
+                    </div>
+                  </td>
+                  {recent.map(r => {
+                    const val = r[row.key] as number | null;
+                    return (
+                      <td key={r.period} style={{ padding: "11px 10px", textAlign: "right", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? row.color : colorOf(val), fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                        {fmtTy(val)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: 8, fontSize: 11, color: tk.MUTED2, textAlign: "right" }}>Nguồn: Simplize · tỷ VND · (x) = âm</div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function TickerDetailPage() {
@@ -322,6 +523,8 @@ export function TickerDetailPage() {
   const [vniPrices, setVniPrices] = useState<any[]>([]);
   const [hnxPrices, setHnxPrices] = useState<any[]>([]);
   const [financials, setFinancials] = useState<FinancialRow[]>([]);
+  const [balanceSheet, setBalanceSheet] = useState<BSRow[]>([]);
+  const [cashFlow,     setCashFlow]     = useState<CFRow[]>([]);
   const [dividends,  setDividends]  = useState<any[]>([]);
   const [insiders,   setInsiders]   = useState<any[]>([]);
   const [news,       setNews]       = useState<any[]>([]);
@@ -373,22 +576,28 @@ export function TickerDetailPage() {
         { data: vniData },
         { data: hnxData },
         { data: stockData },
+        { data: bsData },
+        { data: cfData },
       ] = await Promise.all([
         supabase.from("tickers").select("symbol,name,exchange,sector,in_vn30").eq("symbol", s).single(),
         supabase.from("prices_daily").select("date,open,high,low,close,volume").eq("symbol", s).order("date", { ascending: true }).limit(500),
-        supabase.from("financials_annual").select("year,revenue,net_profit,eps,pe_ratio,pb_ratio,roe,roa,debt_to_equity").eq("symbol", s).order("year", { ascending: true }).limit(10),
+        supabase.from("financials_annual").select("year,revenue,gross_profit,ebt,net_profit,eps,pe_ratio,pb_ratio,roe,roa,debt_to_equity,current_ratio").eq("symbol", s).order("year", { ascending: true }).limit(10),
         supabase.from("dividends").select("id,ex_date,payment_date,dividend_type,amount").eq("symbol", s).order("ex_date", { ascending: false }).limit(10),
         supabase.from("insider_transactions").select("id,trade_date,insider_name,trade_type,volume").eq("symbol", s).order("trade_date", { ascending: false }).limit(10),
         supabase.from("market_news").select("title,published_at,impact_score,label,article_url").contains("affected_symbols", [s]).neq("label", "trash").not("label", "is", null).order("published_at", { ascending: false }).limit(10),
         supabase.from("market_indices").select("date,close").eq("index_code", "VNINDEX").order("date", { ascending: true }).limit(500),
         supabase.from("market_indices").select("date,close").eq("index_code", "HNX").order("date", { ascending: true }).limit(500),
         supabase.from("stocks").select("symbol,name,sector_name,company_context").eq("symbol", s).single(),
+        supabase.from("balance_sheet").select("period,period_date,total_assets,cash,total_debt,equity,current_ratio").eq("symbol", s).order("period_date", { ascending: true }).limit(12),
+        supabase.from("cash_flow_statement").select("period,period_date,operating_cf,capex,fcf,net_cash_change").eq("symbol", s).order("period_date", { ascending: true }).limit(12),
       ]);
 
       if (!tickerData) { setError(`Không tìm thấy mã "${s}"`); setLoading(false); return; }
       setTicker(tickerData);
       setPrices(priceData ?? []);
       setFinancials((finData ?? []) as FinancialRow[]);
+      setBalanceSheet((bsData ?? []) as BSRow[]);
+      setCashFlow((cfData ?? []) as CFRow[]);
       setDividends(divData ?? []);
       setInsiders(insiderData ?? []);
       setNews(newsData ?? []);
@@ -453,8 +662,10 @@ export function TickerDetailPage() {
   const STOCK_C = stockPeriodPct >= 0 ? GREEN : RED;
 
   const FIN_TABS: { id: FinTab; icon: React.ElementType; label: string }[] = [
-    { id: "metrics", icon: BarChart2, label: "Chỉ số" },
-    { id: "income",  icon: BookOpen,  label: "Doanh thu" },
+    { id: "metrics",   icon: BarChart2,   label: "Chỉ số" },
+    { id: "income",    icon: BookOpen,    label: "Doanh thu" },
+    { id: "balance",   icon: Scale,       label: "Bảng cân đối" },
+    { id: "cashflow",  icon: TrendingUp,  label: "Dòng tiền" },
   ];
   const EXTRA_TABS: { id: "dividends" | "insiders" | "news"; icon: React.ElementType; label: string; count: number }[] = [
     { id: "dividends", icon: Coins,     label: "Cổ tức",  count: dividends.length },
@@ -700,9 +911,13 @@ export function TickerDetailPage() {
               })}
             </div>
             <div style={{ padding: "22px 24px" }}>
-              {financials.length === 0
+              {finTab === "balance"
+                ? <BalanceSheetPanel data={balanceSheet} />
+                : finTab === "cashflow"
+                ? <CashFlowPanel data={cashFlow} />
+                : financials.length === 0
                 ? <EmptyState message={`Chưa có dữ liệu tài chính cho ${sym}`} />
-                : <FinancialPanel key={finTab} data={financials} tab={finTab} />
+                : <FinancialPanel key={finTab} data={financials} tab={finTab as "metrics" | "income"} />
               }
             </div>
           </div>

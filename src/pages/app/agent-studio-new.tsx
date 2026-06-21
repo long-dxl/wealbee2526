@@ -750,14 +750,20 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
           {/* Schedule */}
           <Section id="trigger" label="Lịch chạy & Thông báo" icon={<Clock size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("trigger")} onToggle={() => toggleSection("trigger")} badge={runMode === "realtime" ? "Realtime" : frequency === "daily" ? "Hàng ngày" : frequency === "weekdays" ? "Ngày giao dịch" : frequency === "weekly" ? "Hàng tuần" : `${selectedDays.size} ngày/tuần`} isDark={isDark}>
             <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-              {([{ id: "realtime" as const, icon: <Zap size={13} strokeWidth={1.5} />, label: "Realtime", desc: "Chạy ngay khi có tín hiệu" }, { id: "scheduled" as const, icon: <Clock size={13} strokeWidth={1.5} />, label: "Theo lịch", desc: "Chạy theo giờ định sẵn" }]).map(m => (
-                <div key={m.id} onClick={() => setRunMode(m.id)} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, cursor: "pointer", textAlign: "center", border: runMode === m.id ? "1.5px solid " + brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.09)" : "rgba(8,73,172,0.12)"), background: runMode === m.id ? (isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.05)") : bgPanel, transition: "all 120ms ease" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 13, fontWeight: 700, color: runMode === m.id ? brand : fg, marginBottom: 2 }}>
-                    <span style={{ color: runMode === m.id ? brand : fgDisabled }}>{m.icon}</span>{m.label}
-                  </div>
-                  <div style={{ fontSize: 10, color: fgSubtle, lineHeight: 1.4 }}>{m.desc}</div>
+              {/* Realtime — disabled, coming soon */}
+              <div style={{ flex: 1, padding: "10px 12px", borderRadius: 10, cursor: "not-allowed", textAlign: "center", border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.06)" : "rgba(8,73,172,0.08)"), background: isDark ? "rgba(255,255,255,0.02)" : "rgba(26,26,46,0.02)", opacity: 0.6, position: "relative" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 13, fontWeight: 700, color: fgDisabled, marginBottom: 2 }}>
+                  <span style={{ color: fgDisabled }}><Zap size={13} strokeWidth={1.5} /></span>Realtime
                 </div>
-              ))}
+                <div style={{ fontSize: 10, color: fgDisabled, lineHeight: 1.4 }}>Đang phát triển</div>
+              </div>
+              {/* Scheduled */}
+              <div onClick={() => setRunMode("scheduled")} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, cursor: "pointer", textAlign: "center", border: "1.5px solid " + brand, background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.05)", transition: "all 120ms ease" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 13, fontWeight: 700, color: brand, marginBottom: 2 }}>
+                  <span style={{ color: brand }}><Clock size={13} strokeWidth={1.5} /></span>Theo lịch
+                </div>
+                <div style={{ fontSize: 10, color: fgSubtle, lineHeight: 1.4 }}>Chạy theo giờ định sẵn</div>
+              </div>
             </div>
 
             {runMode === "scheduled" && (

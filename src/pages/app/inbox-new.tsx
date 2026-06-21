@@ -228,6 +228,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
   const [filter, setFilter] = useState<"all" | "brief" | "alert">("all");
   const [emailSent, setEmailSent] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; brief: Brief } | null>(null);
 
   const fetchBriefs = async () => {
     setLoadingBriefs(true);
@@ -276,6 +277,16 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
 
   const filtered    = filter === "all" ? briefs : briefs.filter(b => b.agentName === filter);
   const unreadCount = briefs.filter(b => !b.read).length;
+
+  const handleDeleteBrief = async (brief: Brief) => {
+    setCtxMenu(null);
+    if (selected?.id === brief.id) setSelected(null);
+    setBriefs(prev => prev.filter(b => b.id !== brief.id));
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from("briefs").delete().eq("id", brief.id).eq("user_id", user.id);
+    }
+  };
 
   const open = async (brief: Brief) => {
     setSelected(brief);
@@ -495,7 +506,11 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
             <div
               key={brief.id}
               {...makeDragHandlers(dragCard)}
-              onClick={() => open(brief)}
+              onClick={() => { setCtxMenu(null); open(brief); }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setCtxMenu({ x: e.clientX, y: e.clientY, brief });
+              }}
               style={{
                 display: "flex", alignItems: "stretch",
                 borderBottom: idx < filtered.length - 1 ? `1px solid ${divider}` : "none",
@@ -582,6 +597,59 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
       </div>
 
       <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
+
+      {/* Context menu */}
+      {ctxMenu && (
+        <>
+          <div
+            onClick={() => setCtxMenu(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 999 }}
+          />
+          <div style={{
+            position: "fixed",
+            left: ctxMenu.x,
+            top: ctxMenu.y,
+            zIndex: 1000,
+            background: isDark ? "#1a2035" : "#ffffff",
+            border: `1px solid ${divider}`,
+            borderRadius: 10,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+            minWidth: 180,
+            overflow: "hidden",
+            fontFamily: "'Montserrat', system-ui, sans-serif",
+          }}>
+            <div style={{
+              padding: "8px 12px",
+              fontSize: 11,
+              color: fgSubtle,
+              borderBottom: `1px solid ${divider}`,
+              fontWeight: 600,
+              letterSpacing: "0.02em",
+            }}>
+              {ctxMenu.brief.title.length > 32 ? ctxMenu.brief.title.slice(0, 32) + "…" : ctxMenu.brief.title}
+            </div>
+            <button
+              onClick={() => handleDeleteBrief(ctxMenu.brief)}
+              style={{
+                display: "flex", alignItems: "center", gap: 9,
+                width: "100%", padding: "10px 14px",
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: 13, fontWeight: 600,
+                color: "#dc2626",
+                fontFamily: "'Montserrat', system-ui, sans-serif",
+                textAlign: "left",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(220,38,38,0.07)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "none"; }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+              </svg>
+              Xoá
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
