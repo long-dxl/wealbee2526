@@ -333,12 +333,14 @@ function FinancialPanel({ data, tab }: { data: FinancialRow[]; tab: "metrics" | 
 // ─── Balance Sheet Panel ──────────────────────────────────────────────────────
 
 type BSKey = keyof BSRow;
-const BS_ROWS: { label: string; key: BSKey; color: string; fmt: (v: number) => string }[] = [
-  { label: "Tổng tài sản",      key: "total_assets",  color: "#4D8FE8", fmt: v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : `${v.toFixed(0)}` },
-  { label: "Tiền và tương đương",key: "cash",          color: GREEN,     fmt: v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : `${v.toFixed(0)}` },
-  { label: "Tổng nợ phải trả",  key: "total_debt",    color: RED,       fmt: v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : `${v.toFixed(0)}` },
-  { label: "Vốn chủ sở hữu",   key: "equity",        color: "#8B5CF6", fmt: v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : `${v.toFixed(0)}` },
-  { label: "Current Ratio",     key: "current_ratio", color: "#F59E0B", fmt: v => v.toFixed(2) },
+const fmtTy = (v: number) => Math.round(v).toLocaleString("vi-VN");
+
+const BS_ROWS: { label: string; key: BSKey; fmt: (v: number) => string }[] = [
+  { label: "Tổng tài sản",       key: "total_assets",  fmt: fmtTy },
+  { label: "Tiền và tương đương", key: "cash",          fmt: fmtTy },
+  { label: "Tổng nợ phải trả",   key: "total_debt",    fmt: fmtTy },
+  { label: "Vốn chủ sở hữu",     key: "equity",        fmt: fmtTy },
+  { label: "Current Ratio",       key: "current_ratio", fmt: v => v.toFixed(2) },
 ];
 
 function BalanceSheetPanel({ data }: { data: BSRow[] }) {
@@ -367,7 +369,7 @@ function BalanceSheetPanel({ data }: { data: BSRow[] }) {
               <XAxis dataKey="period" tick={{ fontSize: 10, fill: tk.MUTED }} tickLine={false} axisLine={false} />
               <YAxis hide />
               <Tooltip content={<FinTooltip unit="tỷ" />} />
-              <Bar dataKey="value" fill={activeRow.color} radius={[4,4,0,0]} />
+              <Bar dataKey="value" fill={tk.ACCENT_BAR} radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -390,16 +392,16 @@ function BalanceSheetPanel({ data }: { data: BSRow[] }) {
               return (
                 <tr key={row.key} onClick={() => setActiveKey(row.key)}
                   style={{ background: isActive ? tk.ACCENT_HL : i % 2 === 0 ? "transparent" : tk.ROW_HOV, borderBottom: `0.5px solid ${tk.BORDER}`, cursor: "pointer" }}>
-                  <td style={{ padding: "11px 16px", fontSize: 13, color: isActive ? row.color : tk.TEXT, fontWeight: isActive ? 700 : 500 }}>
+                  <td style={{ padding: "11px 16px", fontSize: 13, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 700 : 500 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {isActive && <div style={{ width: 3, height: 16, background: row.color, borderRadius: 2 }} />}
+                      {isActive && <div style={{ width: 3, height: 16, background: tk.ACCENT_BAR, borderRadius: 2 }} />}
                       {row.label}
                     </div>
                   </td>
                   {recent.map(r => {
                     const val = r[row.key] as number | null;
                     return (
-                      <td key={r.period} style={{ padding: "11px 10px", textAlign: "right", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? row.color : tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                      <td key={r.period} style={{ padding: "11px 10px", textAlign: "right", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                         {val != null ? row.fmt(val) : "—"}
                       </td>
                     );
@@ -418,11 +420,11 @@ function BalanceSheetPanel({ data }: { data: BSRow[] }) {
 // ─── Cash Flow Panel ──────────────────────────────────────────────────────────
 
 type CFKey = keyof CFRow;
-const CF_ROWS: { label: string; key: CFKey; color: string }[] = [
-  { label: "CF hoạt động kinh doanh", key: "operating_cf",    color: "#4D8FE8" },
-  { label: "Dòng tiền tự do (FCF)",   key: "fcf",             color: GREEN },
-  { label: "CapEx",                   key: "capex",           color: RED },
-  { label: "Biến động tiền thuần",    key: "net_cash_change", color: "#F59E0B" },
+const CF_ROWS: { label: string; key: CFKey }[] = [
+  { label: "CF hoạt động kinh doanh", key: "operating_cf"    },
+  { label: "Dòng tiền tự do (FCF)",   key: "fcf"             },
+  { label: "CapEx",                   key: "capex"           },
+  { label: "Biến động tiền thuần",    key: "net_cash_change" },
 ];
 
 function CashFlowPanel({ data }: { data: CFRow[] }) {
@@ -434,7 +436,8 @@ function CashFlowPanel({ data }: { data: CFRow[] }) {
   const recent = [...data].sort((a, b) => a.period_date.localeCompare(b.period_date)).slice(-8);
   const activeRow = CF_ROWS.find(r => r.key === activeKey)!;
 
-  const fmtTy = (v: number | null) => v == null ? "—" : v < 0 ? `(${Math.abs(v).toFixed(0)})` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : `${v.toFixed(0)}`;
+  const fmtCF = (v: number | null) => v == null ? "—"
+    : `${v < 0 ? "-" : ""}${Math.round(Math.abs(v)).toLocaleString("vi-VN")}`;
   const colorOf = (v: number | null) => v == null ? tk.MUTED : v >= 0 ? GREEN : RED;
 
   const chartData = recent.map(r => ({
@@ -455,7 +458,7 @@ function CashFlowPanel({ data }: { data: CFRow[] }) {
               <YAxis hide />
               <ReferenceLine y={0} stroke={tk.REF_STROKE} />
               <Tooltip content={<FinTooltip unit="tỷ" />} />
-              <Bar dataKey="value" fill={activeRow.color} radius={[4,4,0,0]} />
+              <Bar dataKey="value" fill={tk.ACCENT_BAR} radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -478,17 +481,17 @@ function CashFlowPanel({ data }: { data: CFRow[] }) {
               return (
                 <tr key={row.key} onClick={() => setActiveKey(row.key)}
                   style={{ background: isActive ? tk.ACCENT_HL : i % 2 === 0 ? "transparent" : tk.ROW_HOV, borderBottom: `0.5px solid ${tk.BORDER}`, cursor: "pointer" }}>
-                  <td style={{ padding: "11px 16px", fontSize: 13, color: isActive ? row.color : tk.TEXT, fontWeight: isActive ? 700 : 500 }}>
+                  <td style={{ padding: "11px 16px", fontSize: 13, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 700 : 500 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {isActive && <div style={{ width: 3, height: 16, background: row.color, borderRadius: 2 }} />}
+                      {isActive && <div style={{ width: 3, height: 16, background: tk.ACCENT_BAR, borderRadius: 2 }} />}
                       {row.label}
                     </div>
                   </td>
                   {recent.map(r => {
                     const val = r[row.key] as number | null;
                     return (
-                      <td key={r.period} style={{ padding: "11px 10px", textAlign: "right", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? row.color : colorOf(val), fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                        {fmtTy(val)}
+                      <td key={r.period} style={{ padding: "11px 10px", textAlign: "right", fontSize: 13, fontWeight: isActive ? 700 : 400, color: isActive ? tk.ACCENT_TEXT : colorOf(val), fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                        {fmtCF(val)}
                       </td>
                     );
                   })}
