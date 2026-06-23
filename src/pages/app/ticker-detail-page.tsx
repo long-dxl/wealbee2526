@@ -10,7 +10,9 @@ import { useParams, useNavigate, useOutletContext } from "react-router";
 import {
   ArrowLeft, ExternalLink, BarChart2, BookOpen,
   RefreshCw, AlertCircle, Info, Users, Coins, Newspaper, Scale, TrendingUp,
+  Building2,
 } from "lucide-react";
+import { VN30_PROFILES } from "../../data/vn30-profiles";
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
@@ -226,11 +228,10 @@ const TAB_CONFIG: Record<"metrics" | "income", { icon: React.ElementType; label:
   income: {
     icon: BookOpen, label: "Doanh thu", unit: "tỷ",
     rows: [
-      { label: "Doanh thu",            key: "revenue",      fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
-      { label: "Lợi nhuận gộp",        key: "gross_profit", fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
-      { label: "Lợi nhuận trước thuế", key: "ebt",          fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
-      { label: "Lợi nhuận sau thuế",   key: "net_profit",   fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
-      { label: "EPS (đồng)",           key: "eps",          fmt: v => fmtN(Math.round(v)),        unit: "đ" },
+      { label: "Doanh thu",          key: "revenue",      fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "Lợi nhuận gộp",      key: "gross_profit", fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "Lợi nhuận sau thuế", key: "net_profit",   fmt: v => fmtN(Math.round(v / 1e9)), unit: "tỷ" },
+      { label: "EPS (đồng)",         key: "eps",          fmt: v => fmtN(Math.round(v)),        unit: "đ" },
     ],
   },
 };
@@ -533,6 +534,7 @@ export function TickerDetailPage() {
   const [showVni,    setShowVni]    = useState(true);
   const [showHnx,    setShowHnx]    = useState(true);
   const [extraTab,   setExtraTab]   = useState<"dividends" | "insiders" | "news">("dividends");
+  const [aboutExpanded, setAboutExpanded] = useState(false);
 
   const sym = symbol?.toUpperCase() ?? "";
 
@@ -760,49 +762,151 @@ export function TickerDetailPage() {
         {/* ── Body ─────────────────────────────────────────────────────────── */}
         <div style={{ maxWidth: 1080, margin: "0 auto", padding: "24px 32px" }}>
 
-          {/* 2-col: ticker info + price metrics */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+          {/* 2-col: company info + price */}
+          {(() => {
+            const profile = VN30_PROFILES[ticker.symbol];
+            const latestFin = financials.length > 0 ? financials[financials.length - 1] : null;
 
-            {/* Ticker info */}
-            <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, padding: "20px 22px" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: tk.TEXT, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Thông tin mã</div>
-              <InfoRow label="Sàn giao dịch" value={ticker.exchange} />
-              <InfoRow label="Ngành"         value={ticker.sector ?? "—"} />
-              <InfoRow label="Trong VN30"    value={ticker.in_vn30 ? "Có" : "Không"} />
-              {financials.length > 0 && (
-                <>
-                  <InfoRow label="P/E (mới nhất)" value={financials[financials.length - 1]?.pe_ratio?.toFixed(1) ?? "—"} />
-                  <InfoRow label="P/B (mới nhất)" value={financials[financials.length - 1]?.pb_ratio?.toFixed(2) ?? "—"} />
-                  <InfoRow label="ROE (mới nhất)" value={financials[financials.length - 1]?.roe != null ? `${(financials[financials.length - 1].roe! * 100).toFixed(1)}%` : "—"} />
-                </>
-              )}
-            </div>
+            // 52-week high/low from prices array
+            const oneYearAgo = new Date(); oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+            const cutStr52 = oneYearAgo.toISOString().slice(0, 10);
+            const yrPrices = prices.filter(p => p.date >= cutStr52);
+            const yr52High = yrPrices.length ? Math.max(...yrPrices.map(p => Number(p.high))) : null;
+            const yr52Low  = yrPrices.length ? Math.min(...yrPrices.map(p => Number(p.low)))  : null;
 
-            {/* Price metrics */}
-            <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, padding: "20px 22px" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: tk.TEXT, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Thông tin giá</div>
-              {latest ? (
-                <>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-                    <MetricPill label="Giá đóng cửa"  value={`${latest.close.toLocaleString("vi-VN")} đ`} />
-                    <MetricPill label="Khối lượng"    value={`${(latest.volume / 1e6).toFixed(2)}M`} />
-                    <MetricPill label="Mở cửa"        value={`${Number(latest.open).toLocaleString("vi-VN")} đ`} />
-                    <MetricPill label="Phiên"         value={fmtDate(latest.date)} />
+            const divider = <div style={{ height: 1, background: tk.BORDER, margin: "16px 0" }} />;
+
+            const InfoField = ({ label, value }: { label: string; value: string }) => (
+              <div>
+                <div style={{ fontSize: 11, color: tk.MUTED, marginBottom: 3 }}>{label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: tk.TEXT }}>{value || "—"}</div>
+              </div>
+            );
+
+            const PriceField = ({ label, value, color }: { label: string; value: string; color?: string }) => (
+              <div>
+                <div style={{ fontSize: 11, color: tk.MUTED, marginBottom: 3 }}>{label}</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: color ?? tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif", letterSpacing: "-0.5px" }}>{value}</div>
+              </div>
+            );
+
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+
+                {/* Company Info card */}
+                <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, padding: "20px 22px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                    <Building2 size={14} color={tk.MUTED} strokeWidth={2} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: tk.TEXT }}>Thông tin doanh nghiệp</span>
                   </div>
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, color: tk.MUTED, marginBottom: 10 }}>Biên độ trong phiên</div>
-                    <RangeBar low={Number(latest.low)} high={Number(latest.high)} current={Number(latest.close)} />
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 20px" }}>
+                    <InfoField label="Sàn giao dịch" value={ticker.exchange ?? profile?.exchange ?? "—"} />
+                    <InfoField label="Ngành" value={ticker.sector ?? "—"} />
+                    <InfoField label="Quốc gia" value="Việt Nam" />
+                    <InfoField label="Thành lập" value={profile?.founded ? `Năm ${profile.founded}` : "—"} />
+                    <InfoField label="Ngày niêm yết" value={profile?.listed ? `${profile.listed} (HOSE)` : "—"} />
+                    <InfoField label="Trong VN30" value={ticker.in_vn30 ? "Có" : "Không"} />
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                    <MetricPill label="Cao nhất"  value={`${Number(latest.high).toLocaleString("vi-VN")} đ`} />
-                    <MetricPill label="Thấp nhất" value={`${Number(latest.low).toLocaleString("vi-VN")} đ`} />
+
+                  {latestFin && (
+                    <>
+                      {divider}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px 8px" }}>
+                        {[
+                          { label: "P/E", val: latestFin.pe_ratio?.toFixed(1) ?? "—" },
+                          { label: "P/B", val: latestFin.pb_ratio?.toFixed(2) ?? "—" },
+                          { label: "ROE", val: latestFin.roe != null ? `${(latestFin.roe * 100).toFixed(1)}%` : "—" },
+                        ].map(m => (
+                          <div key={m.label} style={{ textAlign: "center", background: tk.CARD2, borderRadius: 10, padding: "10px 8px" }}>
+                            <div style={{ fontSize: 10, color: tk.MUTED, marginBottom: 4 }}>{m.label}</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: tk.ACCENT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{m.val}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {profile?.about && (
+                    <>
+                      {divider}
+                      <div style={{ fontSize: 11, fontWeight: 700, color: tk.MUTED, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Về công ty</div>
+                      <div style={{ fontSize: 12.5, color: tk.TEXT, lineHeight: 1.65, opacity: 0.85 }}>
+                        {aboutExpanded || profile.about.length <= 280
+                          ? profile.about
+                          : profile.about.slice(0, 280) + "..."}
+                      </div>
+                      {profile.about.length > 280 && (
+                        <button
+                          onClick={() => setAboutExpanded(e => !e)}
+                          style={{ marginTop: 8, fontSize: 11.5, fontWeight: 700, color: tk.ACCENT_TEXT, background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: FONT }}
+                        >
+                          {aboutExpanded ? "Thu gọn ↑" : "Xem thêm →"}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Price card */}
+                <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, padding: "20px 22px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                    <TrendingUp size={14} color={tk.MUTED} strokeWidth={2} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: tk.TEXT }}>Giá</span>
                   </div>
-                </>
-              ) : (
-                <EmptyState message="Chưa có dữ liệu giá" />
-              )}
-            </div>
-          </div>
+
+                  {latest ? (
+                    <>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 20px" }}>
+                        <PriceField label="Giá đóng cửa" value={`${Number(latest.close).toLocaleString("vi-VN")} đ`} />
+                        <PriceField
+                          label="Thay đổi"
+                          value={chgAbs != null ? `${chgAbs > 0 ? "+" : ""}${chgAbs.toLocaleString("vi-VN")} đ` : "—"}
+                          color={isUp === true ? GREEN : isUp === false ? RED : tk.TEXT}
+                        />
+                        <PriceField
+                          label="Thay đổi %"
+                          value={chgPct != null ? `${chgPct > 0 ? "+" : ""}${chgPct.toFixed(2)}%` : "—"}
+                          color={isUp === true ? GREEN : isUp === false ? RED : tk.TEXT}
+                        />
+                        <PriceField
+                          label="Khối lượng"
+                          value={latest.volume >= 1e6 ? `${(latest.volume / 1e6).toFixed(2)}M` : latest.volume.toLocaleString("vi-VN")}
+                        />
+                      </div>
+
+                      {divider}
+
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <span style={{ fontSize: 11, color: tk.MUTED }}>Biên độ trong ngày</span>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: tk.TEXT }}>
+                            {Number(latest.low).toLocaleString("vi-VN")} – {Number(latest.high).toLocaleString("vi-VN")}
+                          </span>
+                        </div>
+                        <RangeBar low={Number(latest.low)} high={Number(latest.high)} current={Number(latest.close)} />
+                      </div>
+
+                      {yr52Low != null && yr52High != null && (
+                        <div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <span style={{ fontSize: 11, color: tk.MUTED }}>Biên độ 52 tuần</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: tk.TEXT }}>
+                              {yr52Low.toLocaleString("vi-VN")} – {yr52High.toLocaleString("vi-VN")}
+                            </span>
+                          </div>
+                          <RangeBar low={yr52Low} high={yr52High} current={Number(latest.close)} />
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <EmptyState message="Chưa có dữ liệu giá" />
+                  )}
+                </div>
+
+              </div>
+            );
+          })()}
 
           {/* ── Price chart card (always visible) ─────────────────────────── */}
           <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, overflow: "hidden", marginBottom: 14 }}>

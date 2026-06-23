@@ -1,0 +1,223 @@
+// AUTO-GENERATED from VN30.md — do not edit manually
+export interface VN30CompanyProfile {
+  about: string;
+  founded: string;
+  listed: string;
+  exchange: string;
+  products: string[];
+}
+
+export const VN30_PROFILES: Record<string, VN30CompanyProfile> = {
+  ACB: {
+    about: `Ngân hàng Thương mại Cổ phần Á Châu (ACB) được thành lập năm 1993. Ngân hàng hoạt động trong lĩnh vực huy động, kinh doanh vốn và cung cấp các dịch vụ tài chính liên quan. Năm 2025, so với cùng kỳ, biên lãi thuần (NIM) ở mức 2.92%, giảm 0.68%. Tỷ lệ nợ xấu ở mức 0.97%, giảm 0.52%. Tỷ lệ bao phủ nợ xấu ở mức 114.29%, tăng 36.37%. Lợi nhuận sau thuế công ty mẹ có giá trị bằng 15,6 nghìn tỷ đồng, giảm 6.94%. Tỷ suất lợi nhuận trên vốn chủ sở hữu (ROE) ở mức 17.56%, giảm 4.19%. Ngày 09/12/2020, ACB chính thức giao dịch trên Sở Giao dịch Chứng khoán Thành phố Hồ Chí Minh (HOSE).`,
+    founded: "1993",
+    listed: "12/2020",
+    exchange: "HOSE",
+    products: ["Huy động vốn (nhận tiền gửi của khách hàng) bằng đồng Việt Nam, ngoại tệ và vàng", "Sử dụng vốn (cung cấp tín dụng, đầu tư, hùn vốn liên doanh) bằng đồng Việt Nam, ngoại tệ và vàng", "Các dịch vụ trung gian (thực hiện thanh toán trong và ngoài nước, thực hiện dịch vụ ngân quỹ, chuyển tiền kiều hối và chuyển tiền nhanh, bảo hiểm nhân thọ qua ngân hàng.", "Kinh doanh ngoại tệ và vàng.", "Phát hành và thanh toán thẻ tín dụng, thẻ ghi nợ.", "Cung cấp các sản phẩm - dịch vụ hỗ trợ du học với uy tín và chất lượng dịch vụ cao."],
+  },
+  BCM: {
+    about: `Tập đoàn Đầu tư và Phát triển Công nghiệp Becamex - CTCP (BCM) có tiền thân là Công ty Thương Nghiệp Tổng Hợp Bến Cát (Becamex), được thành lập vào năm 1976. Tổng công ty hoạt động trong lĩnh vực đầu tư phát triển công nghiệp - đô thị, xây dựng dân dụng - công nghiệp - giao thông. BCM mang đến cho các nhà đầu tư mô hình công nghiệp hóa tiên tiến thông qua Khu công nghiệp Khoa học và Công nghệ (Science and Technology Industrial Park – STIP) 21 KCN, hiện diện tại 15 tỉnh thành cả nước, với mạng lưới 26 doanh nghiệp thành viên trong nhiều lĩnh vực (Y tế, giáo dục, viễn thông, năng lượng, hạ tầng…).`,
+    founded: "1976",
+    listed: "07/2020",
+    exchange: "HOSE",
+    products: ["Phát triển và kinh doanh các khu công nghiệp và đô thị", "Phát triển cơ sở hạ tầng giao thông", "Phát triển đô thị và dịch vụ", "Phát triển nhà ở xã hội", "Đầu tư phát triển giáo dục - y tế", "Phát triển thành phố thông minh (Smart city)"],
+  },
+  BID: {
+    about: `Ngân hàng Thương mại Cổ phần Đầu tư và Phát triển Việt Nam (BIDV), có tiền thân là Ngân hàng Kiến thiết Việt Nam trực thuộc Bộ Tài chính được thành lập vào năm 1957. Ngân hàng hoạt động trong lĩnh vực huy động và kinh doanh vốn, và cung cấp các dịch vụ tài chính liên quan. BIDV chính thức hoạt động theo hình thức ngân hàng thương mại cổ phần từ năm 2012.
+
+BIDV được niêm yết trên Sở Giao dịch Chứng khoán Thành phố Hồ Chí Minh (HOSE) từ năm 2014. Kết thúc năm 2025, BIDV tiếp tục giữ vững vị thế là ngân hàng thương mại cổ phần có quy mô lớn nhất Việt Nam với tổng tài sản riêng khối ngân hàng thương mại đạt 3.3 triệu tỷ đồng.`,
+    founded: "1957",
+    listed: "2014",
+    exchange: "HOSE",
+    products: [],
+  },
+  BVH: {
+    about: `Tập đoàn Bảo Việt (BVH) có tiền thân là Công ty Bảo hiểm Việt Nam được thành lập năm 1964. Từ năm 2008 đi vào hoạt động theo mô hình Tập đoàn. Tập đoàn Bảo Việt hoạt động hầu hết tất cả các lĩnh vực trong ngành tài chính như bảo hiểm, ngân hàng, chứng khoán, quản lý quỹ, đầu tư bất động sản. Trong đó bảo hiểm vẫn là ngành nghề kinh doanh chủ đạo của Tập đoàn. Tại Việt Nam, BVH hiện giữ vị trí số 1 trên thị trường bảo hiểm nhân thọ và thị trường bảo hiểm phi nhân thọ. BVH cung cấp cho khách hàng danh mục sản phẩm đa dạng với 100 sản phẩm bảo hiểm phi nhân thọ, và 74 sản phẩm bảo hiểm nhân thọ.`,
+    founded: "1964",
+    listed: "",
+    exchange: "HOSE",
+    products: ["Bảo hiểm nhân thọ", "Bảo hiểm phi nhân thọ", "Tái bảo hiểm nhân thọ và phi nhân thọ", "Tư vấn đầu tư, quản lý quỹ, đầu tư chứng khoán", "Ngân hàng", "Kinh doanh bất động sản."],
+  },
+  CTG: {
+    about: `Ngân hàng Thương mại Cổ phần Công thương Việt Nam (VietinBank) được thành lập từ năm 1988 sau khi tách ra từ Ngân hàng Nhà nước Việt Nam. Ngân hàng hoạt động trong lĩnh vực huy động và kinh doanh vốn, và cung cấp các dịch vụ tài chính liên quan. VietinBank chính thức hoạt động theo mô hình ngân hàng cổ phần từ năm 2009. VietinBank được niêm yết và giao dịch trên Sở Giao dịch Chứng khoán Thành phố Hồ Chí Minh (HOSE) từ năm 2009. Năm 2025, so với cùng kỳ, biên lãi thuần (NIM) ở mức 2.62%, giảm 0.26%. Tỷ lệ nợ xấu ở mức 1.1%, giảm 0.12%. Tỷ lệ bao phủ nợ xấu ở mức 158.83%, giảm 15.84%. Lợi nhuận sau thuế công ty mẹ có giá trị bằng 34,6 nghìn tỷ đồng, tăng 36.52%.`,
+    founded: "",
+    listed: "2009",
+    exchange: "HOSE",
+    products: ["Dịch vụ ngân hàng bán buôn và bán lẻ trong và ngoài nước.", "Cho vay và đầu tư, tài trợ thương mại, bảo lãnh và tái bảo lãnh.", "Kinh doanh ngoại hối, tiền gửi, thanh toán, chuyển tiền, dịch vụ thẻ, phát hành và thanh toán thẻ tín dụng trong nước và quốc tế, séc du lịch.", "Kinh doanh chứng khoán, bảo hiểm, cho thuê tài chính và nhiều dịch vụ tài chính - ngân hàng khác."],
+  },
+  FPT: {
+    about: `Công ty Cổ phần FPT (FPT) có tiền thân là Công ty Công nghệ Thực phẩm được thành lập năm 1988. Công ty hoạt động chính trong lĩnh vực phần mềm, công nghệ thông tin, tích hợp hệ thống, viễn thông, và giáo dục đào tạo. FPT chính thức hoạt động theo mô hình công ty cổ phần từ năm 2002. FPT là tập đoàn công nghệ và dịch vụ CNTT có hiện diện tại hơn 30 quốc gia và vùng lãnh thổ trên 4 châu lục. Doanh nghiệp tập trung vào các mảng công nghệ chiến lược như AI, điện toán đám mây, bán dẫn, an ninh mạng và dữ liệu, đồng thời vận hành trung tâm dữ liệu quy mô 10.000 m² cùng các nhà máy AI tại Việt Nam và Nhật Bản.`,
+    founded: "1988",
+    listed: "12/2006",
+    exchange: "HOSE",
+    products: ["Giải pháp, dịch vụ chuyển đổi số dựa trên công nghệ: AI, RPA, IoT, BigData, Cloud , …", "Giải pháp, dịch vụ chuyên sâu cho các lĩnh vực: Ngân hàng – Tài chính, Tài chính công, Viễn thông, Y tế, Giao thông vận tải, Điện, Nước, Gas , …", "Tích hợp, chuyển đổi hệ thống công nghệ.", "Giải pháp dựa trên các nền tảng công nghệ: SAP, Oracle, Microsoft, ESRI.", "Dịch vụ kiểm thử và đảm bảo chất lượng phần mềm.", "Thiết kế vi mạch, sản xuất phần mềm nhúng, CAD/CAE…"],
+  },
+  GAS: {
+    about: `Tổng Công ty Khí Việt Nam-CTCP (GAS) có tiền thân là Công ty Khí đốt được thành lập vào năm 1990, là đơn vị thành viên thuộc Tập Đoàn Dầu Khí Quốc gia Việt Nam. GAS chủ yếu hoạt động trong lĩnh vực thu gom, vận chuyển, lưu trữ, chế biến, xuất khẩu, nhập khẩu, kinh doanh khí và các sản phẩm khí. Công ty hiện đang vận hành 3 hệ thống đường ống khí Cửu Long, Nam côn Sơn ở miền Đông Nam và PM3 ở vùng Tây Nam và 2 nhà máy chế biến khí là Dinh Cổ và Nam Côn Sơn ở khu vực Đông Nam và hệ thống Kho LPG rộng khắp cả nước. GAS có năng lực sản xuất 450.000 - 500.000 tấn LPG/năm và 70.000 tấn condensate/năm. Tổng Công ty giữ vị thế số 1 về cung cấp LPG với hơn 70% thị phần trên thị trường LPG Việt Nam.`,
+    founded: "1990",
+    listed: "2012",
+    exchange: "HOSE",
+    products: ["Thu gom, vận chuyển, tàng trữ, chế biến buôn bán, xuất khẩu và nhập khẩu khí và sản phẩm khí: khí LNG, CNG, LPG, Condensate.", "Đầu tư cơ sở hạ tầng hệ thống phân phối sản phẩm khí khô, khí lỏng.", "Tiêu thụ tất cả LPG sản xuất tại các nhà máy lọc dầu trong nước và các nguồn khác của Tập đoàn Dầu Khí quốc gia Việt Nam.", "Cung cấp dịch vụ trong lĩnh vực khí, vận tải khí và các sản phẩm khí, điều hành các dự án khí, cung cấp ống thép và vỏ ống."],
+  },
+  GVR: {
+    about: `Tập đoàn Công nghiệp Cao su Việt Nam (GVR) có tiền thân là Tổng Công ty Cao su Việt Nam, được thành lập vào năm 1995. Tập đoàn hoạt động chính trong lĩnh vực trồng, khai thác, chế biến và kinh doanh sản phẩm từ cây cao su. VRG là một trong những doanh nghiệp có quy mô lớn trong ngành cao su tại Việt Nam, hiện quản lý khoảng 377.797 ha cao su tại Việt Nam, Lào và Campuchia. Doanh nghiệp sở hữu hệ thống khoảng 60 nhà máy và xưởng chế biến mủ cao su với tổng công suất thiết kế khoảng 661.900 tấn/năm, đồng thời mở rộng hoạt động sang chế biến gỗ, khu công nghiệp và năng lượng tái tạo.`,
+    founded: "1995",
+    listed: "03/2020",
+    exchange: "HOSE",
+    products: ["Trồng, chế biến, kinh doanh cao su, chế biến gỗ nhân tạo, công nghiệp cao su", "Đầu tư kinh doanh các khu công nghiệp trên đất cao su của Tập đoàn chuyển đổi theo quy hoạch sử dụng đất được Chính phủ phê duyệt", "Đầu tư tài chính và kinh doanh vốn Nhà nước giao cho Tập đoàn", "Tổ chức nghiên cứu, tư vấn chuyển giao kỹ thuật công nghệ trong sản xuất, chế biến kinh doanh các sản phẩm từ cây cao su, cây rừng trồng."],
+  },
+  HDB: {
+    about: `Ngân hàng Thương mại Cổ phần Phát Triển Thành phố Hồ Chí Minh (HDB) có tiền thân là Ngân hàng Phát triển Nhà Thành phố Hồ Chí Minh được thành lập vào năm 1989. Ngân hàng hoạt động chính trong lĩnh vực huy động vốn và cho vay tín dụng. HDB lần lượt được niêm yết và giao dịch trên Sở Giao dịch Chứng khoán Thành phố Hồ Chí Minh (HOSE) từ cuối năm 2017 và đầu năm 2018. Năm 2025, so với cùng kỳ, biên lãi thuần (NIM) ở mức 4.53%, giảm 0.67%. Tỷ lệ nợ xấu ở mức 2.44%, tăng 0.5%. Tỷ lệ bao phủ nợ xấu ở mức 54.8%, giảm 13.91%. Lợi nhuận sau thuế công ty mẹ có giá trị bằng 16,5 nghìn tỷ đồng, tăng 29.47%.`,
+    founded: "1989",
+    listed: "2017",
+    exchange: "HOSE",
+    products: ["Huy động vốn", "Cấp tín dụng", "Liên kết và đầu tư tài chính", "Kinh doanh ngoại hối", "Thanh toán quốc tế", "Quản lý rủi ro và bảo toàn vốn"],
+  },
+  HPG: {
+    about: `Công ty Cổ phần Tập đoàn Hoà Phát (HPG) là một trong những Tập đoàn sản xuất công nghiệp đa ngành tại Việt Nam. Khởi đầu từ một Công ty chuyên buôn bán các loại máy xây dựng từ tháng 8/1992, hiện tại Tập đoàn Hòa Phát hoạt động chủ yếu trong các lĩnh vực gang thép, sản phẩm thép, điện máy gia dụng, nông nghiệp và bất động sản. Trong đó, lĩnh vực Thép đóng vai trò chủ đạo và là mảng kinh doanh cốt lõi của tập đoàn với việc đóng góp hơn 90% doanh thu và lợi nhuận. HPG hiện là nhà sản xuất thép lớn nhất Việt Nam cũng như khu vực Đông Nam Á với công suất đạt 16 triệu tấn/ năm.`,
+    founded: "",
+    listed: "2007",
+    exchange: "HOSE",
+    products: ["Sản xuất và kinh doanh thép, óng thép, tôn mạ", "Kinh doanh thiết bị phụ tùng", "Kinh doanh nội thất", "Kinh doanh điện lạnh", "Đầu tư phát triển kinh doanh hạ tầng khu công nghiệp, bất động sản thương mại nhà ở", "Sản xuất chế biến thức ăn chăn nuôi, chăn nuôi heo, bò và gia cầm"],
+  },
+  LPB: {
+    about: `Ngân hàng Thương mại Cổ phần Lộc Phát Việt Nam (LPB) được thành lập vào năm 2008, một trong những ngân hàng mới với hiệu suất cao trong lĩnh vực ngân hàng Việt Nam. Ngân hàng được sáp nhập với Công ty Dịch vụ Tiết kiệm Bưu điện - VPSC (một công ty con của VNPT), được đổi tên thành Ngân hàng Bưu điện Liên Việt. Ngân hàng có quan hệ đối tác với các Tổ chức quốc gia và quốc tế như: (i) các tổ chức quốc gia Viettel, EVN, (ii) La Poste Group, Viện tiết kiệm Ngân hàng thế giới, Cơ quan Thương mại và Phát triển Mỹ (USTDA), JP Morgan Chase, Wells Fargo và Ngân hàng Công thương Trung Quốc (ICBC). Năm 2025, so với cùng kỳ, biên lãi thuần (NIM) ở mức 2.92%, giảm 0.6%.`,
+    founded: "2008",
+    listed: "10/2020",
+    exchange: "HOSE",
+    products: ["Huy động vốn", "Cấp tín dụng", "Dịch vụ thanh toán", "Trung gian tiền tệ."],
+  },
+  MBB: {
+    about: `Ngân hàng Thương mại Cổ phần Quân đội (MBB) được thành lập từ năm 1994 với mục tiêu ban đầu là đáp ứng nhu cầu dịch vụ tài chính cho các Doanh nghiệp Quân đội. Ngân hàng hoạt động trong lĩnh vực huy động vốn, cấp tín dụng và các dịch vụ tài chính liên quan. Bên cạnh thị trường truyền thống ban đầu, Ngân hàng đã phát triển và đa dạng hóa nhiều sản phẩm dịch vụ tài chính để đáp ứng cho các đối tượng khách hàng khác nhau. Năm 2025, so với cùng kỳ, biên lãi thuần (NIM) ở mức 3.87%, giảm 0.21%. Tỷ lệ nợ xấu ở mức 1.29%, giảm 0.33%. Tỷ lệ bao phủ nợ xấu ở mức 93.75%, tăng 1.5%. Lợi nhuận sau thuế công ty mẹ có giá trị bằng 26,8 nghìn tỷ đồng, tăng 18.31%.`,
+    founded: "",
+    listed: "",
+    exchange: "HOSE",
+    products: ["Kinh doanh ngân hàng theo quy định của Thống đốc Ngân hàng Nhà nước Việt Nam.", "Cung ứng sản phẩm phái sinh theo quy định của pháp luật.", "Đại lí bảo hiểm và các dịch vụ liên quan khác theo quy định của pháp luật.", "Kinh doanh trái phiếu và các giấy tờ có giá khác theo quy định của pháp luật.", "Mua bán, gia công, chế tác vàng."],
+  },
+  MSN: {
+    about: `Công ty Cổ phần Tập đoàn Masan (MSN) có tiền thân là Công ty Cổ phần Hàng hải Ma San được thành lập vào năm 2004. MSN là công ty quản lý vốn đầu tư và tài sản, chủ yếu là các cổ phần của những công ty khác, hiện nay bao gồm cổ phần của Công ty Cổ phần Thực phẩm Ma San (Masan Food) và Ngân hàng Thương mại cổ phần Kỹ thương Việt Nam (Techcombank). MSN là nhà cung cấp vonfram và bismut lớn nhất bên ngoài Trung Quốc và nhà cung cấp đơn nhất về florit cấp axit lớn thứ 2 bên ngoài Trung Quốc. MSN là công ty sản xuất đạm động vật lớn nhất Việt Nam sở hữu thương hiệu Bio-zeem, dẫn đầu trong lĩnh vực thức ăn chăn nuôi.`,
+    founded: "2004",
+    listed: "2009",
+    exchange: "HOSE",
+    products: ["Nghiên cứu thị trường, sàng lọc các cơ hội kinh doanh mới và đánh giá chiến lược thâm nhập vào nhiều ngành nghề; Các hoạt động tư vấn quản lý, tư vấn đầu tư (trừ tư vấn tài chính – kế toán)…", "Tăng vốn để tài trợ cho hoạt động kinh doanh hiện nay và những khoản đầu tư mới", "Điều hành các công ty con và công ty liên kết, đồng thời tư vấn kế hoạch phát triển chiến lược."],
+  },
+  MWG: {
+    about: `Công ty Cổ phần Đầu tư Thế Giới Di Động (MWG) được thành lập từ tháng 03/2004, với tiền thân là Công ty TNHH Thế Giới Di Động. MWG là một trong những doanh nghiệp bán lẻ quy mô lớn tại Việt Nam với hệ sinh thái hoạt động trải rộng trong các lĩnh vực điện thoại, điện máy, thực phẩm tiêu dùng, dược phẩm, mẹ & bé và dịch vụ công nghệ. Doanh nghiệp hiện vận hành hơn 6.000 cửa hàng tại Việt Nam và Indonesia, trong đó Bách Hóa Xanh và Điện Máy Xanh là hai chuỗi có quy mô lớn nhất. MWG đồng thời phát triển các mô hình bán lẻ chuyên biệt như TopZone – chuỗi APR/AAR của Apple tại Việt Nam – cùng hệ sinh thái dịch vụ hậu mãi và giải pháp công nghệ nội bộ.`,
+    founded: "",
+    listed: "07/2014",
+    exchange: "HOSE",
+    products: ["Kinh doanh thiết bị và linh kiện điện tử viễn thông", "Kinh doanh thiết bị điện máy", "Kinh doanh máy vi tính, thiếu bị ngoại vi và phần mềm", "Kinh doanh bán lẻ thực phẩm, hàng tiêu dùng", "Sản xuất linh kiện điện tử", "Sản xuất thiết bị truyền thông."],
+  },
+  PLX: {
+    about: `Tập đoàn Xăng dầu Việt Nam (PLX) có tiền thân Tổng Công ty Xăng Dầu Việt Nam, được thành lập vào năm 1995. Lĩnh vực kinh doanh chính của Petrolimex là xuất nhập khẩu và kinh doanh xăng dầu, lọc - hóa dầu, đầu tư. Với mạng lưới phân phối gồm 4.365 cửa hàng bao gồm trạm bán lẻ của Petrolimex và các đại lý trên toàn quốc, Petrolimex là nhà cung cấp lớn nhất tất cả các loại sản phẩm xăng dầu trên thị trường nội địa. Bên cạnh đó, Petrolimex cũng hoạt động trên các lĩnh vực kinh doanh khác như bảo hiểm, ngân hàng, giao thông vận tải với các thương hiệu như PLC, PGC, PG TANKER, PJJICO.`,
+    founded: "1995",
+    listed: "04/2017",
+    exchange: "HOSE",
+    products: ["Nhập khẩu, phân phối và bán lẻ các sản phẩm dầu mỏ và khí đốt", "Dịch vụ vận tải xăng dầu", "Bảo hiểm và ngân hàng."],
+  },
+  SAB: {
+    about: `Tổng công ty cổ phần Bia – Rượu – Nước giải khát Sài Gòn (SAB) có tiền thân là một xưởng bia nhỏ do người Pháp thành lập vào năm 1875. SABECO hoạt động chính trong ngành sản xuất bia và các loại nước giải khát. SABECO hiện có 26 nhà máy với tổng công suất sản xuất đạt trên 2,4 tỷ lít bia/năm. SABECO sở hữu công nghệ sản xuất hiện đại, nhập khẩu từ các hãng sản xuất thiết bị chuyên dùng cho ngành bia hàng đầu thế giới tại Châu Âu như Krones AG, KHS... Sản phẩm bia của SABECO được xuất khấu tới hơn 40 nước trên thế giới.`,
+    founded: "1875",
+    listed: "2016",
+    exchange: "HOSE",
+    products: ["Sản xuất và mua bán các loại rượu, bia, nước giải khát và bao bì phục vụ đóng chai đồ uống", "Kinh doanh nguyên liệu, thiết bị, công nghệ phục vụ ngành sản xuất bia, rượu, nước giải khát và lương thực thực – thực phẩm", "Dịch vụ đào tạo, nghiên cứu, chuyển giao công nghệ, tư vấn đầu tư, xây lắp, sửa chữa bảo trì trong ngành bia, rượu, nước giải khát và lương thực - thực phẩm", "Kinh doanh bất động sản, dịch vụ thương mại"],
+  },
+  SHB: {
+    about: `Ngân hàng TMCP Sài Gòn – Hà Nội (SHB), tiền thân là Ngân hàng TMCP Nông Thôn Nhơn Ái, được thành lập từ năm 1993. Hoạt động kinh doanh chính của SHB bao gồm huy động vốn, tiếp nhận vốn, cho vay, hùn vốn liên doanh, dịch vụ thanh toán. Ngày 11/10/2021, SHB chính thức giao dịch trên Sở giao dịch Chứng khoán Thành phố Hồ Chí Minh (HOSE). Năm 2024, so với cùng kỳ, biên lãi thuần (NIM) ở mức 3.27%, giảm 0.26%. Tỷ lệ nợ xấu ở mức 2.9%, giảm 0.12%. Tỷ lệ bao phủ nợ xấu ở mức 58.39%, giảm 10.35%. Lợi nhuận sau thuế công ty mẹ có giá trị bằng 9,3 nghìn tỷ đồng, tăng 27.27%.`,
+    founded: "",
+    listed: "10/2021",
+    exchange: "HOSE",
+    products: ["Huy động vốn.", "Vay vốn NHNN và các tổ chức tín dụng khác.", "Cho vay ngắn hạn, trung hạn, dài hạn.", "Chiết khấu thương phiếu, trái phiếu và giấy tờ có giá.", "Hùn vốn và liên doanh theo pháp luật hiện hành.", "Thực hiện thanh toán giữa các khách hàng."],
+  },
+  SSB: {
+    about: `Ngân hàng Thương mại Cổ phần Đông Nam Á (SSB) được thành lập vào năm 1994. Ngân hàng hoạt động trong lĩnh vực huy động, cấp tín dụng và các dịch vụ tài chính liên quan. SSB được niêm yết trên Sở Giao dịch Chứng khoán Thành phố Hồ Chí Minh (HOSE) từ tháng 12/2020. Năm 2025, so với cùng kỳ, biên lãi thuần (NIM) ở mức 2.73%, giảm 0.74%. Tỷ lệ nợ xấu ở mức 2.06%, tăng 0.16%. Tỷ lệ bao phủ nợ xấu ở mức 67.02%, giảm 15.86%. Lợi nhuận sau thuế công ty mẹ có giá trị bằng 5,5 nghìn tỷ đồng, tăng 14.4%. Tỷ suất lợi nhuận trên vốn chủ sở hữu (ROE) ở mức 14.62%, giảm 0.13%.`,
+    founded: "1994",
+    listed: "12/2020",
+    exchange: "HOSE",
+    products: ["Cấp tín dụng", "Dịch vụ tài chính: huy động, tín dụng, các dịch vụ ngoại hối, tài trợ thương mại quốc tế."],
+  },
+  SSI: {
+    about: `Công ty Cổ phần Chứng khoán SSI (SSI) có tiền thân là Công ty Cổ phần Chứng khoán Sài Gòn được thành lập vào năm 1999. SSI chuyên cung cấp dịch vụ môi giới, tư vấn và đầu tư tài chính, chứng khoán với mạng lưới hoạt động rộng tại những thành phố lớn như Hà Nội, Thành phố Hồ Chí Minh, Hải Phòng, Nha Trang, Vũng Tàu. Công ty đã cung cấp dịch vụ cho các nhà đầu tư trong nước và nhiều nhà đầu tư nước ngoài danh tiếng với các khách hàng tiêu biểu như Công ty bao gồm Morgan Stanley, HSBC, Vinamilk, Credit Suisse, BIDV, ANZ, Prudential VN, Deutsche Bank.`,
+    founded: "1999",
+    listed: "2006",
+    exchange: "HOSE",
+    products: ["Tư vấn Tài chính doanh nghiệp: Tư vấn xác định giá trị Doanh nghiệp, tư vấn tái cấu trúc tài chính doanh nghiệp, tư vấn niêm yết cổ phiếu trên thị trường Chứng khoán, tư vấn cổ phần hóa doanh nghiệp.", "Tư vấn mua bán và sáp nhập doanh nghiệp (M&A).", "Tư vấn huy động vốn trên thị trường"],
+  },
+  STB: {
+    about: `Ngân hàng Thương mại Cổ phần Sài Gòn Tài Lộc (STB) được thành lập vào năm 1991 trên cơ sở hợp nhất Ngân hàng Phát triển Kinh tế Gò Vấp cùng với 03 hợp tác xã tín dụng là tân Bình, Thành Công và Lữ Gia. Sacombank là ngân hàng Việt Nam tiên phong nhận được góp vốn ủy thác, tài trợ và hỗ trợ kỹ thuật từ các tổ chức tài chính quốc tế IFC, ADB, Proparco, FMO, ngân hàng TMCP Việt Nam đầu tiên xây dựng và đưa Trung tâm Dữ liệu (Data Center) hiện đại đạt tiêu chuẩn quốc tế vào hoạt động. Năm 2006, STB là ngân hàng TMCP đầu tiên tại Việt Nam tiên phong niêm yết cổ phiếu tại HOSE. Năm 2025, so với cùng kỳ, biên lãi thuần (NIM) ở mức 3.21%, giảm 0.35%. Tỷ lệ nợ xấu ở mức 6.41%, tăng 4.01%.`,
+    founded: "1991",
+    listed: "2025",
+    exchange: "HOSE",
+    products: ["Huy động vốn ngắn hạn, trung và dài hạn dưới hình thức tiền gửi có kỳ hạn, không kỳ hạn, chứng chỉ tiền gửi.", "Tiếp nhận vốn đầu tư và phát triển của các tổ chức trong nước, vay vốn của các tổ chức tín dụng khác. Cho vay ngắn hạn, trung và dài hạn.", "Chiết khấu thương phiếu, trái phiếu và giấy tờ có giá. Làm dịch vụ thanh toán giữa các khách hàng. Kinh doanh ngoại tệ, vàng bạc, thanh toán quốc tế. Huy động vốn từ nước ngoài và các dịch vụ khác.", "Kinh doanh các ngành nghề khác theo GCN ĐKKD của Công ty."],
+  },
+  TCB: {
+    about: `Ngân hàng Thương mại Cổ phần Kỹ thương Việt Nam (TCB) được thành lập vào năm 1993. Ngân hàng hoạt động trong lĩnh vực huy động và kinh doanh vốn, và cung cấp các dịch vụ tài chính liên quan. Techcombank trở thành công ty đại chúng từ năm 2007. Năm 2025, so với cùng kỳ, biên lãi thuần (NIM) ở mức 3.74%, giảm 0.47%. Tỷ lệ nợ xấu ở mức 1.07%, giảm 0.06%. Tỷ lệ bao phủ nợ xấu ở mức 128.05%, tăng 14.11%. Lợi nhuận sau thuế công ty mẹ có giá trị bằng 25,3 nghìn tỷ đồng, tăng 17.5%. Tỷ suất lợi nhuận trên vốn chủ sở hữu (ROE) ở mức 16.03%, tăng 0.42%.`,
+    founded: "1993",
+    listed: "06/2018",
+    exchange: "HOSE",
+    products: ["Huy động vốn", "Tín dụng", "Liên kết và đầu tư tài chính", "Kinh doanh ngoại hối", "Cung cấp các dịch vụ tài chính tiền gửi, thẻ, bảo lãnh, thanh toán quốc tế, ngân hàng internet, tài chính tiêu dùng", "Cung cấp dịch vụ tư vấn doanh nghiệp và quản lý tài sản"],
+  },
+  TPB: {
+    about: `Ngân hàng Thương mại Cổ phần Tiên Phong (TPB) được thành lập vào năm 2008. TPB được thừa hưởng sức mạnh vững chắc từ các cổ đông chiến lược bao gồm Tập đoàn Vàng bạc Đá quý DOJI, Tập đoàn Công nghệ FPT, Tổng Công ty Tái bảo hiểm Quốc gia Việt Nam, Tập đoàn Tài chính SBI Ven Holding Pte.Ltd (Singapore), Công ty Tài chính Quốc tế IFC (trực thuộc World Bank) và quỹ đầu tư PYN Elite Fund. TPBank là ngân hàng đầu tiên tại Việt Nam đáp ứng đồng thời Basel III và IFRS 9 trong năm 2021.`,
+    founded: "2008",
+    listed: "2018",
+    exchange: "HOSE",
+    products: ["Huy động vốn", "Cấp tín dụng", "Dịch vụ tài chính: huy động, tín dụng, các dịch vụ ngoại hối, tài trợ thương mại quốc tế."],
+  },
+  VCB: {
+    about: `Ngân hàng Thương mại Cổ phần Ngoại thương Việt Nam (Vietcombank) chính thức đi vào hoạt động ngày 01/04/1963. Là ngân hàng thương mại nhà nước đầu tiên được Chính phủ lựa chọn thực hiện thí điểm cổ phần hoá, Ngân hàng Ngoại thương Việt Nam chính thức hoạt động với tư cách là một Ngân hàng Thương mại Cổ phần từ ngày 02/06/2008 sau khi thực hiện thành công kế hoạch cổ phần hóa thông qua việc phát hành cổ phiếu lần đầu ra công chúng. Năm 2025, so với cùng kỳ, biên lãi thuần (NIM) ở mức 2.63%, giảm 0.23%. Tỷ lệ nợ xấu ở mức 0.58%, giảm 0.39%. Tỷ lệ bao phủ nợ xấu ở mức 258.29%, tăng 34.98%. Lợi nhuận sau thuế công ty mẹ có giá trị bằng 35,2 nghìn tỷ đồng, tăng 3.98%.`,
+    founded: "",
+    listed: "2009",
+    exchange: "HOSE",
+    products: ["Dịch vụ tài khoản", "Dịch vụ huy động vốn (tiền gửi tiết kiệm, trái phiếu, kỳ phiếu)", "Dịch vụ cho vay (ngắn, trung, dài hạn)", "Dịch vụ bảo lãnh", "Dịch vụ chiết khấu chứng từ", "Dịch vụ thanh toán quốc tế"],
+  },
+  VHM: {
+    about: `Công ty Cổ phần Vinhomes (VHM) có tiền thân là Công ty Cổ phần Đô thị BIDV-PP được thành lập năm 2008. Công ty hoạt động trong lĩnh vực phát triển, chuyển nhượng, vận hành và khai thác bất động sản nhà ở phức hợp. VHM là doanh nghiệp lớn nhất Việt Nam trong lĩnh vực phát triển và chuyển nhượng bất động sản nhà ở. Hiện nay, Vinhomes đã đưa vào vận hành và quản lý 32 khu đô thị thị tại 8 tỉnh thành trên cả nước với hơn 168 nghìn căn hộ, biệt thự và nhà phố, phục vụ hơn 650 nghìn cư dân. VHM được niêm yết và giao dịch trên Sở Giao dịch Chứng khoán Thành phố Hồ Chí Minh (HOSE) từ tháng 05/2018.`,
+    founded: "2008",
+    listed: "05/2018",
+    exchange: "HOSE",
+    products: ["Đầu tư, phát triển và kinh doanh bất động sản nhà ở, văn phòng và các hạng mục liên quan", "Chuẩn bị mặt bằng, lắp đặt trang thiết bị và hoàn thiện công trình xây dựng", "Cho thuê máy móc, thiết bị công trình", "Kinh doanh dịch vụ khách sạn, nhà hàng, dịch vụ vui chơi, giải trí", "Sản xuất và kinh doanh năng lượng", "Kinh doanh vật liệu xây dựng"],
+  },
+  VIB: {
+    about: `Ngân hàng Thương mại Cổ phần Quốc tế Việt Nam (VIB) được thành lập vào năm 1996. VIB hoạt động chủ yếu trong lĩnh vực huy động vốn, cho vay tín dụng. Ngoài ra, Ngân hàng còn tham gia các hoạt động thanh toán quốc tế, kinh doanh ngoại hối, đầu tư tài chính, quản lý rủi ro và bảo toàn vốn. Năm 2024, so với cùng kỳ, Biên lãi thuần (NIM) ở mức 3.75%, giảm 0.96%. Tỷ lệ nợ xấu ở mức 3.51%, tăng 0.37%. Tỷ lệ bao phủ nợ xấu ở mức 50.06%, giảm 0.93%. Lợi nhuận sau thuế công ty mẹ có giá trị bằng 7,2 nghìn tỷ đồng, giảm 15.87%. Tỷ suất lợi nhuận trên vốn chủ sở hữu (ROE) ở mức 18.06%, giảm 6.21%.`,
+    founded: "1996",
+    listed: "",
+    exchange: "HOSE",
+    products: ["Huy động vốn", "Tín dụng", "Liên kết và đầu tư tài chính", "Kinh doanh ngoại hối", "Thanh toán quốc tế", "Quản lý rủi ro và bảo toàn vốn"],
+  },
+  VIC: {
+    about: `Tập đoàn Vingroup - Công ty Cổ phần (VIC) có tiền thân là Công ty Cổ phần Thương mại Tổng hợp Việt Nam được thành lập vào năm 2002. Tập đoàn hoạt động trong lĩnh vực bất động sản, du lịch nghỉ dưỡng - vui chơi giải trí, bán lẻ, công nghiệp và hạ tầng xã hội. VIC hiện phát triển và vận hành hệ thống khu đô thị tại nhiều tỉnh thành trên cả nước, với khoảng 28 dự án đã đi vào vận hành. Về bất động sản bán lẻ, Tập đoàn phát triển và vận hành hệ thống 90 trung tâm thương mại trên toàn quốc, gồm 61 Vincom Plaza tại 32 tỉnh thành và 15 Vincom+ tại 10 tỉnh thành, theo mô hình tích hợp mua sắm, giải trí và ẩm thực.`,
+    founded: "2002",
+    listed: "09/2007",
+    exchange: "HOSE",
+    products: ["Kinh doanh bất động sản", "Dịch vụ cho thuê văn phòng, nhà ở, máy móc, thiết bị công trình.", "Kinh doanh khách sạn.", "Dịch vụ giải trí, vui chơi.", "Dịch vụ làm đẹp thẩm mỹ.", "Dịch vụ ăn uống, giải khát."],
+  },
+  VJC: {
+    about: `Công ty Cổ phần Hàng không Vietjet (VJC) là hãng hàng không tư nhân đầu tiên của Việt Nam được thành lập năm 2007 với 3 cổ đông chính là Tập đoàn T&C, Sovico Holdings và HD Bank. Công ty hoạt động chính trong lĩnh vực vận tải hàng không. Vietjet là hãng hàng không chi phí thấp có quy mô lớn tại Việt Nam, với mạng bay gồm 52 đường bay nội địa và 202 đường bay quốc tế. Doanh nghiệp vận hành đội tàu 107 máy bay, phục vụ các tuyến nội địa, khu vực và quốc tế. Năm 2025, Vietjet khai thác gần 153 nghìn chuyến bay và vận chuyển 28,2 triệu lượt hành khách, trong đó khách quốc tế đạt gần 10 triệu lượt. Hãng hiện diện tại nhiều thị trường trọng điểm như Australia, Ấn Độ, Trung Quốc, Nga và Trung Á.`,
+    founded: "2007",
+    listed: "02/2017",
+    exchange: "HOSE",
+    products: ["Vận tải hàng không, vận tải hàng hóa hàng không", "Dịch vụ mặt đất bao gồm dịch vụ hành khách, du lịch, ăn uống và đồ lưu niệm", "Hỗ trợ kỹ thuật, bảo dưỡng máy bay định kỳ và bảo dưỡng không thường xuyên, dịch vụ cung cấp phụ tùng máy bay, dịch vụ tiếp nhiên liệu máy bay, dịch vụ bán hàng và maketing", "Huấn luyện thực hành cho người lái, nhân viên kỹ thuật và các nhân viên chuyên ngành khác"],
+  },
+  VNM: {
+    about: `Công ty Cổ phần Sữa Việt Nam (VNM) có tiền thân là Công ty Sữa – Cà Phê Miền Nam, được thành lập vào năm 1976. Công ty hoạt động chính trong lĩnh vực chế biến sản xuất, kinh doanh xuất nhập khẩu các sản phẩm sữa và các sản phẩm dinh dưỡng khác. VNM chính thức hoạt động theo mô hình công ty cổ phần từ năm 2003. Công ty giữ vững vị thế top 1 thị phần ngành sữa Việt Nam , hiện nay VNM đang quản lý hơn 130.000 đàn bò sữa đang khai thác, 15 trang trại bò sữa công nghệ cao, 16 nhà máy sữa hiện đại và 1 nhà máy thị bò mát 10.000 tấn. Sản phẩm của VNM đã có mặt tại hơn 200.000 điểm bán trong hệ thống phân phối và được xuất khẩu trực tiếp đến 63 quốc gia và vùng lãnh thổ trên thế giới.`,
+    founded: "1976",
+    listed: "2006",
+    exchange: "HOSE",
+    products: ["Sản xuất và kinh doanh bánh, sữa đậu nành, nước giải khát, sữa hộp, sữa bột, bột dinh dưỡng và các sản phẩm từ sữa khác", "Sản xuất, mua bán rượu, bia, đồ uống, thực phẩm và nhiều loại cà phê", "Chăn nuôi bò sữa, cung cấp giống vật nuôi và kỹ thuật nuôi", "Các lĩnh vực khác theo giấy phép kinh doanh."],
+  },
+  VPB: {
+    about: `Ngân hàng Thương mại Cổ phần Việt Nam Thịnh Vượng (VPBank) có tiền thân là Ngân hàng Thương mại Cổ phần Doanh nghiệp tư nhân Việt Nam, được thành lập vào năm 1993. Ngân hàng hoạt động chủ yếu trong lĩnh vực huy động vốn và cho vay tín dụng. Bên cạnh đó, VPBank còn tham gia các hoạt động thanh toán quốc tế, kinh doanh ngoại hối, đầu tư tài chính, quản lý rủi ro và bảo toàn vốn. Năm 2025, so với cùng kỳ, biên lãi thuần (NIM) ở mức 5.48%, giảm 0.44%. Tỷ lệ nợ xấu ở mức 3.33%, giảm 0.83%. Tỷ lệ bao phủ nợ xấu ở mức 55.39%, giảm 0.91%. Lợi nhuận sau thuế công ty mẹ có giá trị bằng 24,0 nghìn tỷ đồng, tăng 52.04%. Tỷ suất lợi nhuận trên vốn chủ sở hữu (ROE) ở mức 15.49%, tăng 4.08%.`,
+    founded: "1993",
+    listed: "08/2017",
+    exchange: "HOSE",
+    products: ["Cấp tín dụng", "Các dịch vụ tài chính bao gồm: tiền gửi, thẻ, thanh toán quốc tế, internet banking", "Công ty tài chính tiêu dùng", "Dịch vụ ngân hàng bán lẻ và ngân hàng doanh nghiệp nhỏ và vừa."],
+  },
+  VRE: {
+    about: `Công ty Cổ phần Vincom Retail (VRE) có tiền thân là Công ty TNHH Vincom Retail được thành lập vào năm 2012. Công ty hoạt động trong lĩnh vực cho thuê các trung tâm thương mại bán lẻ và các dịch vụ liên quan, cũng như đầu tư phát triển và kinh doanh các loại hình bất động sản. Vincom là thương hiệu bất động sản bán lẻ hàng đầu Việt Nam, giữ vị thế số 1 tại thị trường Việt Nam về mạng lưới và độ phủ với 90 trung tâm thương mại tại 31/34 tỉnh thành, được phát triển theo bốn mô hình sản phẩm: Vincom Center, Vincom Mega Mall, Vincom Plaza và Vincom+.`,
+    founded: "2012",
+    listed: "2017",
+    exchange: "HOSE",
+    products: ["Cho thuê các trung tâm thương mại bán lẻ và các dịch vụ liên quan", "Đầu tư và phát triển kinh doanh bất động sản"],
+  },
+};
