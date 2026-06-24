@@ -357,6 +357,81 @@ def run_crawl(since_dt: datetime = None) -> list[str]:
     except Exception as e:
         log.error(f'  VietnamFinance loi: {e}')
 
+    # TinNhanhChungKhoan (tinnhanhchungkhoan.vn — thuộc Báo Đầu tư; real-time HOSE/HNX, BCTC, ĐHCĐ)
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('tinnhanh_scraper', CRAWLERS_DIR / 'tinnhanh_scraper.py')
+        mod  = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        mod.LOOKBACK_DAYS = lookback_days
+        mod.MAX_PAGES     = 4
+        mod.WORKERS       = 4
+
+        articles = mod.scrape_all(lookback_days=lookback_days)
+        if articles:
+            articles = mod.enrich_content(articles)
+            cutoff = datetime.now() - timedelta(hours=28)
+            articles = [a for a in articles if isinstance(a.get('published_at'), datetime) and a['published_at'] >= cutoff]
+            new_articles = [a for a in articles if a.get('article_url') and a['article_url'] not in existing_urls]
+            mod.upsert_to_supabase(articles)
+            all_new_urls += [a['article_url'] for a in new_articles if a.get('article_url')]
+            log.info(f'  TinNhanh: {len(articles)} bai trong 24h, {len(new_articles)} bai INSERT moi')
+        else:
+            log.warning('  TinNhanh: khong co bai nao')
+    except Exception as e:
+        log.error(f'  TinNhanh loi: {e}')
+
+    # VnExpress (vnexpress.net/kinh-doanh/chung-khoan — do phu rong, tin nhanh)
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('vnexpress_scraper', CRAWLERS_DIR / 'vnexpress_scraper.py')
+        mod  = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        mod.START_DATE = date.today() - timedelta(days=lookback_days)
+        mod.MAX_PAGES  = 4
+        mod.WORKERS    = 5
+
+        articles = mod.scrape_article_list()
+        if articles:
+            articles = mod.enrich_content(articles)
+            cutoff = datetime.now() - timedelta(hours=28)
+            # VnExpress luu ngay o key '_dt' (khong phai 'published_at')
+            articles = [a for a in articles if isinstance(a.get('_dt'), datetime) and a['_dt'] >= cutoff]
+            new_articles = [a for a in articles if a.get('article_url') and a['article_url'] not in existing_urls]
+            mod.upsert_to_supabase(articles)
+            all_new_urls += [a['article_url'] for a in new_articles if a.get('article_url')]
+            log.info(f'  VnExpress: {len(articles)} bai trong 24h, {len(new_articles)} bai INSERT moi')
+        else:
+            log.warning('  VnExpress: khong co bai nao')
+    except Exception as e:
+        log.error(f'  VnExpress loi: {e}')
+
+    # TheSaigonTimes (thesaigontimes.vn — Kinh te Sai Gon: tai chinh-ngan hang, kinh doanh, dia oc)
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('thesaigontimes_scraper', CRAWLERS_DIR / 'thesaigontimes_scraper.py')
+        mod  = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        mod.LOOKBACK_DAYS = lookback_days
+        mod.WORKERS       = 4
+
+        articles = mod.scrape_all(lookback_days=lookback_days)
+        if articles:
+            articles = mod.enrich_content(articles)
+            cutoff = datetime.now() - timedelta(hours=28)
+            articles = [a for a in articles if isinstance(a.get('published_at'), datetime) and a['published_at'] >= cutoff]
+            new_articles = [a for a in articles if a.get('article_url') and a['article_url'] not in existing_urls]
+            mod.upsert_to_supabase(articles)
+            all_new_urls += [a['article_url'] for a in new_articles if a.get('article_url')]
+            log.info(f'  TheSaigonTimes: {len(articles)} bai trong 24h, {len(new_articles)} bai INSERT moi')
+        else:
+            log.warning('  TheSaigonTimes: khong co bai nao')
+    except Exception as e:
+        log.error(f'  TheSaigonTimes loi: {e}')
+
     all_new_urls = [u for u in all_new_urls if u]
     log.info(f'  Tong bai INSERT moi: {len(all_new_urls)}')
     return all_new_urls

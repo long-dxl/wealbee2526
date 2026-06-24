@@ -237,8 +237,8 @@ def main():
         rows = (
             sb.table('market_news')
             .select('id')
-            .is_('label', 'null')
             .gte('published_at', since)
+            .gte('created_at', since)
             .range(offset, offset + 999)
             .execute()
         ).data or []
@@ -247,7 +247,7 @@ def main():
             break
         offset += 1000
 
-    log.info(f'Bai chua label trong 24h: {len(ids)}')
+    log.info(f'Bai trong 24h (published_at & created_at >= now-24h): {len(ids)}')
     if not ids:
         log.info('Khong co bai nao can xu ly.')
         return

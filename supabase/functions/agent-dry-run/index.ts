@@ -222,41 +222,62 @@ async function runDailyDigestDry(
   const registry = new SourceRegistry();
   const syms = watchSymbols.map(s => s.toUpperCase());
 
-  // Fetch recent news for watch symbols
+  // Lấy tin theo ĐÚNG logic news_feed của run-agent (per-symbol limit 5 + global top 10)
+  // để "chạy thử" có cùng độ phủ tin như "chạy thật".
   const since = new Date(Date.now() - 48 * 3600000).toISOString();
-  const { data: newsRows } = await sb
+  const baseQuery = () => sb
     .from("market_news")
-    .select("title,article_url,published_at,source,content_summary,impact_score,label,affected_symbols")
-    .gte("published_at", since)
+    .select("title,content_summary,label,impact_score,affected_symbols,published_at,article_url,source")
     .not("label", "is", null)
     .neq("label", "trash")
+    .gte("published_at", since);
+
+  // Tin riêng theo từng mã (5 tin/mã)
+  const symNewsMap = new Map<string, any[]>();
+  const symNewsIds = new Set<string>();
+  await Promise.all(syms.map(async (sym) => {
+    const { data } = await baseQuery()
+      .contains("affected_symbols", [sym])
+      .order("impact_score", { ascending: false, nullsFirst: false })
+      .limit(5);
+    if (data?.length) symNewsMap.set(sym, data);
+  }));
+  for (const rows of symNewsMap.values())
+    for (const r of rows) if (r.article_url) symNewsIds.add(r.article_url);
+
+  // Tin thị trường chung top-10 (loại trùng với tin theo mã)
+  const { data: globalNews } = await baseQuery()
     .order("impact_score", { ascending: false, nullsFirst: false })
-    .limit(50);
+    .limit(10);
 
-  // Filter to watch symbols
-  const relevant = (newsRows ?? []).filter(n =>
-    (n.affected_symbols ?? []).some((s: string) => syms.includes(s.toUpperCase()))
-  );
-
-  const hasNews = new Set<string>();
+  const hasNews = new Set<string>([...symNewsMap.keys()]);
   const lines: string[] = [`\n## Tin tức thị trường (48h gần nhất)\nDanh mục theo dõi: ${syms.join(", ")}\n`];
 
-  for (const n of relevant) {
-    const related = (n.affected_symbols ?? [])
-      .filter((s: string) => syms.includes(s.toUpperCase()))
-      .map((s: string) => s.toUpperCase());
-    related.forEach((s: string) => hasNews.add(s));
+  const pushItem = (n: any) => {
     const ref = n.article_url ? ` ${registry.add(n.source ?? "Tin tức", n.article_url)}` : "";
+    const score = n.impact_score != null ? ` [tác động:${n.impact_score}]` : "";
+    lines.push(`- ${n.title}${score}${ref} (${n.label}) — ${n.published_at?.substring(0, 10) ?? "?"}`);
     const summary = n.content_summary;
     const summaryText = Array.isArray(summary) ? summary[0] : (typeof summary === "string" ? summary.split("\n")[0] : "");
-    lines.push(`### ${n.title}${ref}`);
-    lines.push(`Mã: ${related.join(", ")} | Nhãn: ${n.label} | Nguồn: ${n.source ?? "?"} | Ngày: ${n.published_at?.substring(0, 10) ?? "?"}`);
-    if (summaryText) lines.push(summaryText);
-    lines.push("");
+    if (summaryText) lines.push(`  ${summaryText}`);
+  };
+
+  if (symNewsMap.size > 0) {
+    lines.push("\n## Tin tức liên quan đến mã theo dõi (48h)");
+    for (const [sym, rows] of symNewsMap.entries()) {
+      lines.push(`\n### ${sym}`);
+      for (const n of rows) pushItem(n);
+    }
+  }
+
+  const generalNews = (globalNews ?? []).filter(n => !symNewsIds.has(n.article_url ?? ""));
+  if (generalNews.length > 0) {
+    lines.push("\n## Tin tức thị trường chung (48h)");
+    for (const n of generalNews.slice(0, 10)) pushItem(n);
   }
 
   const noNews = syms.filter(s => !hasNews.has(s));
-  lines.push(`## Tóm tắt danh mục`);
+  lines.push(`\n## Tóm tắt danh mục`);
   lines.push(`Có tin: ${hasNews.size > 0 ? [...hasNews].join(", ") : "(không có)"}`);
   lines.push(`Không có tin: ${noNews.length > 0 ? noNews.join(", ") : "(tất cả đều có tin)"}`);
 

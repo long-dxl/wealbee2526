@@ -63,6 +63,14 @@ def extract_symbol(text: str) -> str | None:
 def parse_date(text: str) -> datetime | None:
     if not text:
         return None
+    # Format ISO: 2026-06-22T17:39:44+0700  (lấy giờ địa phương, bỏ tz)
+    m = re.search(r'(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})', text)
+    if m:
+        try:
+            return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                            int(m.group(4)), int(m.group(5)))
+        except ValueError:
+            pass
     # Format: DD/MM/YYYY HH:MM
     m = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})', text)
     if m:
@@ -203,7 +211,10 @@ def fetch_content(idx: int, article: dict) -> tuple[int, dict]:
         soup = BeautifulSoup(resp.text, "html.parser")
 
         content_tag = (
-            soup.select_one(".article-content")
+            soup.select_one(".article__body")
+            or soup.select_one("[itemprop='articleBody']")
+            or soup.select_one(".cms-body")
+            or soup.select_one(".article-content")
             or soup.select_one(".content-detail")
             or soup.select_one("#content_detail")
             or soup.select_one("article")

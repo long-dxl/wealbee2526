@@ -69,12 +69,19 @@
             "@types/react": "^19.2.14",
             "@types/react-dom": "^19.2.3",
             "@vitejs/plugin-react-swc": "^3.10.2",
+            "@vitest/coverage-v8": "^4.1.9",
+            "happy-dom": "^20.10.6",
+            "jsdom": "^27.0.1",
             "tailwindcss": "^4.1.12",
-            "vite": "6.3.5"
+            "vite": "6.3.5",
+            "vitest": "^4.1.9"
       },
       "scripts": {
             "dev": "vite",
-            "build": "vite build"
+            "build": "vite build",
+            "test": "vitest run",
+            "test:watch": "vitest",
+            "test:coverage": "vitest run --coverage"
       },
       "description": "",
       "main": "index.js",
