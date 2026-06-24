@@ -955,6 +955,8 @@ Nguyên tắc:
           || "Bạn là trợ lý phân tích chứng khoán Việt Nam.";
         console.log(`[run-agent] prompt source: ${cleanPrompt.trim() ? "custom" : template?.system_prompt ? "template" : "fallback"}, tools: [${enabledTools.join(",")}]`);
 
+        const isDailyDigest = agent.template_id === "daily_digest";
+
         const GROUNDING_RULES_FORMAT = isDailyDigest
           ? `**ĐỊNH DẠNG MÀU SẮC — KHI NGƯỜI DÙNG YÊU CẦU TÔ MÀU**
 - Dùng HTML inline: \`<span style="color:red">con số</span>\` cho màu đỏ
@@ -1004,7 +1006,6 @@ ${toolDefs.length > 0
         const symList = syms.length > 0 ? syms.join(", ") : null;
 
         // daily_digest without specific symbols → market overview prompt
-        const isDailyDigest = agent.template_id === "daily_digest";
         const userMessage = symList
           ? `Phân tích ${syms.length > 1 ? `các cổ phiếu **${symList}**` : `cổ phiếu **${symList}**`}.${toolDefs.length > 0 ? ` Hãy gọi tool để lấy dữ liệu giá, tin tức, tài chính cần thiết TRƯỚC KHI viết phân tích.${syms.length > 1 ? ` Gọi financials riêng cho từng mã: ${symList}.` : ""}` : ""} Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`
           : isDailyDigest
@@ -1185,10 +1186,12 @@ ${toolDefs.length > 0
         // ── Pass 2: Validation — strip claims not grounded in source data ─────
         emit({ type: "step", step: "validate", status: "loading", label: "Đang xác minh nguồn dữ liệu..." });
         try {
-          // financialsCtx first so it's never truncated — it contains the exact numbers
-          // the LLM used; without it the validator would blank out valid financial rows.
-          const sourceData = [financialsCtx, portfolioCtx, priceCtx, newsCtx]
-            .filter(Boolean).join("\n").substring(0, 25000);
+          // Collect source data from tool call results in messages array
+          const toolResults = messages
+            .filter(m => m.role === "tool")
+            .map(m => (typeof m.content === "string" ? m.content : ""))
+            .filter(Boolean);
+          const sourceData = toolResults.join("\n").substring(0, 25000);
 
           // Protect [ref:N] tokens from validator by replacing with unique placeholders
           // LLM tends to strip or reformat [ref:N] even when instructed not to

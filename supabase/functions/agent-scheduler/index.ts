@@ -44,26 +44,43 @@ interface ScheduleConfig {
   days: number[];
 }
 
+function parseSchedule(raw: string): ScheduleConfig | null {
+  if (!raw || raw === "manual" || raw === "realtime") return null;
+  // JSON format: {"mode":"scheduled","frequency":"daily","time":"09:15","days":[]}
+  try {
+    const cfg = JSON.parse(raw) as ScheduleConfig;
+    if (cfg.mode && cfg.frequency && cfg.time) return cfg;
+  } catch { /* fall through */ }
+  // Legacy string format: "daily:09:15" | "weekdays:09:15"
+  const match = raw.match(/^(daily|weekdays|weekly):(\d{1,2}:\d{2})$/);
+  if (match) {
+    return { mode: "scheduled", frequency: match[1] as ScheduleConfig["frequency"], time: match[2], days: [] };
+  }
+  return null;
+}
+
 function uiDayToJS(d: number): number { return d === 6 ? 0 : d + 1; }
 
-function calcNextRunAt(cfg: ScheduleConfig): string | null {
+function calcNextRunAt(cfg: ScheduleConfig, startFromToday = false): string | null {
   if (cfg.mode !== "scheduled") return null;
   const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
   const nowVN = new Date(Date.now() + VN_OFFSET_MS);
   const [hour, minute] = cfg.time.split(":").map(Number);
 
   let validJSDays: number[];
-  if (cfg.frequency === "daily")    validJSDays = [0,1,2,3,4,5,6];
+  if (cfg.frequency === "daily")         validJSDays = [0,1,2,3,4,5,6];
   else if (cfg.frequency === "weekdays") validJSDays = [1,2,3,4,5];
-  else validJSDays = (cfg.days ?? []).map(uiDayToJS);
+  else                                   validJSDays = (cfg.days ?? []).map(uiDayToJS);
 
   if (!validJSDays.length) return null;
 
-  for (let ahead = 1; ahead <= 8; ahead++) {
+  // startFromToday=true: xét hôm nay nếu giờ chưa qua, rồi mới nhảy sang ngày mai
+  const startAhead = startFromToday ? 0 : 1;
+  for (let ahead = startAhead; ahead <= 8; ahead++) {
     const cand = new Date(nowVN);
     cand.setDate(cand.getDate() + ahead);
     cand.setHours(hour, minute, 0, 0);
-    if (validJSDays.includes(cand.getDay())) {
+    if (validJSDays.includes(cand.getDay()) && cand.getTime() > nowVN.getTime()) {
       return new Date(cand.getTime() - VN_OFFSET_MS).toISOString();
     }
   }
@@ -466,9 +483,7 @@ Deno.serve(async (req: Request) => {
       await runAgent(agent);
 
       // Tính next_run_at tiếp theo
-      let schedCfg: ScheduleConfig | null = null;
-      try { schedCfg = JSON.parse(agent.schedule as string); } catch { /* ignore */ }
-
+      const schedCfg = parseSchedule(agent.schedule as string);
       const nextRunAt = schedCfg ? calcNextRunAt(schedCfg) : null;
       await sb.from("agents").update({ next_run_at: nextRunAt }).eq("id", agent.id);
 
