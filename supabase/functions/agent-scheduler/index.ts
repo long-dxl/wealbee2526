@@ -165,22 +165,53 @@ async function buildPriceContext(registry: SourceRegistry): Promise<string> {
   return lines.join("\n");
 }
 
-async function buildNewsContext(registry: SourceRegistry): Promise<string> {
+async function buildNewsContext(registry: SourceRegistry, targetSyms?: string[]): Promise<string> {
   try {
-    const { data: news } = await sb.from("market_news")
+    const since = new Date(Date.now() - 48*3600000).toISOString();
+    const baseQuery = () => sb.from("market_news")
       .select("title,content_summary,label,impact_score,affected_symbols,published_at,article_url,source")
       .or("label.is.null,label.neq.trash")
-      .gte("published_at", new Date(Date.now() - 48*3600000).toISOString())
-      .order("impact_score",{ascending:false,nullsFirst:false}).limit(10);
-    if (!news?.length) return "";
-    const lines = ["\n## Tin tức thị trường (48h)"];
-    for (const n of news) {
+      .gte("published_at", since);
+
+    const addItem = (n: Record<string, any>, lines: string[]) => {
       const syms = n.affected_symbols?.length ? ` [${n.affected_symbols.slice(0,3).join(",")}]` : "";
-      const ref  = (n.article_url) ? ` ${registry.add(n.source ?? "Báo", n.article_url)}` : "";
+      const ref  = n.article_url ? ` ${registry.add(n.source ?? "Báo", n.article_url)}` : "";
       lines.push(`- ${n.title}${syms}${ref}`);
-      if (n.content_summary) lines.push(`  ${n.content_summary.substring(0,120)}`);
+      if (n.content_summary) lines.push(`  ${String(n.content_summary).substring(0,120)}`);
+    };
+
+    // Symbol-specific news (top 5 per symbol)
+    const symNewsIds = new Set<string>();
+    const lines: string[] = [];
+
+    if (targetSyms && targetSyms.length > 0) {
+      const symSections: string[] = [];
+      await Promise.all(targetSyms.map(async (sym) => {
+        const { data } = await baseQuery()
+          .contains("affected_symbols", [sym])
+          .order("published_at", { ascending: false })
+          .limit(5);
+        if (data?.length) {
+          const section: string[] = [`\n### ${sym}`];
+          for (const n of data) { addItem(n, section); if (n.article_url) symNewsIds.add(n.article_url); }
+          symSections.push(section.join("\n"));
+        }
+      }));
+      if (symSections.length > 0) {
+        lines.push("\n## Tin tức liên quan đến danh mục (48h)");
+        lines.push(...symSections);
+      }
     }
-    return lines.join("\n");
+
+    // Global top-15 by recency (exclude already-included symbol news)
+    const { data: globalNews } = await baseQuery().order("published_at",{ascending:false}).limit(15);
+    const general = (globalNews ?? []).filter(n => !symNewsIds.has(n.article_url ?? ""));
+    if (general.length > 0) {
+      lines.push("\n## Tin tức thị trường chung (48h)");
+      for (const n of general.slice(0, 10)) addItem(n, lines);
+    }
+
+    return lines.length ? lines.join("\n") : "";
   } catch { return ""; }
 }
 
@@ -299,7 +330,7 @@ async function runAgent(agent: Record<string, unknown>): Promise<void> {
 
     let newsCtx = "";
     if (tools.some(t => ["news_feed","news","macro"].includes(t))) {
-      newsCtx = await buildNewsContext(registry);
+      newsCtx = await buildNewsContext(registry, syms.length > 0 ? syms : undefined);
     }
 
     let financialsCtx = "";
