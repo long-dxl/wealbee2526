@@ -169,7 +169,7 @@ async function buildNewsContext(registry: SourceRegistry): Promise<string> {
   try {
     const { data: news } = await sb.from("market_news")
       .select("title,content_summary,label,impact_score,affected_symbols,published_at,article_url,source")
-      .not("label","is",null).neq("label","trash")
+      .or("label.is.null,label.neq.trash")
       .gte("published_at", new Date(Date.now() - 48*3600000).toISOString())
       .order("impact_score",{ascending:false,nullsFirst:false}).limit(10);
     if (!news?.length) return "";
