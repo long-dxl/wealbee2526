@@ -224,14 +224,15 @@ export function Portfolio({
       const tickerNames: Record<string, string> = {};
 
       if (symbols.length > 0) {
-        // Get latest closing prices
-        const { data: latestRow } = await supabase
-          .from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
-        if (latestRow) {
-          const { data: prices } = await supabase
-            .from("prices_daily").select("symbol,close").eq("date", latestRow.date).in("symbol", symbols);
-          prices?.forEach((p: any) => { latestPrices[p.symbol] = Number(p.close); });
-        }
+        // Giá mới nhất THEO TỪNG MÃ (mỗi mã có ngày giao dịch cuối khác nhau → không dùng 1 ngày global)
+        const { data: prices } = await supabase
+          .from("prices_daily").select("symbol,date,close")
+          .in("symbol", symbols)
+          .order("date", { ascending: false })
+          .limit(symbols.length * 15);
+        prices?.forEach((p: any) => {
+          if (latestPrices[p.symbol] == null && p.close != null) latestPrices[p.symbol] = Number(p.close);
+        });
         // Get names from tickers
         const { data: tickers } = await supabase
           .from("tickers").select("symbol,name").in("symbol", symbols);

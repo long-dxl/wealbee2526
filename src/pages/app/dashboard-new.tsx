@@ -23,7 +23,7 @@ interface MoverRow   { symbol: string; price: number; pct: number; vol: string; 
 interface SectorRow  { name: string; pct: number; }
 interface NewsItem   { title: string; tag: string; source: string; time: string; url?: string; }
 interface WatchRow   { symbol: string; name: string; price: number; change: number; quantity: number; }
-interface IndexState { name: string; value: number; change: number; pct: number; sparkline: number[]; vol: string; }
+interface IndexState { name: string; value: number; change: number; pct: number; sparkline: number[]; vol: string; code?: string; }
 
 interface DashboardProps {
   onNavigate: (page: string) => void;
@@ -105,8 +105,26 @@ function SkeletonRow() {
   return <div style={{ height: 30, borderRadius: 8, background: "rgba(0,0,0,0.05)", margin: "2px 0" }} />;
 }
 
-function IndexCard({ idx, isDark }: { idx: IndexState; isDark: boolean }) {
+// Map sector chi tiết (GICS-style) -> ICB tier 1 (11 ngành chuẩn)
+const ICB1: Record<string, string> = {
+  "Phần mềm và dịch vụ": "Công nghệ", "Phần cứng và thiết bị": "Công nghệ",
+  "Dịch vụ viễn thông": "Viễn thông",
+  "Dược phẩm, công nghệ sinh học và khoa học sự sống": "Y tế", "Thiết bị và dịch vụ chăm sóc sức khỏe": "Y tế",
+  "Dịch vụ tài chính": "Tài chính", "Tổ chức tín dụng": "Tài chính", "Bảo hiểm": "Tài chính",
+  "Bất động sản": "Bất động sản",
+  "Thời trang và hàng lâu bền": "Hàng tiêu dùng", "Xe và linh kiện": "Hàng tiêu dùng",
+  "Dịch vụ tiêu dùng": "Hàng tiêu dùng", "Truyền thông và giải trí": "Hàng tiêu dùng",
+  "Thương mại hàng không thiết yếu": "Hàng tiêu dùng",
+  "Thực phẩm, đồ uống và thuốc lá": "Hàng thiết yếu", "Thương mại hàng thiết yếu": "Hàng thiết yếu",
+  "Sản phẩm chăm sóc cá nhân và gia đình": "Hàng thiết yếu",
+  "Hàng hóa công nghiệp": "Công nghiệp", "Vận tải": "Công nghiệp", "Dịch vụ thương mại và chuyên nghiệp": "Công nghiệp",
+  "Nguyên vật liệu": "Nguyên vật liệu", "Năng lượng": "Năng lượng", "Tiện ích": "Tiện ích",
+};
+const toIcb1 = (s: string | null | undefined) => (s && ICB1[s]) || "Khác";
+
+function IndexCard({ idx, isDark, onClick, active }: { idx: IndexState; isDark: boolean; onClick?: () => void; active?: boolean }) {
   const isUp = idx.change >= 0;
+  const brandC = isDark ? "#4D8FE8" : "#0849AC";
   const maxS = Math.max(...idx.sparkline), minS = Math.min(...idx.sparkline);
   const range = maxS - minS || 1;
   const cardBg     = isDark ? "#131824" : "#fff";
@@ -121,8 +139,8 @@ function IndexCard({ idx, isDark }: { idx: IndexState; isDark: boolean }) {
   };
 
   return (
-    <div draggable onDragStart={handleDragStart}
-      style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, flex: 1, minWidth: 0, cursor: "grab", position: "relative", userSelect: "none" }}
+    <div draggable onDragStart={handleDragStart} onClick={onClick}
+      style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: active ? `0 0 0 2px ${brandC}` : cardShadow, flex: 1, minWidth: 0, cursor: onClick ? "pointer" : "grab", position: "relative", userSelect: "none", border: active ? `2px solid ${brandC}` : "2px solid transparent", boxSizing: "border-box" }}
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)"; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "1"; }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "0"; }}
       onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
@@ -130,7 +148,7 @@ function IndexCard({ idx, isDark }: { idx: IndexState; isDark: boolean }) {
     >
       <DragHint />
       <div style={{ fontSize: 12, color: fgSubtle, fontFamily: "'Montserrat', system-ui, sans-serif", marginBottom: 4, fontWeight: 600, letterSpacing: "0.04em" }}>{idx.name}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif", marginBottom: 4 }}>{idx.value.toLocaleString("vi-VN")}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif", marginBottom: 4 }}>{idx.value > 0 ? idx.value.toLocaleString("vi-VN") : "—"}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
         {isUp ? <TrendingUp size={14} color="#34C759" strokeWidth={1.5} /> : <TrendingDown size={14} color="#FF3B30" strokeWidth={1.5} />}
         <span style={{ fontSize: 13, fontWeight: 600, color: isUp ? "#34C759" : "#FF3B30", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
@@ -239,6 +257,8 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   const [allMovers,     setAllMovers]     = useState<(MoverRow & { sector: string })[]>([]);
   const [sectors,       setSectors]       = useState<SectorRow[]>([]);
   const [selectedSector, setSelectedSector] = useState<string | null>(null);
+  const [vn30Active,    setVn30Active]    = useState(false);
+  const [vn30Set,       setVn30Set]       = useState<Set<string>>(new Set());
   const [dashNews,      setDashNews]      = useState<NewsItem[]>([]);
   const [watchHoldings, setWatchHoldings] = useState<WatchRow[]>([]);
   const [marketIndices, setMarketIndices] = useState<IndexState[]>([]);
@@ -265,41 +285,49 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
     async function loadMarket(): Promise<{ gainers: MoverRow[]; losers: MoverRow[]; indices: IndexState[] } | null> {
       setMoversLoading(true);
       try {
-        // Get latest date in prices_daily
-        const { data: latestRow } = await supabase
-          .from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
-        if (!latestRow || cancelled) return;
-
-        const [pricesRes, indicesRes] = await Promise.all([
-          supabase.from("prices_daily").select("symbol,open,close,volume").eq("date", latestRow.date),
+        // Vũ trụ HOSE + sector (1 query, ~427 mã < 1000)
+        const [stocksRes, indicesRes, vn30Res] = await Promise.all([
+          supabase.from("stocks").select("symbol,sector_name").eq("exchange", "HOSE"),
           supabase.from("market_indices")
             .select("index_code,close,change_pct,date")
-            .in("index_code", ["VNINDEX", "HNX"])
+            .in("index_code", ["VNINDEX", "HNX", "VN30", "UPCOM"])
             .order("date", { ascending: false })
-            .limit(20),
+            .limit(60),
+          supabase.from("tickers").select("symbol").eq("in_vn30", true),
         ]);
+        if (cancelled) return;
+        setVn30Set(new Set((vn30Res.data ?? []).map((t: any) => t.symbol)));
+        const sectorMap: Record<string, string> = {};
+        const hoseSet = new Set<string>();
+        stocksRes.data?.forEach((s: any) => { sectorMap[s.symbol] = s.sector_name || ""; hoseSet.add(s.symbol); });
 
+        // 2 phiên giao dịch gần nhất
+        const { data: d0r } = await supabase.from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
+        const d0 = d0r?.date;
+        if (!d0 || cancelled) return;
+        const { data: d1r } = await supabase.from("prices_daily").select("date").lt("date", d0).order("date", { ascending: false }).limit(1);
+        const d1 = d1r?.[0]?.date;
+        // Giá cho 2 phiên — PHÂN TRANG để vượt giới hạn 1000 dòng của PostgREST
+        const dates = [d0, d1].filter(Boolean) as string[];
+        const prc: any[] = [];
+        for (let from = 0; from < 8000; from += 1000) {
+          const { data } = await supabase.from("prices_daily").select("symbol,date,close,volume")
+            .in("date", dates).order("date", { ascending: false }).range(from, from + 999);
+          if (!data?.length) break;
+          prc.push(...data);
+          if (data.length < 1000) break;
+        }
         if (cancelled) return;
 
-        // — Movers & Sectors —
-        const prices = pricesRes.data ?? [];
-
-        // Filter stocks query to only the symbols we have price data for (avoids 1000-row Supabase default limit missing symbols)
-        const priceSymbols = prices.map((p: any) => p.symbol);
-        const { data: stocksData } = priceSymbols.length > 0
-          ? await supabase.from("stocks").select("symbol,sector_name").in("symbol", priceSymbols)
-          : { data: [] };
-        const stocksRes = { data: stocksData };
-        const sectorMap: Record<string, string> = {};
-        stocksRes.data?.forEach((s: any) => { sectorMap[s.symbol] = s.sector_name || "Khác"; });
-
-        const withPct = prices.map((p: any) => ({
-          symbol: p.symbol,
-          price: p.close,
-          pct: p.open > 0 ? ((p.close - p.open) / p.open) * 100 : 0,
-          vol: fmtVol(p.volume),
-          sector: sectorMap[p.symbol] || "Khác",
-        }));
+        // gom theo mã (chỉ HOSE), date desc: [0]=phiên cuối, [1]=phiên trước
+        const bySym: Record<string, any[]> = {};
+        prc.forEach((p: any) => { if (hoseSet.has(p.symbol)) (bySym[p.symbol] ??= []).push(p); });
+        const withPct = Object.keys(bySym).map((sym: string) => {
+          const rows = bySym[sym];
+          const latest = rows[0], prev = rows[1];
+          const pct = prev && prev.close > 0 ? ((Number(latest.close) - Number(prev.close)) / Number(prev.close)) * 100 : 0;
+          return { symbol: sym, price: Number(latest.close), pct, vol: fmtVol(latest.volume), sector: toIcb1(sectorMap[sym]) };
+        });
 
         const sorted = [...withPct].sort((a: any, b: any) => b.pct - a.pct);
         setAllMovers(sorted.map((s: any) => ({
@@ -321,8 +349,9 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
           groups[p.sector].push(p.pct);
         });
         const sRows: SectorRow[] = Object.entries(groups)
+          .filter(([name]) => name !== "Khác")   // chỉ 11 ngành ICB tier 1, bỏ nhóm chưa phân loại
           .map(([name, pcts]) => ({ name, pct: pcts.reduce((a: number, b: number) => a + b, 0) / pcts.length }))
-          .sort((a, b) => b.pct - a.pct).slice(0, 8);
+          .sort((a, b) => b.pct - a.pct).slice(0, 12);
         setSectors(sRows);
 
         // — Market Indices —
@@ -332,19 +361,18 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
           indexGroups[row.index_code].push(row);
         });
 
-        const idxResult: IndexState[] = [];
-        for (const [code, rows] of Object.entries(indexGroups)) {
-          const sortedRows = rows.sort((a: any, b: any) => a.date.localeCompare(b.date));
-          const latest = sortedRows[sortedRows.length - 1];
-          const prev   = sortedRows[sortedRows.length - 2];
-          const spark  = sortedRows.slice(-7).map((r: any) => r.close);
+        const NAMES: Record<string, string> = { VNINDEX: "VN-INDEX", HNX: "HNX-INDEX", VN30: "VN30", UPCOM: "UPCOM" };
+        const idxResult: IndexState[] = ["VNINDEX", "VN30", "HNX", "UPCOM"].map(code => {
+          const rows = (indexGroups[code] ?? []).sort((a: any, b: any) => a.date.localeCompare(b.date));
+          if (!rows.length) return { code, name: NAMES[code], value: 0, change: 0, pct: 0, sparkline: [], vol: "—" };
+          const latest = rows[rows.length - 1];
+          const prev   = rows[rows.length - 2];
+          const spark  = rows.slice(-7).map((r: any) => r.close);
           const change = prev ? latest.close - prev.close : 0;
-          idxResult.push({
-            name: code === "VNINDEX" ? "VN-INDEX" : "HNX-INDEX",
-            value: latest.close, change, pct: latest.change_pct ?? 0, sparkline: spark, vol: "—",
-          });
-        }
-        if (!cancelled && idxResult.length > 0) setMarketIndices(idxResult);
+          const pct    = latest.change_pct ?? (prev && prev.close ? (change / prev.close) * 100 : 0);
+          return { code, name: NAMES[code], value: latest.close, change, pct, sparkline: spark, vol: "—" };
+        });
+        if (!cancelled) setMarketIndices(idxResult);
 
         const g = sorted.slice(0, 5).map((s: any) => ({ symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, isCeil: s.pct >= 6.9, isFloor: false }));
         const l = sorted.slice(-5).reverse().map((s: any) => ({ symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, isCeil: false, isFloor: s.pct <= -6.9 }));
@@ -394,24 +422,24 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
         if (!rows?.length || cancelled) return;
 
         const symbols = rows.map((r: any) => r.symbol);
-        const { data: latestRow } = await supabase
-          .from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
-
         const latestPrices: Record<string, number> = {};
         const latestChanges: Record<string, number> = {};
         const tickerNames: Record<string, string> = {};
 
-        if (latestRow) {
-          const [pricesRes, tickersRes] = await Promise.all([
-            supabase.from("prices_daily").select("symbol,open,close").eq("date", latestRow.date).in("symbol", symbols),
-            supabase.from("tickers").select("symbol,name").in("symbol", symbols),
-          ]);
-          pricesRes.data?.forEach((p: any) => {
-            latestPrices[p.symbol] = Number(p.close);
-            latestChanges[p.symbol] = p.open > 0 ? ((p.close - p.open) / p.open) * 100 : 0;
-          });
-          tickersRes.data?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
-        }
+        // Giá mới nhất THEO TỪNG MÃ (mỗi mã có phiên cuối khác nhau → không dùng 1 ngày global)
+        const [pricesRes, tickersRes] = await Promise.all([
+          supabase.from("prices_daily").select("symbol,date,open,close")
+            .in("symbol", symbols).order("date", { ascending: false }).limit(symbols.length * 4),
+          supabase.from("tickers").select("symbol,name").in("symbol", symbols),
+        ]);
+        const seen = new Set<string>();
+        pricesRes.data?.forEach((p: any) => {
+          if (seen.has(p.symbol) || p.close == null) return;
+          seen.add(p.symbol);
+          latestPrices[p.symbol] = Number(p.close);
+          latestChanges[p.symbol] = p.open > 0 ? ((p.close - p.open) / p.open) * 100 : 0;
+        });
+        tickersRes.data?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
 
         if (!cancelled) {
           setWatchHoldings(rows.map((r: any) => ({
@@ -490,15 +518,17 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   // ── Computed portfolio summary ────────────────────────────────────────────
   const portfolioTotal = watchHoldings.reduce((s, h) => s + h.price * h.quantity, 0);
 
-  // Sector-filtered movers (or full market when no sector selected)
-  const filteredMovers = selectedSector
-    ? allMovers.filter(m => m.sector === selectedSector)
-    : allMovers;
-  const displayGainers = selectedSector
-    ? filteredMovers.filter(m => m.pct >= 0).sort((a, b) => b.pct - a.pct).slice(0, 5).map(m => ({ ...m, isFloor: false }))
+  // Lọc movers: VN30 ∩ ngành (kết hợp được); null = toàn bộ HOSE
+  const scopeMovers = (vn30Active || selectedSector)
+    ? allMovers.filter(m => (!vn30Active || vn30Set.has(m.symbol)) && (!selectedSector || m.sector === selectedSector))
+    : null;
+  const scopeLabel = [vn30Active ? "VN30" : null, selectedSector].filter(Boolean).join(" · ") || null;
+  // Chuẩn CTCK: TĂNG = chỉ mã tăng (xanh), GIẢM = chỉ mã giảm (đỏ). Card giữ size nhờ minHeight.
+  const displayGainers = scopeMovers
+    ? scopeMovers.filter(m => m.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 5).map(m => ({ ...m, isFloor: false }))
     : gainers;
-  const displayLosers = selectedSector
-    ? filteredMovers.filter(m => m.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5).map(m => ({ ...m, isCeil: false }))
+  const displayLosers = scopeMovers
+    ? scopeMovers.filter(m => m.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5).map(m => ({ ...m, isCeil: false }))
     : losers;
 
   const handleNewsDragStart = (e: React.DragEvent, item: NewsItem) => {
@@ -689,11 +719,13 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       <div style={{ overflow: "hidden", maxHeight: marketExpanded ? 2000 : 0, opacity: marketExpanded ? 1 : 0, transition: "max-height 350ms ease, opacity 200ms ease" }}>
 
         {/* Index Cards */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
           {moversLoading && marketIndices.length === 0 ? (
-            [0, 1].map(i => <div key={i} style={{ flex: 1, background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, height: 130, opacity: 0.5 }} />)
+            [0, 1, 2, 3].map(i => <div key={i} style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, height: 130, opacity: 0.5 }} />)
           ) : (
-            marketIndices.map(idx => <IndexCard key={idx.name} idx={idx} isDark={isDark} />)
+            marketIndices.map(idx => <IndexCard key={idx.name} idx={idx} isDark={isDark}
+              onClick={idx.code === "VN30" ? () => { setVn30Active(a => !a); setSelectedSector(null); } : undefined}
+              active={idx.code === "VN30" && vn30Active} />)
           )}
         </div>
 
@@ -713,9 +745,9 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
                   <TrendingUp size={15} color="#34C759" strokeWidth={2} />
                   <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fg }}>TĂNG MẠNH</span>
-                  {selectedSector && <span style={{ fontSize: 10, fontWeight: 700, color: brand, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", padding: "2px 7px", borderRadius: 10 }}>{selectedSector}</span>}
+                  {scopeLabel && <span style={{ fontSize: 10, fontWeight: 700, color: brand, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", padding: "2px 7px", borderRadius: 10 }}>{scopeLabel}</span>}
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, minHeight: 185 }}>
                   {moversLoading && displayGainers.length === 0
                     ? Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
                     : displayGainers.map(s => {
@@ -751,9 +783,9 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
                   <TrendingDown size={15} color="#FF3B30" strokeWidth={2} />
                   <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fg }}>GIẢM MẠNH</span>
-                  {selectedSector && <span style={{ fontSize: 10, fontWeight: 700, color: brand, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", padding: "2px 7px", borderRadius: 10 }}>{selectedSector}</span>}
+                  {scopeLabel && <span style={{ fontSize: 10, fontWeight: 700, color: brand, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", padding: "2px 7px", borderRadius: 10 }}>{scopeLabel}</span>}
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, minHeight: 185 }}>
                   {moversLoading && displayLosers.length === 0
                     ? Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
                     : displayLosers.map(s => {
