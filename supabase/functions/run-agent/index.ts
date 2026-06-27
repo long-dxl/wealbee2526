@@ -261,8 +261,7 @@ async function buildNewsContext(sources?: Source[], registry?: SourceRegistry, t
       let q = sb
         .from("market_news")
         .select("title, content_summary, label, impact_score, affected_symbols, published_at, article_url, source")
-        .not("label", "is", null)
-        .neq("label", "trash")
+        .or("label.is.null,label.neq.trash")
         .gte("published_at", since);
       if (filterSources && filterSources.length > 0) q = q.in("source", filterSources);
       return q;

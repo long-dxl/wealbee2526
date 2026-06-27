@@ -165,22 +165,100 @@ async function buildPriceContext(registry: SourceRegistry): Promise<string> {
   return lines.join("\n");
 }
 
-async function buildNewsContext(registry: SourceRegistry): Promise<string> {
+async function buildNewsContext(registry: SourceRegistry, targetSyms?: string[]): Promise<string> {
   try {
-    const { data: news } = await sb.from("market_news")
+    const since = new Date(Date.now() - 48*3600000).toISOString();
+    const baseQuery = () => sb.from("market_news")
       .select("title,content_summary,label,impact_score,affected_symbols,published_at,article_url,source")
-      .not("label","is",null).neq("label","trash")
-      .gte("published_at", new Date(Date.now() - 48*3600000).toISOString())
-      .order("impact_score",{ascending:false,nullsFirst:false}).limit(10);
-    if (!news?.length) return "";
-    const lines = ["\n## Tin tức thị trường (48h)"];
-    for (const n of news) {
-      const syms = n.affected_symbols?.length ? ` [${n.affected_symbols.slice(0,3).join(",")}]` : "";
-      const ref  = (n.article_url) ? ` ${registry.add(n.source ?? "Báo", n.article_url)}` : "";
-      lines.push(`- ${n.title}${syms}${ref}`);
-      if (n.content_summary) lines.push(`  ${n.content_summary.substring(0,120)}`);
+      .or("label.is.null,label.neq.trash")
+      .gte("published_at", since);
+
+    const addItem = (n: Record<string, any>, lines: string[], portfolioHits?: string[]) => {
+      const allSyms = n.affected_symbols?.length ? ` [${n.affected_symbols.slice(0,4).join(",")}]` : "";
+      const portTag = portfolioHits?.length ? ` (danh mục: ${portfolioHits.join(",")})` : "";
+      const ref  = n.article_url ? ` ${registry.add(n.source ?? "Báo", n.article_url)}` : "";
+      lines.push(`- ${n.title}${allSyms}${portTag}${ref}`);
+      if (n.content_summary) lines.push(`  ${String(n.content_summary).substring(0,150)}`);
+    };
+
+    const lines: string[] = [];
+    const seenUrls = new Set<string>();
+
+    if (targetSyms && targetSyms.length > 0) {
+      const portSet = new Set(targetSyms);
+
+      // Fetch top-5 per symbol
+      const symNewsMap = new Map<string, Record<string, any>[]>();
+      await Promise.all(targetSyms.map(async (sym) => {
+        const { data } = await baseQuery()
+          .contains("affected_symbols", [sym])
+          .order("published_at", { ascending: false })
+          .limit(5);
+        if (data?.length) symNewsMap.set(sym, data);
+      }));
+
+      // Pre-classify each article by how many portfolio symbols it affects
+      const allPortNews = new Map<string, Record<string, any>>(); // url → article
+      for (const articles of symNewsMap.values()) {
+        for (const n of articles) {
+          if (n.article_url && !allPortNews.has(n.article_url)) allPortNews.set(n.article_url, n);
+        }
+      }
+
+      const multiPort: Record<string, any>[] = [];   // affects 2+ portfolio stocks
+      const singlePort = new Map<string, Record<string, any>[]>(); // sym → articles affecting only that sym
+
+      for (const [url, n] of allPortNews) {
+        const hits = (n.affected_symbols as string[] ?? []).filter(s => portSet.has(s));
+        if (hits.length >= 2) {
+          multiPort.push(n);
+        } else {
+          const sym = hits[0];
+          if (sym) {
+            if (!singlePort.has(sym)) singlePort.set(sym, []);
+            singlePort.get(sym)!.push(n);
+          }
+        }
+      }
+
+      // Section 1: Multi-portfolio articles
+      lines.push("\n## Tin ảnh hưởng nhiều cổ phiếu trong danh mục (48h)");
+      if (multiPort.length === 0) {
+        lines.push("(Không có bài nào ảnh hưởng đồng thời từ 2 mã trở lên trong danh mục)");
+      } else {
+        for (const n of multiPort) {
+          const hits = (n.affected_symbols as string[] ?? []).filter(s => portSet.has(s));
+          addItem(n, lines, hits);
+          if (n.article_url) seenUrls.add(n.article_url);
+        }
+      }
+
+      // Section 2: Per-symbol articles (excluding already shown)
+      for (const sym of targetSyms) {
+        const articles = singlePort.get(sym) ?? [];
+        const fresh = articles.filter(n => !seenUrls.has(n.article_url ?? ""));
+        lines.push(`\n### Tin riêng - ${sym}`);
+        if (fresh.length === 0) {
+          lines.push("(Không có tin riêng)");
+        } else {
+          for (const n of fresh) {
+            const hits = (n.affected_symbols as string[] ?? []).filter(s => portSet.has(s));
+            addItem(n, lines, hits);
+            if (n.article_url) seenUrls.add(n.article_url);
+          }
+        }
+      }
     }
-    return lines.join("\n");
+
+    // Global top-10 by recency (exclude portfolio news already shown)
+    const { data: globalNews } = await baseQuery().order("published_at",{ascending:false}).limit(15);
+    const general = (globalNews ?? []).filter(n => !seenUrls.has(n.article_url ?? ""));
+    if (general.length > 0) {
+      lines.push("\n## Tin tức thị trường chung (48h)");
+      for (const n of general.slice(0, 10)) addItem(n, lines);
+    }
+
+    return lines.length ? lines.join("\n") : "";
   } catch { return ""; }
 }
 
@@ -299,7 +377,7 @@ async function runAgent(agent: Record<string, unknown>): Promise<void> {
 
     let newsCtx = "";
     if (tools.some(t => ["news_feed","news","macro"].includes(t))) {
-      newsCtx = await buildNewsContext(registry);
+      newsCtx = await buildNewsContext(registry, syms.length > 0 ? syms : undefined);
     }
 
     let financialsCtx = "";
@@ -354,7 +432,11 @@ async function runAgent(agent: Record<string, unknown>): Promise<void> {
 
     // Build system prompt
     const basePrompt = (agent.system_prompt as string)?.trim() || "Bạn là trợ lý phân tích chứng khoán Việt Nam.";
-    const systemPrompt = basePrompt + GROUNDING_RULES + `
+    const portfolioNote = syms.length > 0
+      ? `\n\nDANH MỤC CỦA NGƯỜI DÙNG: ${syms.join(", ")}
+Dữ liệu đã được phân loại sẵn: "Tin ảnh hưởng nhiều cổ phiếu trong danh mục" = bài ảnh hưởng 2+ mã; "Tin riêng - [MÃ]" = bài chỉ ảnh hưởng mã đó. Hãy dùng đúng phân loại này khi viết output.`
+      : "";
+    const systemPrompt = basePrompt + portfolioNote + GROUNDING_RULES + `
 
 ═══════════════════════════════════════
 NGUỒN DỮ LIỆU XÁC NHẬN
@@ -364,7 +446,7 @@ ${priceCtx}${newsCtx}${financialsCtx}${kbCtx}
 ═══════════════════════════════════════`;
 
     const userMessage = syms.length > 0
-      ? `Phân tích ${syms.join(", ")} CHỈ dựa trên NGUỒN DỮ LIỆU. Mọi số liệu phải có [ref:N]. Trả lời tiếng Việt.`
+      ? `Phân tích danh mục ${syms.join(", ")} CHỈ dựa trên NGUỒN DỮ LIỆU. Mọi số liệu phải có [ref:N]. Trả lời tiếng Việt.`
       : `Thực hiện nhiệm vụ CHỈ dựa trên NGUỒN DỮ LIỆU. Mọi số liệu phải có [ref:N]. Trả lời tiếng Việt.`;
 
     // Gọi LLM
