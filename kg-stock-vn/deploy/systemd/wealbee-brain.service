@@ -1,0 +1,20 @@
+[Unit]
+Description=Wealbee KG brain (FastAPI serve.py) — bộ não ActionHub/Agents
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wealbee
+Group=wealbee
+WorkingDirectory=/opt/wealbee/kg-stock-vn
+Environment=PYTHONUNBUFFERED=1
+# Nghe localhost; Caddy reverse-proxy 443 → 8077. __WORKERS__ được setup_vm.sh thay bằng số thật.
+ExecStart=/opt/wealbee/.venv/bin/uvicorn serve:app --host 127.0.0.1 --port 8077 --workers __WORKERS__
+Restart=always
+RestartSec=3
+# Giới hạn mềm để 1 worker treo không kéo sập máy
+MemoryMax=14G
+
+[Install]
+WantedBy=multi-user.target

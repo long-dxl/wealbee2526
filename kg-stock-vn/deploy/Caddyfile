@@ -1,0 +1,15 @@
+# Caddyfile — reverse proxy + HTTPS tự động (Let's Encrypt).
+# setup_vm.sh thay __DOMAIN__ bằng subdomain thật rồi ghi ra /etc/caddy/Caddyfile.
+__DOMAIN__ {
+	encode gzip
+	reverse_proxy 127.0.0.1:8077 {
+		# Agent sâu có thể chạy lâu — nới timeout đọc/ghi
+		transport http {
+			read_timeout 180s
+			write_timeout 180s
+		}
+	}
+	log {
+		output file /var/log/wealbee/caddy.log
+	}
+}

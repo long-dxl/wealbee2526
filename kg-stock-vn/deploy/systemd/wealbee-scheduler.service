@@ -1,0 +1,18 @@
+[Unit]
+Description=Wealbee agent scheduler — chạy agent tự động (scheduled + event)
+After=network-online.target wealbee-brain.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wealbee
+Group=wealbee
+WorkingDirectory=/opt/wealbee/kg-stock-vn
+Environment=PYTHONUNBUFFERED=1
+# --interval 1: kiểm mỗi phút để bắt đúng giờ "daily:HH:MM"; event check rẻ. Cooldown chống lặp.
+ExecStart=/opt/wealbee/.venv/bin/python scheduler_local.py --interval 1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+# Ép LF cho mọi file deploy chạy trên Linux (CRLF sẽ làm bash/systemd lỗi \r).
+*.sh        text eol=lf
+*.service   text eol=lf
+Caddyfile   text eol=lf
+*.txt       text eol=lf
+*.md        text eol=lf
+env.example text eol=lf

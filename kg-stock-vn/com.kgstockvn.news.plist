@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job: đồng bộ tin Vietstock HÀNG NGÀY lúc 07:00 (one-shot, KHÔNG cần giữ process chạy).
+  Cài đặt:
+    cp com.kgstockvn.news.plist ~/Library/LaunchAgents/
+    launchctl load  ~/Library/LaunchAgents/com.kgstockvn.news.plist
+  Gỡ:
+    launchctl unload ~/Library/LaunchAgents/com.kgstockvn.news.plist
+  Chạy thử ngay:
+    launchctl start com.kgstockvn.news
+  Log: /tmp/kgstockvn-news.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.kgstockvn.news</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/Frameworks/Python.framework/Versions/3.13/bin/python3</string>
+        <string>-u</string>
+        <string>-m</string>
+        <string>data.scheduler</string>
+        <string>--now</string>
+        <string>news</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/daoxuanlong/Projects/kg-stock-vn</string>
+
+    <!-- Chạy mỗi ngày 07:00 giờ máy -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>7</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <!-- Nếu máy ngủ/tắt lúc 07:00, chạy bù khi bật lại -->
+    <key>StartInterval</key>
+    <integer>0</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/kgstockvn-news.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/kgstockvn-news.err.log</string>
+</dict>
+</plist>

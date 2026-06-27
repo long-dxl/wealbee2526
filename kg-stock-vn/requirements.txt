@@ -1,0 +1,27 @@
+# Knowledge Graph Stock VN - Python Dependencies
+# Cài đặt: pip install -r requirements.txt
+
+# Supabase Python client
+supabase>=2.10.0
+
+# Google Gemini SDK (thư viện chính thức mới nhất - dùng google-genai, KHÔNG phải google-generativeai cũ)
+google-genai>=1.16.0
+
+# Quản lý biến môi trường từ file .env
+python-dotenv>=1.0.0
+
+# Giao diện web
+streamlit>=1.45.0
+
+# Scraper Vietstock (dùng trong sync_vietstock_news.py)
+beautifulsoup4>=4.12.0
+
+# Dữ liệu chứng khoán Việt Nam (vnstock v4 — thay thế vnstock3)
+vnstock>=4.0.4
+
+# Dashboard charts
+plotly>=5.20.0
+
+# Auto-scheduler cho daily/weekly sync
+APScheduler>=3.10.0
+yfinance>=0.2

@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Môi trường & bí mật (KHÔNG commit khóa API/Supabase)
+.env
+.env.*
+!.env.example
+
+# Streamlit / runtime
+.streamlit/secrets.toml
+
+# pyvis / output tạm
+*.html
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Supabase CLI
+supabase/.temp/
+
+# Scratch / logs
+scratchpad/
+*.log

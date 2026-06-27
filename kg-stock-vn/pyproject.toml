@@ -1,0 +1,41 @@
+[project]
+name = "kg-stock-vn"
+version = "0.1.0"
+description = "AI Agent phân tích cổ phiếu Việt Nam — Knowledge Graph nhân-quả (vĩ mô→ngành→mã) + Gemini + Supabase + vnstock"
+requires-python = ">=3.11"
+
+# Nguồn chân lý phụ thuộc. requirements.txt giữ lại cho deploy (Streamlit Cloud) — đồng bộ với danh sách này.
+dependencies = [
+    "supabase>=2.10.0",
+    "google-genai>=1.16.0",
+    "python-dotenv>=1.0.0",
+    "streamlit>=1.45.0",
+    "beautifulsoup4>=4.12.0",
+    "vnstock>=4.0.4",
+    "plotly>=5.20.0",
+    "APScheduler>=3.10.0",
+    "yfinance>=0.2",
+    "pyvis>=0.3.2",          # KG Explorer (pages/3_KG_Explorer.py)
+    "requests>=2.31.0",       # web_search/read_article
+]
+
+[project.optional-dependencies]
+# Đọc PDF báo cáo CTCK (search_tools.read_article) — cài khi cần grounding báo cáo.
+pdf = ["pymupdf>=1.24.0", "pdfplumber>=0.11.0"]
+dev = ["ruff>=0.6.0", "pytest>=8.0.0"]
+
+# ── Tooling thống nhất toàn repo (chuẩn 2026) ──
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+# Domain rõ ràng — bỏ qua thư mục vendor/sinh tự động.
+exclude = ["assets", "lib", "supabase/.temp", "archive", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]   # độ dài dòng để line-length lo
+
+[tool.pytest.ini_options]
+# Eval harness + smoke test là "test" chính của repo.
+python_files = ["*_test.py", "test_*.py", "run_evals.py"]
+testpaths = ["evals", "markets"]
