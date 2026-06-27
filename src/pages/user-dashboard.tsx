@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { pipelineSupabase } from "../lib/supabase/pipeline-client";
 import { useAppStore } from "../store/appStore";
+import { IndexDetailModal } from "../components/index-detail-modal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -81,12 +82,19 @@ function timeAgo(iso: string) {
 
 // ─── StatCard ─────────────────────────────────────────────────────────────────
 
-function IndexCard({ idx }: { idx: IndexData }) {
+function IndexCard({ idx, onOpen }: { idx: IndexData; onOpen?: () => void }) {
   return (
-    <div style={{
-      flex: 1, minWidth: 140,
-      background: "#ffffff", border: "1px solid rgba(8,73,172,0.08)", borderRadius: 12, padding: "14px 16px",
-    }}>
+    <div
+      onClick={onOpen}
+      title={onOpen ? "Xem chi tiết chỉ số" : undefined}
+      style={{
+        flex: 1, minWidth: 140,
+        background: "#ffffff", border: "1px solid rgba(8,73,172,0.08)", borderRadius: 12, padding: "14px 16px",
+        cursor: onOpen ? "pointer" : "default",
+      }}
+      onMouseEnter={e => { if (onOpen) (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 12px rgba(8,73,172,0.12)"; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
         {idx.up
           ? <TrendingUp style={{ width: 13, height: 13, color: "#0ea5a0" }} />
@@ -104,6 +112,7 @@ function IndexCard({ idx }: { idx: IndexData }) {
         <span style={{ fontSize: "0.6875rem", padding: "2px 6px", borderRadius: 5, fontWeight: 700, fontFamily: "'Montserrat', system-ui, sans-serif", background: idx.up ? "rgba(14,165,160,0.1)" : "rgba(239,68,68,0.1)", color: idx.up ? "#0ea5a0" : "#ef4444" }}>
           {idx.pct}
         </span>
+        {onOpen && <span style={{ marginLeft: "auto", fontSize: "0.6875rem", fontWeight: 600, color: "#0849ac" }}>Chi tiết →</span>}
       </div>
     </div>
   );
@@ -116,6 +125,7 @@ export function UserDashboard() {
   const [newsLoading, setNewsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [marketIndices, setMarketIndices] = useState<IndexData[]>([]);
+  const [detailIdx, setDetailIdx] = useState<{ code: "VNINDEX" | "HNX"; name: string } | null>(null);
   const [gainers, setGainers] = useState<StockMover[]>([]);
   const [losers, setLosers] = useState<StockMover[]>([]);
   const { setContextTicker, setActionHubOpen } = useAppStore();
@@ -234,13 +244,24 @@ export function UserDashboard() {
       {/* ── Market indices ── */}
       <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
         {marketIndices.length > 0
-          ? marketIndices.map(idx => <IndexCard key={idx.label} idx={idx} />)
+          ? marketIndices.map(idx => (
+              <IndexCard key={idx.label} idx={idx}
+                onOpen={() => setDetailIdx({ code: idx.label.startsWith("VN") ? "VNINDEX" : "HNX", name: idx.label })} />
+            ))
           : [
               { label: "VN-Index", value: "—", change: "—", pct: "—", up: true },
               { label: "HNX",      value: "—", change: "—", pct: "—", up: true },
             ].map(idx => <IndexCard key={idx.label} idx={idx} />)
         }
       </div>
+
+      {detailIdx && (
+        <IndexDetailModal
+          indexCode={detailIdx.code}
+          name={detailIdx.name}
+          onClose={() => setDetailIdx(null)}
+        />
+      )}
 
       {/* ── Quick actions ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 24 }}>

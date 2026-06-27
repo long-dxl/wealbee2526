@@ -9,6 +9,7 @@ import { useState, useEffect } from "react";
 import { TrendingUp, TrendingDown, Clock, AlertCircle } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
+import { IndexDetailModal } from "../../components/index-detail-modal";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface MoverRow { symbol: string; price: number; pct: number; vol: string; isCeil: boolean; isFloor: boolean; }
@@ -110,6 +111,7 @@ export function MarketPulse({
   const [indices,  setIndices]  = useState<IndexState[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [lastDate, setLastDate] = useState<string>("—");
+  const [detailIdx, setDetailIdx] = useState<{ code: "VNINDEX" | "HNX"; name: string } | null>(null);
 
   // ── Data fetch ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -178,13 +180,13 @@ export function MarketPulse({
     async function loadIndices() {
       const { data } = await supabase
         .from("market_indices")
-        .select("index_code,close,change_pct,date")
+        .select("index_code,close,change_pct,date,volume")
         .in("index_code", ["VNINDEX", "HNX"])
         .order("date", { ascending: false })
         .limit(20);
       if (!data || cancelled) return;
 
-      const groups: Record<string, { close: number; date: string; change_pct: number | null }[]> = {};
+      const groups: Record<string, { close: number; date: string; change_pct: number | null; volume: number | null }[]> = {};
       data.forEach((row: any) => {
         if (!groups[row.index_code]) groups[row.index_code] = [];
         groups[row.index_code].push(row);
@@ -203,7 +205,7 @@ export function MarketPulse({
           pt,
           pct: latest.change_pct ?? 0,
           spark,
-          vol: "—",
+          vol: fmtVol(latest.volume),
         });
       }
       if (!cancelled && result.length > 0) setIndices(result);
@@ -288,7 +290,9 @@ export function MarketPulse({
             };
             return (
               <div key={idx.name} {...makeDragHandlers(card)}
-                style={{ flex: 1, background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, cursor: "grab", userSelect: "none", position: "relative" }}
+                onClick={() => setDetailIdx({ code: idx.name.startsWith("VN") ? "VNINDEX" : "HNX", name: idx.name })}
+                title="Xem chi tiết chỉ số"
+                style={{ flex: 1, background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, cursor: "pointer", userSelect: "none", position: "relative" }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; }}
               >
@@ -308,12 +312,24 @@ export function MarketPulse({
                     />
                   </svg>
                 )}
-                <div style={{ fontSize: 12, color: fgSubtle }}>7 ngày gần nhất</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: fgSubtle }}>KL: {idx.vol}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: brand }}>Chi tiết →</span>
+                </div>
               </div>
             );
           })
         )}
       </div>
+
+      {detailIdx && (
+        <IndexDetailModal
+          indexCode={detailIdx.code}
+          name={detailIdx.name}
+          isDark={isDark}
+          onClose={() => setDetailIdx(null)}
+        />
+      )}
 
       {/* Top Movers */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
