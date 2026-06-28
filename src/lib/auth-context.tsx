@@ -19,9 +19,6 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  loginWithGoogle: () => Promise<void>;
-  loginWithFacebook: () => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -92,75 +89,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   };
 
-  const loginWithGoogle = async () => {
-    setIsLoading(true);
-    
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/app`,
-      }
-    });
-
-    if (error) {
-      setIsLoading(false);
-      throw error;
-    }
-    
-    // OAuth will handle redirect, so we don't set loading to false here
-  };
-
-  const loginWithFacebook = async () => {
-    setIsLoading(true);
-    
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'facebook',
-      options: {
-        redirectTo: `${window.location.origin}/app`,
-      }
-    });
-
-    if (error) {
-      setIsLoading(false);
-      throw error;
-    }
-    
-    // OAuth will handle redirect, so we don't set loading to false here
-  };
-
-  const register = async (email: string, password: string, name: string) => {
-    setIsLoading(true);
-    
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          name,
-        },
-        emailRedirectTo: `${window.location.origin}/app`,
-      }
-    });
-
-    if (error) {
-      setIsLoading(false);
-      throw error;
-    }
-
-    // Check if email confirmation is required
-    if (data.user && !data.session) {
-      // Email confirmation required
-      setIsLoading(false);
-      throw new Error('Vui lòng kiểm tra email để xác nhận tài khoản');
-    }
-
-    if (data.user) {
-      setUser(convertSupabaseUser(data.user));
-    }
-    
-    setIsLoading(false);
-  };
-
   const logout = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
@@ -173,9 +101,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: !!user,
     isLoading,
     login,
-    loginWithGoogle,
-    loginWithFacebook,
-    register,
     logout,
   };
 

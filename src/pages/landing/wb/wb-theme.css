@@ -1,0 +1,77 @@
+/* ───────────────────────── Wealbee landing brand tokens ─────────────────────────
+   Cô lập cho module landing mới (src/pages/landing/wb). Chỉ chứa brand tokens
+   --wb-* + scope .wb-light/.wb-dark + fonts. KHÔNG đụng theme shadcn của app. */
+
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+
+:root {
+  /* Brand (theme-independent) */
+  --wb-primary: #0849ac;
+  --wb-bright: #4d8fe8;
+  --wb-deep: #032d6b;
+  --wb-tint: #e8f0fe;
+  --wb-up: #34c759;
+  --wb-down: #ff3b30;
+  --wb-cite: #ff6b35;
+  --wb-highlight: #ffd60a;
+  --wb-radius: 14px;
+  --wb-font-display: 'Montserrat', sans-serif;
+  --wb-font-body: 'Inter', sans-serif;
+  --wb-font-mono: 'IBM Plex Mono', monospace;
+}
+
+.wb-light {
+  --wb-canvas: #f5f5f7;
+  --wb-elev: #eceff5;
+  --wb-card: #ffffff;
+  --wb-border: rgba(0, 0, 0, 0.08);
+  --wb-text: #1a1a2e;
+  --wb-muted: rgba(26, 26, 46, 0.62);
+  --wb-faint: rgba(26, 26, 46, 0.38);
+  --wb-glow: rgba(8, 73, 172, 0.16);
+  --wb-shadow-card: 0 18px 40px rgba(16, 24, 40, 0.08);
+  --wb-track: rgba(0, 0, 0, 0.16);
+  --wb-hairline: rgba(0, 0, 0, 0.1);
+  --wb-mock-window: #ffffff;
+  --wb-mock-panel: #f3f4f7;
+  --wb-mock-chrome: #e7e9ee;
+  --wb-mock-card: #f6f7f9;
+  --wb-mock-inset: #eceef2;
+  --wb-mock-border: rgba(0, 0, 0, 0.09);
+  --wb-mock-divider: rgba(0, 0, 0, 0.06);
+  --wb-mock-line: rgba(0, 0, 0, 0.12);
+  --wb-mock-frame: rgba(0, 0, 0, 0.1);
+  --wb-mock-text: #1a1a2e;
+  --wb-mock-muted: rgba(26, 26, 46, 0.62);
+  --wb-mock-dim: rgba(26, 26, 46, 0.5);
+  --wb-mock-faint: rgba(26, 26, 46, 0.4);
+  --wb-mock-active: rgba(8, 73, 172, 0.1);
+}
+
+.wb-dark {
+  --wb-canvas: #0b0d18;
+  --wb-elev: #090b14;
+  --wb-card: #131824;
+  --wb-border: rgba(255, 255, 255, 0.07);
+  --wb-text: #ffffff;
+  --wb-muted: rgba(255, 255, 255, 0.62);
+  --wb-faint: rgba(255, 255, 255, 0.34);
+  --wb-glow: rgba(8, 73, 172, 0.45);
+  --wb-shadow-card: 0 20px 50px rgba(0, 0, 0, 0.45);
+  --wb-track: rgba(255, 255, 255, 0.16);
+  --wb-hairline: rgba(255, 255, 255, 0.12);
+  --wb-mock-window: #0b0d16;
+  --wb-mock-panel: #090a12;
+  --wb-mock-chrome: #0a0a12;
+  --wb-mock-card: rgba(255, 255, 255, 0.015);
+  --wb-mock-inset: rgba(255, 255, 255, 0.04);
+  --wb-mock-border: rgba(255, 255, 255, 0.075);
+  --wb-mock-divider: rgba(255, 255, 255, 0.06);
+  --wb-mock-line: rgba(255, 255, 255, 0.11);
+  --wb-mock-frame: rgba(255, 255, 255, 0.1);
+  --wb-mock-text: #ffffff;
+  --wb-mock-muted: rgba(255, 255, 255, 0.6);
+  --wb-mock-dim: rgba(255, 255, 255, 0.4);
+  --wb-mock-faint: rgba(255, 255, 255, 0.3);
+  --wb-mock-active: rgba(8, 73, 172, 0.22);
+}

@@ -1,9 +1,12 @@
 import { createBrowserRouter } from "react-router";
 
-// Landing pages
-import { Landing } from "./pages/landing";
-import { Login } from "./pages/login";
-import LandingPage from "./pages/landing/LandingPage";
+// Landing + Login (thiết kế mới — luồng request demo)
+import { LandingPage } from "./pages/landing/wb/app/pages/LandingPage";
+import { LoginPage } from "./pages/landing/wb/app/pages/LoginPage";
+import { DemoResultPage } from "./pages/landing/wb/app/pages/DemoResultPage";
+import { RequireAuth } from "./components/require-auth";
+
+// Landing sub-pages (giữ nguyên)
 import OnboardingPage from "./pages/landing/OnboardingPage";
 import PricingPage from "./pages/landing/PricingPage";
 import FeedbackPage from "./pages/landing/FeedbackPage";
@@ -46,28 +49,33 @@ export const router = createBrowserRouter([
   { path: "/unsubscribe",   Component: UnsubscribePage },
   { path: "/blog",          Component: BlogListPage   },
   { path: "/blog/:slug",    Component: BlogPostPage   },
-  { path: "/landing-old",   Component: Landing        },
-  { path: "/login",         Component: Login          },
+  { path: "/login",         Component: LoginPage      },
+  { path: "/demo-result",   Component: DemoResultPage },
 
-  // ── Protected app routes (new layout) ─────────────────────────────────────
+  // ── Protected app routes — chặn bằng RequireAuth ──────────────────────────
   {
     path: "/app",
-    Component: NewLayout,
+    Component: RequireAuth,
     children: [
-      { index: true,             Component: DashboardRoute    },
-{ path: "inbox",           Component: InboxRoute        },
-      { path: "agents",          Component: AgentsPage        },
-      { path: "agent-studio",    Component: AgentStudioRoute  },
-      { path: "templates",       Component: TemplatesRoute    },
-      { path: "tools",           Component: ToolLibraryRoute  },
-      { path: "knowledge",       Component: KnowledgeBaseRoute },
-      { path: "portfolio",       Component: PortfolioRoute    },
-      { path: "settings",        Component: SettingsRoute     },
-      { path: "tickers",         Component: TickersRoute       },
-      { path: "ticker/:symbol",  Component: TickerDetailPage  },
+      {
+        Component: NewLayout,
+        children: [
+          { index: true,             Component: DashboardRoute    },
+          { path: "inbox",           Component: InboxRoute        },
+          { path: "agents",          Component: AgentsPage        },
+          { path: "agent-studio",    Component: AgentStudioRoute  },
+          { path: "templates",       Component: TemplatesRoute    },
+          { path: "tools",           Component: ToolLibraryRoute  },
+          { path: "knowledge",       Component: KnowledgeBaseRoute },
+          { path: "portfolio",       Component: PortfolioRoute    },
+          { path: "settings",        Component: SettingsRoute     },
+          { path: "tickers",         Component: TickersRoute       },
+          { path: "ticker/:symbol",  Component: TickerDetailPage  },
 
-      // Legacy admin
-      { path: "admin/daily-review", Component: AdminDailyReview },
+          // Legacy admin
+          { path: "admin/daily-review", Component: AdminDailyReview },
+        ],
+      },
     ],
   },
 

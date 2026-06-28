@@ -12,3 +12,10 @@ verify_jwt = false
 
 [functions.agent-scheduler]
 verify_jwt = false
+
+# Link duyệt/từ chối mở trực tiếp từ email của admin → không cần JWT
+[functions.demo-approve]
+verify_jwt = false
+
+[functions.demo-reject]
+verify_jwt = false
