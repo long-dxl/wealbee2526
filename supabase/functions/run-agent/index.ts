@@ -1024,7 +1024,7 @@ ${toolDefs.length > 0
           apiModel  = "gpt-4o-mini";
           emit({ type: "step", step: "gpt", status: "loading", label: `⚠ ${agent.model} chưa có API key → dùng GPT-4o mini` });
         } else {
-          emit({ type: "step", step: "gpt", status: "loading", label: `Đang phân tích với ${apiModel}...` });
+          emit({ type: "step", step: "gpt", status: "loading", label: `Đang phân tích...` });
         }
 
         // ── True tool-call loop ───────────────────────────────────────────────
