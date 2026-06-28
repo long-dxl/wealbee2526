@@ -40,7 +40,7 @@ interface TestSession {
 // ── Models ─────────────────────────────────────────────────────────────────
 const MODELS = [
   {
-    id: "default", name: "Wealbee AI", provider: "Wealbee",
+    id: "default", name: "Mặc định", provider: "Wealbee",
     tags: ["Balance", "v1.0"],
     desc: "Mô hình tối ưu chi phí và hiệu suất, tích hợp bộ khung tư duy tài chính",
     available: true,
