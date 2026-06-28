@@ -173,6 +173,13 @@ function SymbolPickerModal({ initialSymbols = [], onConfirm, onCancel }: { initi
   const [input,       setInput]       = useState("");
   const [selected,    setSelected]    = useState<string[]>(initialSymbols.slice(0, 5));
   const [suggestions, setSuggestions] = useState<string[]>(VN30_FALLBACK);
+  const [allTickers,  setAllTickers]  = useState<{ symbol: string; name: string }[]>([]);
+
+  // Nạp mã + tên công ty để gợi ý khi gõ
+  useEffect(() => {
+    supabase.from("tickers").select("symbol,name").eq("is_active", true).order("symbol")
+      .then(({ data }) => setAllTickers((data ?? []) as { symbol: string; name: string }[]));
+  }, []);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -204,6 +211,15 @@ function SymbolPickerModal({ initialSymbols = [], onConfirm, onCancel }: { initi
     );
   };
 
+  // Gợi ý theo tiền tố mã HOẶC tên công ty; ẩn mã đã chọn
+  const symQuery = input.trim().toUpperCase();
+  const tickerSuggestions = symQuery
+    ? allTickers
+        .filter(t => !selected.includes(t.symbol) &&
+          (t.symbol.startsWith(symQuery) || (t.name ?? "").toUpperCase().includes(symQuery)))
+        .slice(0, 7)
+    : [];
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.40)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(2px)" }}>
       <div style={{ background: "#fff", borderRadius: 18, padding: "28px 28px 24px", width: 440, boxShadow: "0 24px 64px rgba(0,0,0,0.18)", fontFamily: FONT }}>
@@ -229,27 +245,40 @@ function SymbolPickerModal({ initialSymbols = [], onConfirm, onCancel }: { initi
           </div>
         )}
 
-        {/* Input */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        {/* Input + gợi ý mã/tên công ty */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, position: "relative" }}>
           <input
             autoFocus
             value={input}
-            onChange={e => setInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+            onChange={e => setInput(e.target.value.toUpperCase().replace(/[^A-Z0-9 ]/g, ""))}
             onKeyDown={e => {
-              if (e.key === "Enter" && input.trim()) addSymbol(input);
+              if (e.key === "Enter" && (tickerSuggestions[0] || input.trim())) addSymbol(tickerSuggestions[0]?.symbol ?? input);
               if (e.key === "Escape") onCancel();
             }}
-            placeholder="Nhập mã và Enter (VD: HPG)"
-            maxLength={5}
-            style={{ flex: 1, padding: "9px 14px", borderRadius: 9, border: "1.5px solid rgba(8,73,172,0.20)", fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", fontFamily: FONT, outline: "none", letterSpacing: "0.05em" }}
+            placeholder="Gõ mã hoặc tên công ty…"
+            maxLength={20}
+            style={{ flex: 1, padding: "9px 14px", borderRadius: 9, border: `1.5px solid ${tickerSuggestions.length ? "#8b5cf6" : "rgba(8,73,172,0.20)"}`, fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", fontFamily: FONT, outline: "none", letterSpacing: "0.05em" }}
           />
           <button
-            onClick={() => addSymbol(input)}
-            disabled={!input.trim() || selected.length >= 5}
-            style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: input.trim() && selected.length < 5 ? "#8b5cf6" : "#e5e7eb", color: input.trim() && selected.length < 5 ? "#fff" : "#99a1af", cursor: "pointer", fontWeight: 700, fontFamily: FONT, fontSize: "0.8125rem" }}
+            onClick={() => addSymbol(tickerSuggestions[0]?.symbol ?? input)}
+            disabled={(!tickerSuggestions[0] && !input.trim()) || selected.length >= 5}
+            style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: (tickerSuggestions[0] || input.trim()) && selected.length < 5 ? "#8b5cf6" : "#e5e7eb", color: (tickerSuggestions[0] || input.trim()) && selected.length < 5 ? "#fff" : "#99a1af", cursor: "pointer", fontWeight: 700, fontFamily: FONT, fontSize: "0.8125rem" }}
           >
             Thêm
           </button>
+          {tickerSuggestions.length > 0 && (
+            <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20, background: "#fff", border: "1px solid rgba(8,73,172,0.12)", borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.14)", overflow: "hidden", maxHeight: 240, overflowY: "auto" }}>
+              {tickerSuggestions.map(t => (
+                <div key={t.symbol} onMouseDown={e => { e.preventDefault(); addSymbol(t.symbol); }}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid rgba(0,0,0,0.04)" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(139,92,246,0.06)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                  <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#8b5cf6", minWidth: 46, flexShrink: 0 }}>{t.symbol}</span>
+                  <span style={{ fontSize: "0.75rem", color: "#6a7282", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Quick-pick grid */}
