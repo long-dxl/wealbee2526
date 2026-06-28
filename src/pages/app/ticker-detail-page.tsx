@@ -506,6 +506,170 @@ function CashFlowPanel({ data }: { data: CFRow[] }) {
   );
 }
 
+// ─── Hiển thị tài chính theo LOẠI HÌNH (FY, 5 năm gần nhất) ───────────────────
+
+type StmtFmt = "ty" | "eps" | "pct" | "x";
+interface DispRow { label: string; code: string; src: "stmt" | "ratio"; fmt: StmtFmt; }
+const fam = (ct: string | null | undefined) => (ct === "bank" ? "bank" : "other");
+
+const FIN_TEMPLATES: Record<FinTab, Record<"bank" | "other", DispRow[]>> = {
+  income: {
+    other: [
+      { label: "Doanh thu",       code: "IS_REVENUE",           src: "stmt", fmt: "ty" },
+      { label: "Lợi nhuận gộp",   code: "IS_GROSS_PROFIT",      src: "stmt", fmt: "ty" },
+      { label: "LN từ HĐKD",      code: "IS_OPERATING_PROFIT",  src: "stmt", fmt: "ty" },
+      { label: "LN sau thuế",     code: "IS_NET_PROFIT_PARENT", src: "stmt", fmt: "ty" },
+      { label: "EPS (đồng)",      code: "IS_EPS",               src: "stmt", fmt: "eps" },
+    ],
+    bank: [
+      { label: "Tổng thu nhập HĐ",   code: "BANK_TOI",          src: "stmt", fmt: "ty" },
+      { label: "Thu nhập lãi thuần", code: "BANK_NII",          src: "stmt", fmt: "ty" },
+      { label: "LN từ HĐKD",         code: "BANK_PREPROVISION", src: "stmt", fmt: "ty" },
+      { label: "LN sau thuế",        code: "IS_NET_PROFIT_PARENT", src: "stmt", fmt: "ty" },
+      { label: "EPS (đồng)",         code: "IS_EPS",            src: "stmt", fmt: "eps" },
+    ],
+  },
+  balance: {
+    other: [
+      { label: "Tổng tài sản",     code: "BS_TOTAL_ASSETS",   src: "stmt", fmt: "ty" },
+      { label: "Tài sản ngắn hạn", code: "BS_CURRENT_ASSETS", src: "stmt", fmt: "ty" },
+      { label: "Nợ phải trả",      code: "BS_TOTAL_DEBT",     src: "stmt", fmt: "ty" },
+      { label: "Vốn chủ sở hữu",   code: "BS_EQUITY",         src: "stmt", fmt: "ty" },
+    ],
+    bank: [
+      { label: "Tổng tài sản",        code: "BS_TOTAL_ASSETS", src: "stmt", fmt: "ty" },
+      { label: "Cho vay khách hàng",  code: "BANK_LOANS",      src: "stmt", fmt: "ty" },
+      { label: "Tiền gửi khách hàng", code: "BANK_DEPOSITS",   src: "stmt", fmt: "ty" },
+      { label: "Nợ phải trả",         code: "BS_TOTAL_DEBT",   src: "stmt", fmt: "ty" },
+      { label: "Vốn chủ sở hữu",      code: "BS_EQUITY",       src: "stmt", fmt: "ty" },
+    ],
+  },
+  cashflow: {
+    other: [
+      { label: "CF hoạt động KD",      code: "CF_OPERATING", src: "stmt", fmt: "ty" },
+      { label: "CF đầu tư",            code: "CF_INVESTING", src: "stmt", fmt: "ty" },
+      { label: "CF tài chính",         code: "CF_FINANCING", src: "stmt", fmt: "ty" },
+      { label: "Biến động tiền thuần", code: "CF_NET",       src: "stmt", fmt: "ty" },
+    ],
+    // Ngân hàng: CF ít giá trị phân tích (TT49 gộp dòng tài chính vào HĐKD, financing để trống) → giữ tối giản
+    bank: [
+      { label: "CF hoạt động KD",      code: "CF_OPERATING", src: "stmt", fmt: "ty" },
+      { label: "CF đầu tư",            code: "CF_INVESTING", src: "stmt", fmt: "ty" },
+      { label: "Biến động tiền thuần", code: "CF_NET",       src: "stmt", fmt: "ty" },
+    ],
+  },
+  metrics: {
+    other: [
+      { label: "ROE",            code: "ROE",            src: "ratio", fmt: "pct" },
+      { label: "ROA",            code: "ROA",            src: "ratio", fmt: "pct" },
+      { label: "Biên LN gộp",    code: "GROSS_MARGIN",   src: "ratio", fmt: "pct" },
+      { label: "Biên LN ròng",   code: "NET_MARGIN",     src: "ratio", fmt: "pct" },
+      { label: "Nợ / Vốn (D/E)", code: "DEBT_TO_EQUITY", src: "ratio", fmt: "x" },
+    ],
+    bank: [
+      { label: "ROE",          code: "ROE",  src: "ratio", fmt: "pct" },
+      { label: "ROA",          code: "ROA",  src: "ratio", fmt: "pct" },
+      { label: "NIM",          code: "NIM",  src: "ratio", fmt: "pct" },
+      { label: "CIR",          code: "CIR",  src: "ratio", fmt: "pct" },
+      { label: "Nợ xấu (NPL)", code: "NPL",  src: "ratio", fmt: "pct" },
+    ],
+  },
+};
+
+const fmtCell = (v: number, f: StmtFmt) =>
+  f === "ty"  ? (v < 0 ? "-" : "") + Math.round(Math.abs(v) / 1e9).toLocaleString("vi-VN")
+: f === "eps" ? Math.round(v).toLocaleString("vi-VN")
+: f === "pct" ? `${(v * 100).toFixed(1)}%`
+:               v.toFixed(2);
+const chartVal = (v: number, f: StmtFmt) => f === "ty" ? v / 1e9 : f === "pct" ? v * 100 : v;
+
+function StatementPanel({ tab, companyType, stmt, ratios }: {
+  tab: FinTab; companyType: string | null; stmt: any[]; ratios: any[];
+}) {
+  const tk = useTK();
+  const rows = FIN_TEMPLATES[tab][fam(companyType)];
+  const [activeCode, setActiveCode] = useState(rows[0].code);
+  useEffect(() => { setActiveCode(rows[0].code); }, [tab, companyType]);
+
+  const lookup: Record<string, Record<number, number>> = {};
+  const put = (c: string, y: number, v: number) => { (lookup[c] ??= {})[y] = v; };
+  stmt.forEach(r => { if (r.value != null) put(r.item_code, Number(r.period), Number(r.value)); });
+  ratios.forEach(r => { if (r.value != null) put(r.ratio_code, Number(r.period), Number(r.value)); });
+
+  const years = [...new Set(stmt.map(r => Number(r.period)).filter(y => !isNaN(y)))]
+    .sort((a, b) => a - b).slice(-5);
+  if (!years.length) return <EmptyState message="Chưa có dữ liệu tài chính" />;
+
+  const active = rows.find(r => r.code === activeCode) ?? rows[0];
+  const isPct  = active.fmt === "pct" || active.fmt === "x";
+  const barData = years.map(y => ({ year: String(y), value: lookup[active.code]?.[y] != null ? chartVal(lookup[active.code][y], active.fmt) : 0 }));
+
+  return (
+    <div>
+      <div style={{ background: tk.CARD2, borderRadius: 14, border: `1px solid ${tk.BORDER}`, padding: "18px 20px", marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: tk.TEXT, marginBottom: 14 }}>{active.label}{isPct ? " (%)" : active.fmt === "eps" ? " (đồng)" : " (tỷ VND)"}</div>
+        <div style={{ height: 170 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={barData} barSize={38} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={tk.GRID_STROKE} vertical={false} />
+              <XAxis dataKey="year" tick={{ fontSize: 12, fill: tk.MUTED }} tickLine={false} axisLine={false} />
+              <YAxis hide />
+              <ReferenceLine y={0} stroke={tk.REF_STROKE} />
+              <Tooltip content={<FinTooltip unit={isPct ? "%" : active.fmt === "eps" ? "đ" : "tỷ"} />} cursor={{ fill: `${tk.ACCENT_CHART}0D` }} />
+              <Bar dataKey="value" fill={tk.ACCENT_BAR} radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div style={{ background: tk.CARD, borderRadius: 14, border: `1px solid ${tk.BORDER}`, overflow: "hidden" }}>
+        <div style={{ padding: "16px 22px 8px" }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: tk.TEXT, marginBottom: 3 }}>Chỉ tiêu tài chính</div>
+          <div style={{ fontSize: 12, color: tk.MUTED }}>Click vào từng chỉ tiêu để xem biểu đồ · {years[0]}–{years[years.length - 1]}</div>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT }}>
+            <thead>
+              <tr style={{ background: tk.CARD2 }}>
+                <th style={{ textAlign: "left", padding: "10px 22px", fontSize: 11, fontWeight: 700, color: tk.MUTED2, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 170 }}>Chỉ tiêu</th>
+                {years.map(y => (
+                  <th key={y} style={{ textAlign: "right", padding: "10px 16px 10px 0", fontSize: 11, fontWeight: 700, color: tk.MUTED2 }}>{y}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const isActive = activeCode === row.code;
+                return (
+                  <tr key={row.code} onClick={() => setActiveCode(row.code)}
+                    style={{ cursor: "pointer", background: isActive ? tk.ACCENT_HL : "transparent", borderTop: `0.5px solid ${tk.BORDER}` }}
+                    onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = tk.ROW_HOV; }}
+                    onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
+                    <td style={{ padding: "11px 22px", fontSize: 13, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 700 : 400 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {isActive && <div style={{ width: 3, height: 16, background: tk.ACCENT_BAR, borderRadius: 2, flexShrink: 0 }} />}
+                        {row.label}
+                      </div>
+                    </td>
+                    {years.map(y => {
+                      const raw = lookup[row.code]?.[y];
+                      return (
+                        <td key={y} style={{ padding: "11px 16px 11px 0", textAlign: "right", fontSize: 13, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 600 : 400, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                          {raw != null ? fmtCell(raw, row.fmt) : "—"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function TickerDetailPage() {
@@ -526,9 +690,9 @@ export function TickerDetailPage() {
   const [prices,    setPrices]    = useState<any[]>([]);
   const [vniPrices, setVniPrices] = useState<any[]>([]);
   const [hnxPrices, setHnxPrices] = useState<any[]>([]);
-  const [financials, setFinancials] = useState<FinancialRow[]>([]);
-  const [balanceSheet, setBalanceSheet] = useState<BSRow[]>([]);
-  const [cashFlow,     setCashFlow]     = useState<CFRow[]>([]);
+  const [stmt,      setStmt]      = useState<any[]>([]);
+  const [ratiosFY,  setRatiosFY]  = useState<any[]>([]);
+  const [stockInfo, setStockInfo] = useState<any>(null);
   const [dividends,  setDividends]  = useState<any[]>([]);
   const [insiders,   setInsiders]   = useState<any[]>([]);
   const [news,       setNews]       = useState<any[]>([]);
@@ -574,35 +738,33 @@ export function TickerDetailPage() {
       const [
         { data: tickerData },
         { data: priceData },
-        { data: finData },
+        { data: stmtData },
         { data: divData },
         { data: insiderData },
         { data: newsData },
         { data: vniData },
         { data: hnxData },
         { data: stockData },
-        { data: bsData },
-        { data: cfData },
+        { data: ratioData },
       ] = await Promise.all([
-        supabase.from("tickers").select("symbol,name,exchange,sector,in_vn30").eq("symbol", s).single(),
-        supabase.from("prices_daily").select("date,open,high,low,close,volume").eq("symbol", s).order("date", { ascending: true }).limit(500),
-        supabase.from("financials_annual").select("year,revenue,gross_profit,ebt,net_profit,eps,pe_ratio,pb_ratio,roe,roa,debt_to_equity,current_ratio").eq("symbol", s).order("year", { ascending: true }).limit(10),
+        supabase.from("tickers").select("symbol,name,exchange,sector,in_vn30,company_type,founded_year,listing_date").eq("symbol", s).single(),
+        supabase.from("prices_daily").select("date,open,high,low,close,volume").eq("symbol", s).order("date", { ascending: true }).limit(2000),
+        supabase.from("financial_statements").select("statement,period,item_code,value").eq("symbol", s).eq("period_type", "FY").limit(2000),
         supabase.from("dividends").select("id,ex_date,payment_date,dividend_type,amount").eq("symbol", s).order("ex_date", { ascending: false }).limit(10),
         supabase.from("insider_transactions").select("id,trade_date,insider_name,trade_type,volume").eq("symbol", s).order("trade_date", { ascending: false }).limit(10),
         supabase.from("market_news").select("title,published_at,impact_score,label,article_url").contains("affected_symbols", [s]).neq("label", "trash").not("label", "is", null).order("published_at", { ascending: false }).limit(10),
-        supabase.from("market_indices").select("date,close").eq("index_code", "VNINDEX").order("date", { ascending: true }).limit(500),
-        supabase.from("market_indices").select("date,close").eq("index_code", "HNX").order("date", { ascending: true }).limit(500),
+        supabase.from("market_indices").select("date,close").eq("index_code", "VNINDEX").order("date", { ascending: true }).limit(2000),
+        supabase.from("market_indices").select("date,close").eq("index_code", "HNX").order("date", { ascending: true }).limit(2000),
         supabase.from("stocks").select("symbol,name,sector_name,company_context").eq("symbol", s).single(),
-        supabase.from("balance_sheet").select("period,period_date,total_assets,cash,total_debt,equity,current_ratio").eq("symbol", s).order("period_date", { ascending: true }).limit(12),
-        supabase.from("cash_flow_statement").select("period,period_date,operating_cf,capex,fcf,net_cash_change").eq("symbol", s).order("period_date", { ascending: true }).limit(12),
+        supabase.from("financial_ratios").select("period,period_type,ratio_code,value").eq("symbol", s).limit(2000),
       ]);
 
       if (!tickerData) { setError(`Không tìm thấy mã "${s}"`); setLoading(false); return; }
       setTicker(tickerData);
       setPrices(priceData ?? []);
-      setFinancials((finData ?? []) as FinancialRow[]);
-      setBalanceSheet((bsData ?? []) as BSRow[]);
-      setCashFlow((cfData ?? []) as CFRow[]);
+      setStmt(stmtData ?? []);
+      setRatiosFY(ratioData ?? []);
+      setStockInfo(stockData ?? null);
       setDividends(divData ?? []);
       setInsiders(insiderData ?? []);
       setNews(newsData ?? []);
@@ -628,10 +790,14 @@ export function TickerDetailPage() {
 
   const filteredPrices = useMemo(() => {
     if (!prices.length) return [];
-    const days = PERIOD_DAYS[period];
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-    const cutStr = cutoff.toISOString().slice(0, 10);
+    let cutStr: string;
+    if (period === "YTD") {
+      cutStr = `${new Date().getFullYear()}-01-01`;   // từ đầu năm, không phải 365 ngày
+    } else {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - PERIOD_DAYS[period]);
+      cutStr = cutoff.toISOString().slice(0, 10);
+    }
     return prices.filter(p => p.date >= cutStr);
   }, [prices, period]);
 
@@ -646,15 +812,24 @@ export function TickerDetailPage() {
     hnxPrices.forEach(v => { hnxMap[v.date] = Number(v.close); });
 
     const baseStock = Number(filteredPrices[0].close);
-    const baseVni   = vniMap[filteredPrices[0].date] ?? 0;
-    const baseHnx   = hnxMap[filteredPrices[0].date] ?? 0;
+    // baseline index = điểm ĐẦU TIÊN có dữ liệu trong cửa sổ (tránh 0% khi ngày đầu thiếu data index)
+    const firstVni  = filteredPrices.find(p => vniMap[p.date] != null);
+    const firstHnx  = filteredPrices.find(p => hnxMap[p.date] != null);
+    const baseVni   = firstVni ? vniMap[firstVni.date] : 0;
+    const baseHnx   = firstHnx ? hnxMap[firstHnx.date] : 0;
 
-    return filteredPrices.map(p => ({
-      date:  fmtShort(p.date),
-      stock: parseFloat(((Number(p.close) / baseStock - 1) * 100).toFixed(2)),
-      vni:   baseVni > 0 ? parseFloat(((vniMap[p.date] ?? baseVni) / baseVni * 100 - 100).toFixed(2)) : 0,
-      hnx:   baseHnx > 0 ? parseFloat(((hnxMap[p.date] ?? baseHnx) / baseHnx * 100 - 100).toFixed(2)) : 0,
-    }));
+    // forward-fill: ngày thiếu data index → giữ giá trị gần nhất (không rớt về 0%)
+    let lastVni = baseVni, lastHnx = baseHnx;
+    return filteredPrices.map(p => {
+      if (vniMap[p.date] != null) lastVni = vniMap[p.date];
+      if (hnxMap[p.date] != null) lastHnx = hnxMap[p.date];
+      return {
+        date:  fmtShort(p.date),
+        stock: parseFloat(((Number(p.close) / baseStock - 1) * 100).toFixed(2)),
+        vni:   baseVni > 0 ? parseFloat((lastVni / baseVni * 100 - 100).toFixed(2)) : 0,
+        hnx:   baseHnx > 0 ? parseFloat((lastHnx / baseHnx * 100 - 100).toFixed(2)) : 0,
+      };
+    });
   }, [filteredPrices, vniPrices, hnxPrices]);
 
   const latest  = prices.length > 0 ? prices[prices.length - 1] : null;
@@ -768,7 +943,13 @@ export function TickerDetailPage() {
           {/* 2-col: company info + price */}
           {(() => {
             const profile = VN30_PROFILES[ticker.symbol];
-            const latestFin = financials.length > 0 ? financials[financials.length - 1] : null;
+            const curR: Record<string, number> = {};
+            ratiosFY.forEach((r: any) => { if (r.period_type === "CURRENT" && r.value != null) curR[r.ratio_code] = Number(r.value); });
+            const fyRoe = ratiosFY.filter((r: any) => r.ratio_code === "ROE" && /^\d{4}$/.test(String(r.period)))
+              .sort((a: any, b: any) => String(a.period).localeCompare(String(b.period))).pop();
+            const latestFin = (curR.PE != null || curR.PB != null || fyRoe)
+              ? { pe_ratio: curR.PE ?? null, pb_ratio: curR.PB ?? null, roe: fyRoe?.value ?? null }
+              : null;
 
             // 52-week high/low from prices array
             const oneYearAgo = new Date(); oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
@@ -807,8 +988,8 @@ export function TickerDetailPage() {
                     <InfoField label="Sàn giao dịch" value={ticker.exchange ?? profile?.exchange ?? "—"} />
                     <InfoField label="Ngành" value={ticker.sector ?? "—"} />
                     <InfoField label="Quốc gia" value="Việt Nam" />
-                    <InfoField label="Thành lập" value={profile?.founded ? `Năm ${profile.founded}` : "—"} />
-                    <InfoField label="Ngày niêm yết" value={profile?.listed ? `${profile.listed} (HOSE)` : "—"} />
+                    <InfoField label="Thành lập" value={ticker.founded_year ? `Năm ${ticker.founded_year}` : profile?.founded ? `Năm ${profile.founded}` : "—"} />
+                    <InfoField label="Ngày niêm yết" value={ticker.listing_date ? `${new Date(ticker.listing_date).toLocaleDateString("vi-VN")} (HOSE)` : profile?.listed ? `${profile.listed} (HOSE)` : "—"} />
                     <InfoField label="Trong VN30" value={ticker.in_vn30 ? "Có" : "Không"} />
                   </div>
 
@@ -830,16 +1011,16 @@ export function TickerDetailPage() {
                     </>
                   )}
 
-                  {profile?.about && (
+                  {(stockInfo?.company_context || profile?.about) && (() => { const about = (stockInfo?.company_context ?? profile?.about ?? "") as string; return (
                     <>
                       {divider}
                       <div style={{ fontSize: 11, fontWeight: 700, color: tk.MUTED, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Về công ty</div>
-                      <div style={{ fontSize: 12.5, color: tk.TEXT, lineHeight: 1.65, opacity: 0.85 }}>
-                        {aboutExpanded || profile.about.length <= 280
-                          ? profile.about
-                          : profile.about.slice(0, 280) + "..."}
+                      <div style={{ fontSize: 12.5, color: tk.TEXT, lineHeight: 1.65, opacity: 0.85, whiteSpace: "pre-line" }}>
+                        {aboutExpanded || about.length <= 280
+                          ? about
+                          : about.slice(0, 280) + "..."}
                       </div>
-                      {profile.about.length > 280 && (
+                      {about.length > 280 && (
                         <button
                           onClick={() => setAboutExpanded(e => !e)}
                           style={{ marginTop: 8, fontSize: 11.5, fontWeight: 700, color: tk.ACCENT_TEXT, background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: FONT }}
@@ -848,7 +1029,7 @@ export function TickerDetailPage() {
                         </button>
                       )}
                     </>
-                  )}
+                  ); })()}
                 </div>
 
                 {/* Price card */}
@@ -1018,13 +1199,9 @@ export function TickerDetailPage() {
               })}
             </div>
             <div style={{ padding: "22px 24px" }}>
-              {finTab === "balance"
-                ? <BalanceSheetPanel data={balanceSheet} />
-                : finTab === "cashflow"
-                ? <CashFlowPanel data={cashFlow} />
-                : financials.length === 0
+              {stmt.length === 0
                 ? <EmptyState message={`Chưa có dữ liệu tài chính cho ${sym}`} />
-                : <FinancialPanel key={finTab} data={financials} tab={finTab as "metrics" | "income"} />
+                : <StatementPanel key={finTab} tab={finTab} companyType={ticker?.company_type ?? null} stmt={stmt} ratios={ratiosFY} />
               }
             </div>
           </div>
