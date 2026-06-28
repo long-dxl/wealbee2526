@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore, type ChatMessage } from "../store/appStore";
 import { sendChatMessage } from "../lib/supabase/bee-ai";
 import { supabase } from "../lib/supabase/client";
+import { MdContent } from "./MdContent";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -134,7 +135,7 @@ function ChatBubble({ msg }: { msg: ChatMessage }) {
         {isUser ? (
           <p style={{ lineHeight: 1.55 }}>{msg.content}</p>
         ) : (
-          <MdText text={msg.content} />
+          <MdContent text={msg.content} />
         )}
         <div style={{ fontSize: "0.5625rem", opacity: 0.55, marginTop: 4, textAlign: "right" }}>
           {new Date(msg.timestamp).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
@@ -408,7 +409,7 @@ export function ActionHub() {
                     <div style={{ background: "#f5f8ff", border: "1px solid rgba(8,73,172,0.08)", borderRadius: "4px 12px 12px 12px", padding: "9px 13px", maxWidth: "88%" }}>
                       {streamingText ? (
                         <div style={{ fontSize: "0.8125rem", color: "#1a1a2e" }}>
-                          <MdText text={streamingText} />
+                          <MdContent text={streamingText} />
                           <span style={{ display: "inline-block", width: 2, height: "1em", background: "#0849ac", marginLeft: 1, verticalAlign: "text-bottom", animation: "blink 0.8s step-end infinite" }} />
                         </div>
                       ) : (

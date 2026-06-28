@@ -11,3 +11,9 @@ build/
 .vercel
 .claude/
 .env.*
+
+# kg-stock-vn python service
+kg-stock-vn/.env
+kg-stock-vn/.venv/
+**/__pycache__/
+kg-stock-vn/**/*.pyc

@@ -10,6 +10,7 @@ import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer"
 import { MdContent, RichContent } from "../../components/MdContent";
 import { supabase } from "../../lib/supabase/client";
 import { projectId } from "../../utils/supabase/info";
+import wealbeeLogo from "../../assets/Logo.svg";
 
 interface StudioProps {
   onBack: () => void;
@@ -39,16 +40,22 @@ interface TestSession {
 // ── Models ─────────────────────────────────────────────────────────────────
 const MODELS = [
   {
+    id: "default", name: "Wealbee AI", provider: "Wealbee",
+    tags: ["Balance", "v1.0"],
+    desc: "Khung xử lý Wealbee đã tinh chỉnh — tự hiểu yêu cầu, query đúng dữ liệu (giá, BCTC, tin tức, báo cáo phân tích, đồ thị nhân-quả vĩ mô) làm ngữ cảnh. Cân bằng hiệu suất, trích nguồn đầy đủ.",
+    available: true,
+  },
+  {
     id: "gpt-4o-mini", name: "GPT-4o mini", provider: "OpenAI",
     tags: ["image", "function call"],
     desc: "Tốc độ cao, chi phí thấp. Phù hợp trích xuất dữ liệu định kỳ, format báo cáo và các tác vụ lặp lại trong pipeline tài chính.",
-    available: true,
+    available: false,
   },
   {
     id: "gpt-4o", name: "GPT-4o", provider: "OpenAI",
     tags: ["image", "function call"],
     desc: "Đọc hiểu biểu đồ kỹ thuật, BCTC dạng PDF và ảnh chụp màn hình thị trường. Mạnh về phân tích đa phương thức cho nhà đầu tư.",
-    available: true,
+    available: false,
   },
   {
     id: "claude-haiku", name: "Claude Haiku 4.5", provider: "Anthropic",
@@ -83,6 +90,7 @@ const MODELS = [
 ];
 
 const MODEL_GROUPS: { provider: string; ids: string[] }[] = [
+  { provider: "Wealbee",   ids: ["default"] },
   { provider: "OpenAI",    ids: ["gpt-4o-mini", "gpt-4o"] },
   { provider: "Anthropic", ids: ["claude-haiku", "claude-sonnet", "claude-opus"] },
   { provider: "Google",    ids: ["gemini-flash", "gemini-pro"] },
@@ -91,6 +99,13 @@ const MODEL_GROUPS: { provider: string; ids: string[] }[] = [
 // ── Provider logos ──────────────────────────────────────────────────────────
 function ModelLogo({ provider, size = 44, uid = "0" }: { provider: string; size?: number; uid?: string }) {
   const r = Math.round(size * 0.22);
+  if (provider === "Wealbee") {
+    return (
+      <div style={{ width: size, height: size, borderRadius: r, background: "#fff", border: "1px solid rgba(8,73,172,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+        <img src={wealbeeLogo} alt="Wealbee" style={{ width: size * 0.7, height: size * 0.7, objectFit: "contain" }} />
+      </div>
+    );
+  }
   if (provider === "OpenAI") {
     return (
       <div style={{ width: size, height: size, borderRadius: r, background: "#000", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -240,9 +255,10 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
 
   // ── Config state ──────────────────────────────────────────────────────────
   const [agentName, setAgentName] = useState("Bản tin hàng ngày");
+  const [agentDesc, setAgentDesc] = useState("");
   const [templateId, setTemplateId] = useState("daily_digest");
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
-  const [selectedModel, setSelectedModel] = useState("gpt-4o");
+  const [selectedModel, setSelectedModel] = useState("default");
   const [selectedKB, setSelectedKB] = useState<Set<string>>(new Set());
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set(["price_feed", "news_feed", "financials"]));
   const [usePortfolio, setUsePortfolio] = useState(false);
@@ -330,7 +346,12 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   const [isSaved, setIsSaved] = useState(false);
 
   // ── Schedule ──────────────────────────────────────────────────────────────
-  const [runMode, setRunMode] = useState<"realtime" | "scheduled">("scheduled");
+  // ── Điều kiện kích hoạt agent ──
+  const [triggerType, setTriggerType] = useState<"manual" | "scheduled" | "event">("manual");
+  const [eventType, setEventType] = useState<"insider_buy" | "volume_spike" | "high_impact_news">("volume_spike");
+  const [eventMultiple, setEventMultiple] = useState(2);
+  const [eventDays, setEventDays] = useState(7);
+  const [eventMinImpact, setEventMinImpact] = useState(5);
   const [frequency, setFrequency] = useState<"daily" | "weekdays" | "weekly" | "custom">("daily");
   const [scheduleTime, setScheduleTime] = useState("09:15");
   const [selectedDays, setSelectedDays] = useState<Set<number>>(new Set([0, 1, 2, 3, 4]));
@@ -445,14 +466,15 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
     if (!agentId) return;
     supabase.from("agents").select("*").eq("id", agentId).single().then(({ data }) => {
       if (!data) return;
-      if (data.name) setAgentName(data.name === "Bản tin buổi sáng" ? "Bản tin hàng ngày" : data.name);
+      if (data.name) setAgentName(data.name);
+      if (data.description != null) setAgentDesc(data.description);
       if (data.template_id) setTemplateId(data.template_id);
       const isDeepResearch = data.template_id === "deep_research";
       const isOldSystemPrompt = !isDeepResearch && (data.system_prompt?.startsWith("Bạn là chuyên gia") || data.system_prompt?.startsWith("Bạn là AI"));
       if (data.system_prompt && !isOldSystemPrompt) setPrompt(data.system_prompt);
       if (data.model) {
         const available = MODELS.find(m => m.id === data.model)?.available;
-        setSelectedModel(available ? data.model : "gpt-4o");
+        setSelectedModel(available ? data.model : "default");
       }
       if (data.tools?.length) setSelectedTools(new Set(data.tools));
       if (data.use_portfolio) setUsePortfolio(true);
@@ -460,20 +482,23 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
       // target_symbols includes both portfolio (locked) and extra; portfolio load will filter them apart
       if (data.target_symbols?.length) setWatchlist(data.target_symbols);
       if (data.email_notify != null) setNotifyEmail(data.email_notify);
-      if (data.schedule && data.schedule !== "manual") {
-        const parts = data.schedule.split(":");
-        if (parts[0] === "realtime") { setRunMode("realtime"); }
-        else if (parts.length >= 2) { setRunMode("scheduled"); setScheduleTime(parts.slice(1).join(":")); }
+      if (data.schedule && data.schedule.startsWith("daily:")) setScheduleTime(data.schedule.split(":").slice(1).join(":"));
+      // Điều kiện kích hoạt
+      const tt = data.trigger_type || (data.schedule?.startsWith("daily:") ? "scheduled" : "manual");
+      setTriggerType(tt === "scheduled" || tt === "event" ? tt : "manual");
+      const tc = data.trigger_config;
+      if (tc && typeof tc === "object") {
+        if (tc.event_type) setEventType(tc.event_type);
+        if (tc.multiple) setEventMultiple(Number(tc.multiple));
+        if (tc.days) setEventDays(Number(tc.days));
+        if (tc.min_impact) setEventMinImpact(Number(tc.min_impact));
       }
     });
   }, [agentId]);
 
   // ── Run test ──────────────────────────────────────────────────────────────
   const handleRunTest = async () => {
-    if (templateId === "daily_digest" && allSymbols.length === 0) {
-      setRunError("Vui lòng thêm ít nhất 1 mã cổ phiếu vào danh sách theo dõi trước khi chạy thử.");
-      return;
-    }
+    // Mã quan tâm là TÙY CHỌN — nếu trống, brain tự rút mã từ prompt
     setIsRunning(true);
     setRunResult(null);
     setRunResultText(null);
@@ -482,29 +507,22 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
     setViewingSessionLabel(null);
     const start = Date.now();
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const jwt = session?.access_token ?? "";
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/agent-dry-run`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${jwt}` },
-          body: JSON.stringify({
-            templateId,
-            systemPrompt: prompt,
-            watchSymbols: allSymbols.length ? allSymbols : undefined,
-            model: selectedModel,
-            tools: [...selectedTools],
-            agentId: agentId ?? null,
-            agentName,
-          }),
-        }
-      );
+      // Bộ não Wealbee (model "default") — ĐỒNG BỘ với scheduler & "Run now":
+      // cùng endpoint /run-agent, chỉ khác save_brief=false (chạy thử = xem trước, không lưu).
+      const KG_API = (import.meta.env.VITE_KG_API_URL as string) || "http://localhost:8077";
+      const res = await fetch(`${KG_API}/run-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_prompt: prompt, symbols: allSymbols,
+          save_brief: false, name: agentName, template_id: templateId,
+        }),
+      });
       const json = await res.json();
       if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
-      setRunResultText(json.output as string);
-      if (json.refs) setRunResultRefs(json.refs);
-      setRunTokens(json.tokensUsed ?? 0);
+      setRunResultText(json.markdown as string);
+      if (json.sources) setRunResultRefs(json.sources);
+      setRunTokens(0);
     } catch (err: unknown) {
       setRunError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -517,12 +535,22 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   // ── Save agent ────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setIsSaved(true);
-    const schedule = runMode === "realtime" ? "realtime" : `daily:${scheduleTime}`;
+    const schedule = triggerType === "scheduled" ? `daily:${scheduleTime}` : "manual";
+    const trigger_config = triggerType === "event"
+      ? {
+          event_type: eventType,
+          symbols: allSymbols,
+          ...(eventType === "volume_spike" ? { multiple: eventMultiple } : {}),
+          ...(eventType === "insider_buy" ? { days: eventDays } : {}),
+          ...(eventType === "high_impact_news" ? { min_impact: eventMinImpact } : {}),
+        }
+      : null;
     const payload = {
-      name: agentName, system_prompt: prompt, model: selectedModel,
+      name: agentName, description: agentDesc, system_prompt: prompt, model: selectedModel,
       tools: [...selectedTools], target_symbols: allSymbols, use_portfolio: usePortfolio,
       news_sources: newsSources,
       email_notify: notifyEmail, schedule, status: "active",
+      trigger_type: triggerType, trigger_config,
       updated_at: new Date().toISOString(),
     };
     if (agentId) {
@@ -575,11 +603,20 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
         <div style={{ width: 28, height: 28, borderRadius: 8, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Bot size={16} color={brand} strokeWidth={1.5} />
         </div>
-        <input
-          value={agentName}
-          onChange={e => setAgentName(e.target.value)}
-          style={{ border: "none", outline: "none", fontSize: 15, fontWeight: 700, color: fg, background: "transparent", fontFamily: FONT, minWidth: 200 }}
-        />
+        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", minWidth: 240, gap: 0 }}>
+          <input
+            value={agentName}
+            onChange={e => { setAgentName(e.target.value); setIsSaved(false); }}
+            placeholder="Tên agent"
+            style={{ border: "none", outline: "none", fontSize: 15, fontWeight: 700, color: fg, background: "transparent", fontFamily: FONT, padding: 0 }}
+          />
+          <input
+            value={agentDesc}
+            onChange={e => { setAgentDesc(e.target.value); setIsSaved(false); }}
+            placeholder="Thêm mô tả ngắn cho agent (tùy chọn)"
+            style={{ border: "none", outline: "none", fontSize: 11, fontWeight: 400, color: fgDisabled, background: "transparent", fontFamily: FONT, padding: 0, marginTop: 1 }}
+          />
+        </div>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: fgDisabled }}>{selectedTools.size} tools · {selectedKB.size} KB · {watchlist.length} mã</span>
         <button
@@ -695,6 +732,8 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
           </Section>
 
           {/* Tools */}
+          {/* Công cụ phân tích — ẩn: brain "Default" tự query đúng dữ liệu, không cần chọn tool */}
+          {false && (
           <Section id="tools" label="Công cụ phân tích" icon={<Wrench size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("tools")} onToggle={() => toggleSection("tools")} badge={`${selectedTools.size}/${ALL_TOOLS.length} công cụ`} isDark={isDark}>
             <button
               onClick={() => setShowToolsPicker(true)}
@@ -724,9 +763,10 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
               <ChevronDown size={14} color={fgDisabled} strokeWidth={1.5} />
             </button>
           </Section>
+          )}
 
-          {/* Watchlist */}
-          <Section id="watchlist" label="Theo dõi thị trường" icon={<TrendingUp size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("watchlist")} onToggle={() => toggleSection("watchlist")} badge={`${totalMa} mã`} isDark={isDark}>
+          {/* Mã quan tâm (tùy chọn) */}
+          <Section id="watchlist" label="Mã quan tâm (tùy chọn)" icon={<TrendingUp size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("watchlist")} onToggle={() => toggleSection("watchlist")} badge={`${totalMa} mã`} isDark={isDark}>
             <button
               onClick={() => setShowWatchlistPicker(true)}
               style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: bgPanel, fontFamily: FONT }}
@@ -747,26 +787,79 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
             </button>
           </Section>
 
-          {/* Schedule */}
-          <Section id="trigger" label="Lịch chạy & Thông báo" icon={<Clock size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("trigger")} onToggle={() => toggleSection("trigger")} badge={runMode === "realtime" ? "Realtime" : frequency === "daily" ? "Hàng ngày" : frequency === "weekdays" ? "Ngày giao dịch" : frequency === "weekly" ? "Hàng tuần" : `${selectedDays.size} ngày/tuần`} isDark={isDark}>
+          {/* Điều kiện kích hoạt agent */}
+          <Section id="trigger" label="Điều kiện kích hoạt agent" icon={<Clock size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("trigger")} onToggle={() => toggleSection("trigger")} badge={triggerType === "manual" ? "Thủ công" : triggerType === "scheduled" ? scheduleTime : "Sự kiện"} isDark={isDark}>
             <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-              {/* Realtime — disabled, coming soon */}
-              <div style={{ flex: 1, padding: "10px 12px", borderRadius: 10, cursor: "not-allowed", textAlign: "center", border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.06)" : "rgba(8,73,172,0.08)"), background: isDark ? "rgba(255,255,255,0.02)" : "rgba(26,26,46,0.02)", opacity: 0.6, position: "relative" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 13, fontWeight: 700, color: fgDisabled, marginBottom: 2 }}>
-                  <span style={{ color: fgDisabled }}><Zap size={13} strokeWidth={1.5} /></span>Realtime
-                </div>
-                <div style={{ fontSize: 10, color: fgDisabled, lineHeight: 1.4 }}>Đang phát triển</div>
-              </div>
-              {/* Scheduled */}
-              <div onClick={() => setRunMode("scheduled")} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, cursor: "pointer", textAlign: "center", border: "1.5px solid " + brand, background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.05)", transition: "all 120ms ease" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 13, fontWeight: 700, color: brand, marginBottom: 2 }}>
-                  <span style={{ color: brand }}><Clock size={13} strokeWidth={1.5} /></span>Theo lịch
-                </div>
-                <div style={{ fontSize: 10, color: fgSubtle, lineHeight: 1.4 }}>Chạy theo giờ định sẵn</div>
-              </div>
+              {([
+                { id: "manual", label: "Thủ công", desc: "Bấm là chạy", Icon: Play },
+                { id: "scheduled", label: "Theo lịch", desc: "Theo giờ định sẵn", Icon: Clock },
+                { id: "event", label: "Khác", desc: "Theo sự kiện", Icon: Zap },
+              ] as const).map(o => {
+                const active = triggerType === o.id;
+                return (
+                  <div key={o.id} onClick={() => setTriggerType(o.id)} style={{ flex: 1, padding: "10px 8px", borderRadius: 10, cursor: "pointer", textAlign: "center", border: active ? "1.5px solid " + brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.10)"), background: active ? (isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.05)") : "transparent", transition: "all 120ms ease" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 13, fontWeight: 700, color: active ? brand : fgMuted, marginBottom: 2 }}>
+                      <o.Icon size={13} strokeWidth={1.5} color={active ? brand : fgMuted} />{o.label}
+                    </div>
+                    <div style={{ fontSize: 10, color: fgSubtle, lineHeight: 1.4 }}>{o.desc}</div>
+                  </div>
+                );
+              })}
             </div>
 
-            {runMode === "scheduled" && (
+            {triggerType === "manual" && (
+              <div style={{ padding: "10px 12px", borderRadius: 9, background: isDark ? "rgba(255,255,255,0.03)" : "rgba(26,26,46,0.03)", marginBottom: 14, fontSize: 11, color: fgMuted, lineHeight: 1.5 }}>
+                Agent chỉ chạy khi bạn bấm <strong>Chạy thử</strong> / chạy tay. Không tự động.
+              </div>
+            )}
+
+            {triggerType === "event" && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Loại sự kiện kích hoạt</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 12 }}>
+                  {([
+                    { id: "volume_spike", label: "Khối lượng đột biến", desc: "KL một phiên vượt bội số TB20 phiên" },
+                    { id: "insider_buy", label: "Nội bộ / lãnh đạo MUA", desc: "Có giao dịch mua của người nội bộ" },
+                    { id: "high_impact_news", label: "Tin tác động mạnh", desc: "Tin có điểm tác động ≥ ngưỡng" },
+                  ] as const).map(e => {
+                    const active = eventType === e.id;
+                    return (
+                      <div key={e.id} onClick={() => setEventType(e.id)} style={{ padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: active ? "1px solid " + brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.10)"), background: active ? (isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)") : bgPanel }}>
+                        <div style={{ fontSize: 13, fontWeight: active ? 700 : 600, color: active ? brand : fg }}>{e.label}</div>
+                        <div style={{ fontSize: 11, color: fgSubtle, marginTop: 2 }}>{e.desc}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Tham số theo loại */}
+                {eventType === "volume_spike" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: fg }}>
+                    <span>Bội số TB20:</span>
+                    <input type="number" min={1} step={0.5} value={eventMultiple} onChange={e => setEventMultiple(Number(e.target.value) || 2)} style={{ width: 70, padding: "6px 8px", borderRadius: 7, border: "0.5px solid " + inputBorder, background: bgPanel, color: fg, fontSize: 13, fontWeight: 700, outline: "none", fontFamily: FONT }} />
+                    <span style={{ color: fgSubtle }}>lần (vd 2 = gấp đôi TB)</span>
+                  </div>
+                )}
+                {eventType === "insider_buy" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: fg }}>
+                    <span>Trong vòng:</span>
+                    <input type="number" min={1} value={eventDays} onChange={e => setEventDays(Number(e.target.value) || 7)} style={{ width: 70, padding: "6px 8px", borderRadius: 7, border: "0.5px solid " + inputBorder, background: bgPanel, color: fg, fontSize: 13, fontWeight: 700, outline: "none", fontFamily: FONT }} />
+                    <span style={{ color: fgSubtle }}>ngày gần nhất</span>
+                  </div>
+                )}
+                {eventType === "high_impact_news" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: fg }}>
+                    <span>Điểm tác động ≥</span>
+                    <input type="number" min={1} max={10} step={0.5} value={eventMinImpact} onChange={e => setEventMinImpact(Number(e.target.value) || 5)} style={{ width: 70, padding: "6px 8px", borderRadius: 7, border: "0.5px solid " + inputBorder, background: bgPanel, color: fg, fontSize: 13, fontWeight: 700, outline: "none", fontFamily: FONT }} />
+                    <span style={{ color: fgSubtle }}>(thang -10..+10)</span>
+                  </div>
+                )}
+                <div style={{ fontSize: 10, color: fgDisabled, marginTop: 10, lineHeight: 1.5 }}>
+                  Áp dụng cho các mã trong "Mã quan tâm". Hệ thống kiểm tra định kỳ, đúng điều kiện → agent tự chạy & tạo báo cáo.
+                </div>
+              </div>
+            )}
+
+            {triggerType === "scheduled" && (
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Tần suất phân tích</div>
                 <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
@@ -802,15 +895,6 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
               </div>
             )}
 
-            {runMode === "realtime" && (
-              <div style={{ padding: "10px 12px", borderRadius: 9, background: "rgba(52,199,89,0.06)", border: "0.5px solid rgba(52,199,89,0.20)", marginBottom: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                  <Zap size={12} color="#1a7a3a" strokeWidth={1.5} />
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#1a7a3a" }}>Chạy ngay khi có tín hiệu</span>
-                </div>
-                <div style={{ fontSize: 11, color: fgMuted, lineHeight: 1.5 }}>Agent tự động kích hoạt khi phát hiện: giá vượt ngưỡng, tin tức quan trọng, hoặc insider giao dịch.</div>
-              </div>
-            )}
 
             <div style={{ borderTop: "0.5px solid " + dividerFaint, paddingTop: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Phương thức thông báo</div>

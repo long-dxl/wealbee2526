@@ -44,7 +44,8 @@ function renderInline(text: string, refs?: RefEntry[]): React.ReactNode[] {
 }
 
 function MdTable({ lines, refs }: { lines: string[]; refs?: RefEntry[] }) {
-  const dataRows = lines.filter(l => !l.replace(/[\s|:-]/g, "").match(/^-+$/));
+  // Bỏ hàng phân cách markdown (chỉ gồm | : - khoảng trắng) → tránh hiện ":---" thô
+  const dataRows = lines.filter(l => l.replace(/[\s|:-]/g, "") !== "");
   if (!dataRows.length) return null;
   const parseRow = (row: string) => row.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
   const [header, ...body] = dataRows;
@@ -140,12 +141,17 @@ export function MdContent({ text, refs }: { text: string; refs?: RefEntry[] }) {
         </blockquote>
       ); i++; continue;
     }
-    if (trim.startsWith("- ") || trim.startsWith("• ") || trim.startsWith("→ ") || trim.startsWith("· ")) {
-      const isArrow = trim.startsWith("→ ");
-      const content = trim.slice(2);
+    // Bullet: -, *, •, ·, → (yêu cầu có khoảng trắng sau marker để KHÔNG nuốt **bold** / *italic*)
+    const bulletMatch = trim.match(/^([-*•·→])\s+(.*)$/);
+    if (bulletMatch) {
+      const marker = bulletMatch[1];
+      const content = bulletMatch[2];
+      const isArrow = marker === "→";
+      const indent = raw.match(/^(\s*)/)?.[1].length ?? 0;
+      const pad = indent >= 2 ? 20 : 0;   // bullet con (thụt lề) → chấm rỗng, lùi vào
       nodes.push(
-        <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
-          <span style={{ color: isArrow ? "#FF9500" : "#0849ac", flexShrink: 0, marginTop: 4, fontSize: isArrow ? "0.75rem" : "0.5rem", fontWeight: 700 }}>{isArrow ? "→" : "●"}</span>
+        <div key={i} style={{ display: "flex", gap: 9, marginBottom: 5, alignItems: "flex-start", marginLeft: pad }}>
+          <span style={{ color: isArrow ? "#FF9500" : (pad ? "#94a3b8" : "#0849ac"), flexShrink: 0, marginTop: pad ? 5 : 4, fontSize: isArrow ? "0.75rem" : (pad ? "0.6rem" : "0.5rem"), fontWeight: 700 }}>{isArrow ? "→" : (pad ? "◦" : "●")}</span>
           <span style={{ lineHeight: 1.7, color: "#374151", fontSize: "0.875rem" }}>{renderInline(content, refs)}</span>
         </div>
       ); i++; continue;

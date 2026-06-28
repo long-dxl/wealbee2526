@@ -6,6 +6,7 @@ import {
 import { ContextCard, CardType, DRAG_CARD_MIME, cardTypeQuestions } from "../types/cards";
 import { lightTheme, type Theme } from "../lib/theme-context";
 import { sendChatMessage, type ToolStep } from "../lib/supabase/bee-ai";
+import { MdContent } from "./MdContent";
 
 // Render inline markdown + wealbee-platform XML tags
 // Handles: **bold**, [text](url), bare URLs, <ticker>, <pos>, <neg>, <cite url="">
@@ -133,6 +134,7 @@ interface ChatMessage {
   cotVisible?: boolean;
   streamingStartMs?: number;
   thinkingDurationMs?: number;
+  refs?: { index: number; label: string; url: string }[];
 }
 
 const contextLabel: Record<string, string> = {
@@ -295,12 +297,12 @@ export function ActionHub({
             return [...prev.slice(0, -1), { ...last, steps: newSteps }];
           });
         },
-        onDone: ({ sessionId: newId }) => {
+        onDone: ({ sessionId: newId, refs }) => {
           const elapsed = Date.now() - streamStart;
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last?.streaming) {
-              return [...prev.slice(0, -1), { ...last, streaming: false, thinkingDurationMs: elapsed }];
+              return [...prev.slice(0, -1), { ...last, streaming: false, thinkingDurationMs: elapsed, refs }];
             }
             return prev;
           });
@@ -737,7 +739,7 @@ export function ActionHub({
                     fontFamily: "'Montserrat', system-ui, sans-serif",
                   }}>
                     {msg.content
-                      ? renderMessage(msg.content, t.brand, t.fgSubtle)
+                      ? <MdContent text={msg.content} refs={msg.refs} />
                       : (
                         <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
                           {[0,1,2].map(j => (

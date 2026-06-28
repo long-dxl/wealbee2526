@@ -560,16 +560,42 @@ Kết thúc mọi câu trả lời: *Thông tin tham khảo · không phải tư
 
 interface ContextCardPayload { id?: string; type: string; label: string; badge?: string; summary?: string; }
 
-function buildContextHint(cards: ContextCardPayload[]): string {
+async function buildContextHint(cards: ContextCardPayload[]): Promise<string> {
   if (!cards.length) return "";
   const lines = ["\n## Người dùng đang xem (context cards):"];
+  const reportBlocks: string[] = [];
   for (const c of cards) {
+    // Báo cáo phân tích đính kèm → nạp TOÀN VĂN làm tài liệu nền (kiểu NotebookLM)
+    if (c.type === "report" && c.id) {
+      try {
+        const { data: rp } = await sb
+          .from("analyst_reports")
+          .select("title,ticker,source_firm,recommendation,target_price,report_date,full_text")
+          .eq("id", c.id)
+          .maybeSingle();
+        if (rp?.full_text) {
+          reportBlocks.push(
+            `\n## TÀI LIỆU BÁO CÁO PHÂN TÍCH (người dùng đính kèm — TRẢ LỜI DỰA TRÊN TÀI LIỆU NÀY)\n` +
+            `Mã: ${rp.ticker ?? "?"} | Nguồn: ${rp.source_firm ?? "?"} | Khuyến nghị: ${rp.recommendation ?? "?"}` +
+            `${rp.target_price ? " | Giá mục tiêu: " + rp.target_price : ""}${rp.report_date ? " | Ngày: " + rp.report_date : ""}\n` +
+            `Tiêu đề: ${rp.title}\n\n=== NỘI DUNG BÁO CÁO ===\n${rp.full_text.slice(0, 40000)}\n=== HẾT BÁO CÁO ===`
+          );
+          continue;
+        }
+      } catch { /* fallback xuống dòng tóm tắt bên dưới */ }
+    }
     const detail = c.badge ? ` (${c.badge})` : "";
     const summ   = c.summary ? ` — ${c.summary.slice(0, 80)}` : "";
     lines.push(`- ${c.type.toUpperCase()}: "${c.label}"${detail}${summ}`);
   }
   lines.push("\nNếu cần dữ liệu về các mục trên, hãy gọi tool phù hợp.");
-  return lines.join("\n");
+  if (reportBlocks.length) {
+    lines.push(
+      "\nKhi có TÀI LIỆU BÁO CÁO PHÂN TÍCH đính kèm: ưu tiên trích dẫn & phân tích trực tiếp từ nội dung tài liệu đó " +
+      "(luận điểm, số liệu, định giá, khuyến nghị, rủi ro). Có thể bổ sung dữ liệu mới qua tool, nhưng KHÔNG bịa số ngoài tài liệu."
+    );
+  }
+  return lines.join("\n") + reportBlocks.join("\n");
 }
 
 Deno.serve(async (req) => {
@@ -618,7 +644,7 @@ Deno.serve(async (req) => {
     .insert({ session_id: sessionId, user_id: user.id, role: "user", content: message });
 
   // Build full system prompt
-  const contextHint = buildContextHint(context_cards ?? []);
+  const contextHint = await buildContextHint(context_cards ?? []);
   const fullSystem  = SYSTEM_PROMPT + contextHint;
 
   // Initial messages

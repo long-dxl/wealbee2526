@@ -82,6 +82,8 @@ const TEMPLATE_COLORS: Record<string, { bg: string; color: string }> = {
   earnings_watch:  { bg: "rgba(245,158,11,0.1)",  color: "#f59e0b" },
   macro_watch:     { bg: "rgba(16,185,129,0.1)",  color: "#10b981" },
   deep_research:   { bg: "rgba(99,102,241,0.1)",  color: "#6366f1" },
+  insider_buy:     { bg: "rgba(22,163,74,0.1)",   color: "#16a34a" },
+  volume_spike:    { bg: "rgba(234,88,12,0.1)",   color: "#ea580c" },
 };
 
 const STEP_ICONS: Record<string, React.ElementType> = {
@@ -325,7 +327,8 @@ function renderInline(text: string, refs?: RefEntry[]): React.ReactNode[] {
 }
 
 function MdTable({ lines, refs }: { lines: string[]; refs?: RefEntry[] }) {
-  const dataRows = lines.filter(l => !l.replace(/[\s|:-]/g, "").match(/^-+$/));
+  // Bỏ hàng phân cách markdown (chỉ gồm | : - khoảng trắng) → tránh hiện ":---" thô
+  const dataRows = lines.filter(l => l.replace(/[\s|:-]/g, "") !== "");
   if (!dataRows.length) return null;
   const parseRow = (row: string) => row.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
   const [header, ...body] = dataRows;
@@ -657,15 +660,18 @@ export function AgentsPage() {
 
   const activateTemplate = async (tmpl: AgentTemplate) => {
     if (!userId) return;
-    // Fetch full template to get tools + system_prompt
+    // Fetch full template: prompt + tools + điều kiện kích hoạt (trigger)
     const { data: full } = await supabase
       .from("agent_templates")
-      .select("id, tools, system_prompt")
+      .select("id, tools, system_prompt, trigger_type, trigger_config, default_schedule")
       .eq("id", tmpl.id)
       .single();
     const { data: agent } = await supabase.from("agents").insert({
       user_id: userId, template_id: tmpl.id, name: tmpl.name,
-      description: tmpl.description, status: "active", schedule: "manual",
+      description: tmpl.description, status: "active",
+      schedule: full?.default_schedule ?? "manual",
+      trigger_type: full?.trigger_type ?? "manual",
+      trigger_config: full?.trigger_config ?? null,
       tools: full?.tools ?? [],
       system_prompt: full?.system_prompt ?? null,
     }).select("*").single();
@@ -696,85 +702,50 @@ export function AgentsPage() {
                         : savedSym ? [savedSym]
                         : [];
 
-    // If deep_research with no symbols anywhere → show picker
-    if (agent.template_id === "deep_research" && (!targetSymbols?.length) && !savedSymbols.length) {
-      setSymbolPicker({ agentId: agent.id });
-      return;
-    }
-
+    // ĐỒNG NHẤT mọi agent: không ép chọn mã theo template. Mã lấy từ cấu hình agent
+    // ("Mã quan tâm" đã lưu); nếu trống → brain tự xử theo prompt. Khác biệt giữa các
+    // agent CHỈ là prompt + tùy biến.
     const syms = targetSymbols?.length ? targetSymbols : savedSymbols.length ? savedSymbols : undefined;
     const displaySym = syms?.join(", ");
 
     setRunPanel({
-      agentId: agent.id, agentName: agent.name, templateId: agent.template_id, steps: [], output: "", done: false,
+      agentId: agent.id, agentName: agent.name, templateId: agent.template_id,
+      steps: [{ step: "analyze", status: "loading", label: "Đang phân tích (KG + dữ liệu Wealbee)..." }],
+      output: "", done: false,
       targetSymbol: syms?.[0], targetSymbols: syms,
     });
 
-    let res: Response;
+    // ĐỒNG BỘ: cùng brain (/run-agent) với "Chạy thử" (Studio) và scheduler tự động.
+    // Chỉ khác: ở đây save_brief=true (chạy thật → lưu vào Inbox).
+    const KG_API = (import.meta.env.VITE_KG_API_URL as string) || "http://localhost:8077";
     try {
-      res = await fetch(`${SUPABASE_URL}/functions/v1/run-agent`, {
+      const res = await fetch(`${KG_API}/run-agent`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
-        body: JSON.stringify({ agent_id: agent.id, target_symbols: syms }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_prompt: agent.system_prompt, symbols: syms ?? [],
+          save_brief: true, agent_id: agent.id, user_id: userId,
+          name: agent.name, template_id: agent.template_id,
+        }),
       });
       void displaySym;
+      const j = await res.json();
+      if (!res.ok || j.error) throw new Error(j.error ?? `HTTP ${res.status}`);
+      const realSteps = Array.isArray(j.steps) && j.steps.length
+        ? j.steps.map((s: { label: string; status?: string }, i: number) =>
+            ({ step: `s${i}`, status: (s.status ?? "done"), label: s.label }))
+        : [{ step: "analyze", status: "done", label: "Phân tích hoàn tất" }];
+      setRunPanel(prev => prev ? {
+        ...prev,
+        steps: realSteps,
+        output: j.markdown ?? "", refs: j.sources, sources: j.sources,
+        done: true, title: j.title, briefId: j.brief_id,
+      } : null);
+      setAgents(prev => prev.map(a =>
+        a.id === agent.id ? { ...a, last_run_at: new Date().toISOString(), run_count: (a.run_count ?? 0) + 1 } : a
+      ));
     } catch (err) {
       setRunPanel(prev => prev ? { ...prev, done: true, error: String(err) } : null);
-      return;
-    }
-
-    if (!res.body) {
-      setRunPanel(prev => prev ? { ...prev, done: true, error: "Không nhận được stream từ server" } : null);
-      return;
-    }
-
-    const reader  = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-
-    const updatePanel = (fn: (p: RunPanelState) => RunPanelState) =>
-      setRunPanel(prev => prev ? fn(prev) : prev);
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const raw = line.slice(6).trim();
-        if (!raw) continue;
-        try {
-          const ev = JSON.parse(raw);
-
-          if (ev.type === "step") {
-            updatePanel(prev => ({
-              ...prev,
-              steps: prev.steps.some(s => s.step === ev.step)
-                ? prev.steps.map(s => s.step === ev.step ? { ...s, status: ev.status, label: ev.label } : s)
-                : [...prev.steps, { step: ev.step, status: ev.status, label: ev.label }],
-            }));
-          } else if (ev.type === "chunk") {
-            updatePanel(prev => ({ ...prev, output: prev.output + ev.text }));
-          } else if (ev.type === "reset_output") {
-            // LLM output HTML — server cleaned it, replace entirely
-            updatePanel(prev => ({ ...prev, output: ev.output }));
-          } else if (ev.type === "ref_registry") {
-            updatePanel(prev => ({ ...prev, refs: ev.refs }));
-          } else if (ev.type === "sources") {
-            updatePanel(prev => ({ ...prev, sources: ev.sources }));
-          } else if (ev.type === "done") {
-            updatePanel(prev => ({ ...prev, done: true, title: ev.title, briefId: ev.brief_id, tokens: ev.tokens, brief: ev.brief ?? undefined }));
-            setAgents(prev => prev.map(a =>
-              a.id === agent.id ? { ...a, last_run_at: new Date().toISOString(), run_count: (a.run_count ?? 0) + 1 } : a
-            ));
-          } else if (ev.type === "error") {
-            updatePanel(prev => ({ ...prev, done: true, error: ev.error }));
-          }
-        } catch { /* ignore parse errors */ }
-      }
     }
   };
 
@@ -838,7 +809,7 @@ export function AgentsPage() {
               const Icon = ICON_MAP[tmpl.icon] || Bot;
               const colors = TEMPLATE_COLORS[tmpl.id] || { bg: "rgba(8,73,172,0.1)", color: "#0849ac" };
               const alreadyAdded = agents.some(a => a.template_id === tmpl.id);
-              const READY_TEMPLATES = ["deep_research", "daily_digest"];
+              const READY_TEMPLATES = ["daily_digest", "deep_research", "insider_buy", "volume_spike"];
               const isReady = READY_TEMPLATES.includes(tmpl.id);
               const disabled = alreadyAdded || !isReady;
               return (

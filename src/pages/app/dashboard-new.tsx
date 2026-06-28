@@ -151,6 +151,7 @@ function IndexCard({ idx, isDark }: { idx: IndexState; isDark: boolean }) {
 }
 
 interface BriefRow { id: string; title: string; summary: string; type: string; tickers: string[] | null; created_at: string; }
+interface AnalystReport { id: string; ticker: string | null; title: string; source_firm: string | null; recommendation: string | null; target_price: number | null; report_date: string | null; pdf_url: string; }
 
 interface DrawerBrief {
   id: string; title: string; type: string;
@@ -243,12 +244,14 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   const [watchHoldings, setWatchHoldings] = useState<WatchRow[]>([]);
   const [marketIndices, setMarketIndices] = useState<IndexState[]>([]);
   const [briefs,        setBriefs]        = useState<BriefRow[]>([]);
+  const [reports,       setReports]       = useState<AnalystReport[]>([]);
   const [highlight,     setHighlight]     = useState<HighlightResult | null>(null);
   const [highlightLoading, setHighlightLoading] = useState(true);
   const [moversLoading, setMoversLoading] = useState(true);
   const [newsLoading,   setNewsLoading]   = useState(true);
   const [watchLoading,  setWatchLoading]  = useState(true);
   const [briefsLoading, setBriefsLoading] = useState(true);
+  const [reportsLoading, setReportsLoading] = useState(true);
 
   const now = new Date();
   const timeStr = now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
@@ -445,6 +448,21 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       }
     }
 
+    // ── Báo cáo phân tích doanh nghiệp (Vietstock) ───────────────────────────
+    async function loadReports() {
+      setReportsLoading(true);
+      try {
+        const { data } = await supabase
+          .from("analyst_reports")
+          .select("id,ticker,title,source_firm,recommendation,target_price,report_date,pdf_url")
+          .order("id", { ascending: false })
+          .limit(12);
+        if (!cancelled) setReports((data ?? []) as AnalystReport[]);
+      } finally {
+        if (!cancelled) setReportsLoading(false);
+      }
+    }
+
     // ── AI Highlight card (calls dashboard-highlight edge function) ────────────
     async function loadHighlight(marketData: { gainers: MoverRow[]; losers: MoverRow[]; indices: IndexState[] }) {
       setHighlightLoading(true);
@@ -480,6 +498,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       loadNews();
       loadWatchlist();
       loadBriefs();
+      loadReports();
     }
 
     loadAll();
@@ -910,53 +929,49 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
         </div>
         <div style={{ height: "0.5px", background: divider, marginBottom: 14 }} />
 
-        {briefsLoading && (
+        {reportsLoading && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {[0,1,2].map(i => <div key={i} style={{ height: 72, borderRadius: 10, background: isDark ? "rgba(255,255,255,0.04)" : "rgba(8,73,172,0.04)" }} />)}
           </div>
         )}
 
-        {!briefsLoading && briefs.length === 0 && (
+        {!reportsLoading && reports.length === 0 && (
           <div style={{ padding: "32px 0", textAlign: "center" }}>
             <FileText size={28} style={{ color: fgSubtle, marginBottom: 8 }} />
-            <p style={{ fontSize: 13, color: fgSubtle, margin: 0 }}>Chưa có báo cáo — chạy Agent để tạo phân tích</p>
-            <button onClick={() => onNavigate("agents")} style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: brand, background: "transparent", border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.20)"), borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-              Tới Agents →
-            </button>
+            <p style={{ fontSize: 13, color: fgSubtle, margin: 0 }}>Chưa có báo cáo phân tích</p>
           </div>
         )}
 
-        {!briefsLoading && briefs.length > 0 && (
+        {!reportsLoading && reports.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-            {briefs.map((brief, i) => {
-              const card: ContextCard = { id: `brief-${brief.id}`, type: "report", label: brief.title.slice(0, 50), badge: "Wealbee AI", summary: brief.summary?.slice(0, 80) ?? "" };
+            {reports.map((rp, i) => {
+              const metaBits = [rp.recommendation, rp.target_price ? `MT ${rp.target_price.toLocaleString("vi-VN")}đ` : null].filter(Boolean).join(" · ");
+              const card: ContextCard = { id: rp.id, type: "report", label: rp.title.slice(0, 60), badge: rp.source_firm ?? "Vietstock", summary: [rp.ticker, metaBits].filter(Boolean).join(" · ").slice(0, 90) };
               return (
-                <div key={brief.id} draggable
+                <div key={rp.id} draggable
                   onDragStart={e => handleReportDragStart(e, card)}
                   onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
                   onDragStartCapture={e => { (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
-                  style={{ padding: "14px 0", borderBottom: i < briefs.length - 1 ? "0.5px solid " + divider : "none", cursor: "grab", position: "relative", userSelect: "none", transition: "background 100ms" }}
+                  style={{ padding: "14px 0", borderBottom: i < reports.length - 1 ? "0.5px solid " + divider : "none", cursor: "grab", position: "relative", userSelect: "none", transition: "background 100ms" }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.025)"; (e.currentTarget as HTMLElement).style.margin = "0 -20px"; (e.currentTarget as HTMLElement).style.padding = "14px 20px"; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "1"; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.margin = "0"; (e.currentTarget as HTMLElement).style.padding = "14px 0"; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "0"; }}>
                   <DragHint />
                   <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
                     <div style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, background: "linear-gradient(135deg, #0a2a6e 0%, #1a56c8 100%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Sparkles size={20} color="rgba(255,255,255,0.90)" strokeWidth={1.5} />
+                      <FileText size={20} color="rgba(255,255,255,0.90)" strokeWidth={1.5} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 5 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: fg, lineHeight: 1.4, flex: 1, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{brief.title}</div>
-                        <button onClick={e => { e.stopPropagation(); openBriefDrawer(brief.id); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: "transparent", color: brand, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: fg, lineHeight: 1.4, flex: 1, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{rp.title}</div>
+                        <button onClick={e => { e.stopPropagation(); window.open(rp.pdf_url, "_blank", "noopener"); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: "transparent", color: brand, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                           <Eye size={12} strokeWidth={1.5} /> Xem
                         </button>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: brief.summary ? 6 : 0, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 12, color: fgSubtle }}>Wealbee AI · {relativeTime(brief.created_at)}</span>
-                        {brief.tickers?.slice(0, 4).map(t => (
-                          <span key={t} style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", color: brand }}>{t}</span>
-                        ))}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        {rp.ticker && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", color: brand }}>{rp.ticker}</span>}
+                        <span style={{ fontSize: 12, color: fgSubtle }}>{rp.source_firm ?? "Vietstock"}{rp.report_date ? " · " + rp.report_date : ""}</span>
+                        {rp.recommendation && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: isDark ? "rgba(52,199,89,0.12)" : "rgba(52,199,89,0.10)", color: "#1a7f37" }}>{rp.recommendation}{rp.target_price ? ` · MT ${rp.target_price.toLocaleString("vi-VN")}đ` : ""}</span>}
                       </div>
-                      {brief.summary && <p style={{ margin: 0, fontSize: 13, color: fgMuted, lineHeight: 1.6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{brief.summary}</p>}
                     </div>
                   </div>
                 </div>
