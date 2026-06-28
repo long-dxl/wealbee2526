@@ -34,16 +34,33 @@ Deno.serve(async (req) => {
     if (existing?.status === "approved") return redirect("already", data.email);
 
     const password = genPassword(12);
+    let userId: string | undefined;
     const { data: created, error: createErr } = await supabase.auth.admin.createUser({
       email: data.email,
       password,
       email_confirm: true,
       user_metadata: { name: data.ho_ten, must_change_password: true },
     });
-    if (createErr) return redirect("exists", data.email);
+    if (createErr) {
+      // Tài khoản đã tồn tại (vd duyệt lại sau khi xóa bản ghi demo) → KHÔNG bỏ qua:
+      // tìm user, RESET mật khẩu mới rồi gửi lại email — để luôn cấp được mật khẩu mới.
+      const { data: list } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      const existing = list?.users?.find(
+        (u) => (u.email ?? "").toLowerCase() === data.email.toLowerCase(),
+      );
+      if (!existing) return redirect("error", data.email);
+      const { error: updErr } = await supabase.auth.admin.updateUserById(existing.id, {
+        password,
+        user_metadata: { name: data.ho_ten, must_change_password: true },
+      });
+      if (updErr) return redirect("error", data.email);
+      userId = existing.id;
+    } else {
+      userId = created.user?.id;
+    }
 
     await supabase.from("demo_requests")
-      .update({ status: "approved", reviewed_at: new Date().toISOString(), user_id: created.user?.id })
+      .update({ status: "approved", reviewed_at: new Date().toISOString(), user_id: userId })
       .eq("id", data.id);
 
     await sendEmail({
