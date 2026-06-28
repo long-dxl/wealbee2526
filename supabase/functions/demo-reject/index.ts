@@ -6,7 +6,9 @@ import { verifyToken } from "../_shared/demo-token.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const SIGNING_SECRET = Deno.env.get("DEMO_SIGNING_SECRET") ?? "";
-const APP_URL = (Deno.env.get("APP_URL") ?? "https://wealbee.vercel.app").replace(/\/$/, "");
+// Mặc định production wealbee.com; bỏ qua nếu env lỡ trỏ localhost (giá trị dev).
+const _appUrl = Deno.env.get("APP_URL") || "https://wealbee.com";
+const APP_URL = (/localhost|127\.0\.0\.1/.test(_appUrl) ? "https://wealbee.com" : _appUrl).replace(/\/$/, "");
 
 interface TokenData { id: string; email: string; ho_ten: string }
 
