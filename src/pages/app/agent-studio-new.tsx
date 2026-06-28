@@ -4,7 +4,7 @@ import {
   Check, X, Plus, FileText, Wrench, BookOpen, TrendingUp,
   Zap, Clock, RefreshCw, CheckCircle2, AlertTriangle, Eye,
   Lightbulb, Mail, Inbox, Info, Settings, History, RotateCcw,
-  Search, BarChart2, Activity, Globe, Calculator,
+  Search, BarChart2, Activity, Globe, Calculator, ArrowRight,
 } from "lucide-react";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { MdContent, RichContent } from "../../components/MdContent";
@@ -190,9 +190,15 @@ const TOOL_GROUPS = [
     tools: [
       {
         id: "financials", name: "BCTC & Nội bộ", Icon: FileText, color: "#6366F1",
-        desc: "BCTC theo năm, lịch sử cổ tức và giao dịch insider — đọc từ financials_annual + dividends + insider_transactions",
+        desc: "Phân tích sâu như Analyst: IS/BS/CF 5 năm + chỉ số RIÊNG theo 4 loại hình (NH: NIM/CIR/NPL; CTCK: margin/VCSH; BH: combined ratio) + KQKD quý gần nhất, cổ tức, giao dịch nội bộ",
         available: true,
         includes: ["BCTC theo năm (doanh thu, LNST, EPS, ROE…)", "Lịch sử cổ tức", "Giao dịch nội bộ (MUA/BÁN)"],
+      },
+      {
+        id: "value_chain", name: "Chuỗi cung ứng & yếu tố tác động", Icon: Activity, color: "#0EA5A0",
+        desc: "Nguyên liệu đầu vào & sản phẩm đầu ra theo ngành (thép: quặng/than cốc → HRC; cảng/hàng không: dầu/nhiên liệu; phân bón: khí → urea…) + giá cước & yếu tố vĩ mô tác động biên lợi nhuận",
+        available: true,
+        includes: ["Nguyên liệu đầu vào (chi phí)", "Sản phẩm đầu ra (doanh thu)", "Yếu tố vĩ mô tác động"],
       },
       {
         id: "pe_ratio", name: "P/E & Định giá", Icon: Calculator, color: "#7c3aed",
@@ -254,8 +260,11 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   const FONT = "'Montserrat', system-ui, sans-serif";
 
   // ── Config state ──────────────────────────────────────────────────────────
-  const [agentName, setAgentName] = useState("Bản tin hàng ngày");
+  const [agentName, setAgentName] = useState(agentId ? "Bản tin hàng ngày" : "");
   const [agentDesc, setAgentDesc] = useState("");
+  // Bước nhập tên + mô tả TRƯỚC khi vào editor — chỉ khi TẠO MỚI (không có agentId).
+  // Sửa agent cũ thì bỏ qua hẳn bước này.
+  const [needsSetup, setNeedsSetup] = useState(!agentId);
   const [templateId, setTemplateId] = useState("daily_digest");
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [selectedModel, setSelectedModel] = useState("default");
@@ -265,6 +274,8 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   const [portfolioSymbols, setPortfolioSymbols] = useState<string[]>([]);
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [stockInput, setStockInput] = useState("");
+  // Danh sách mã + tên công ty (cho gợi ý autocomplete khi thêm mã theo dõi)
+  const [allTickers, setAllTickers] = useState<{ symbol: string; name: string }[]>([]);
 
   // ── News sources (real from Supabase) ────────────────────────────────────
   const [newsSources, setNewsSources] = useState<string[]>([]); // selected sources, empty = all
@@ -461,6 +472,12 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
+  // Nạp danh sách mã + tên công ty 1 lần để gợi ý khi gõ
+  useEffect(() => {
+    supabase.from("tickers").select("symbol,name").eq("is_active", true).order("symbol")
+      .then(({ data }) => setAllTickers((data ?? []) as { symbol: string; name: string }[]));
+  }, []);
+
   // ── Load agent on mount ───────────────────────────────────────────────────
   useEffect(() => {
     if (!agentId) return;
@@ -507,22 +524,30 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
     setViewingSessionLabel(null);
     const start = Date.now();
     try {
-      // Bộ não Wealbee (model "default") — ĐỒNG BỘ với scheduler & "Run now":
-      // cùng endpoint /run-agent, chỉ khác save_brief=false (chạy thử = xem trước, không lưu).
-      const KG_API = (import.meta.env.VITE_KG_API_URL as string) || "http://localhost:8077";
-      const res = await fetch(`${KG_API}/run-agent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_prompt: prompt, symbols: allSymbols,
-          save_brief: false, name: agentName, template_id: templateId,
-        }),
-      });
+      // Bộ khung tư duy Wealbee (đã tích hợp KG) — edge function agent-dry-run.
+      const { data: { session } } = await supabase.auth.getSession();
+      const jwt = session?.access_token ?? "";
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/agent-dry-run`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${jwt}` },
+          body: JSON.stringify({
+            templateId,
+            systemPrompt: prompt,
+            watchSymbols: allSymbols.length ? allSymbols : undefined,
+            model: selectedModel,
+            tools: [...selectedTools],
+            agentId: agentId ?? null,
+            agentName,
+          }),
+        }
+      );
       const json = await res.json();
       if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
-      setRunResultText(json.markdown as string);
-      if (json.sources) setRunResultRefs(json.sources);
-      setRunTokens(0);
+      setRunResultText(json.output as string);
+      if (json.refs) setRunResultRefs(json.refs);
+      setRunTokens(json.tokensUsed ?? 0);
     } catch (err: unknown) {
       setRunError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -565,9 +590,11 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   };
 
   // ── AI optimize — calls real studio-optimize edge function ───────────────
-  const [optimizedPrompt, setOptimizedPrompt] = useState("");
+  // Khi tối ưu xong: hiện NGAY bản tối ưu trong ô prompt để user xem trước.
+  // "Áp dụng" → giữ bản tối ưu; "Bỏ qua" → khôi phục prompt trước đó.
+  const [prevPrompt, setPrevPrompt] = useState("");
   const handleOptimize = async () => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || isOptimizing) return;
     setIsOptimizing(true);
     try {
       const res = await fetch(
@@ -575,8 +602,11 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) }
       );
       const json = await res.json();
-      if (json.optimized_prompt) { setOptimizedPrompt(json.optimized_prompt); setShowOptimized(true); }
-      else throw new Error(json.error ?? "Không có kết quả");
+      if (json.optimized_prompt) {
+        setPrevPrompt(prompt);                 // nhớ bản cũ để "Bỏ qua"
+        setPrompt(json.optimized_prompt);      // hiện bản tối ưu lên ngay
+        setShowOptimized(true);
+      } else throw new Error(json.error ?? "Không có kết quả");
     } catch { setShowOptimized(false); } finally {
       setIsOptimizing(false);
     }
@@ -590,6 +620,14 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   const allSymbols = [...lockedSymbols, ...extraSymbols];
   const totalMa = allSymbols.length;
   const displayTickers = allSymbols;
+  // Gợi ý mã: khớp tiền tố symbol HOẶC tên công ty; ẩn mã đã thêm; tối đa 8
+  const symQuery = stockInput.trim().toUpperCase();
+  const stockSuggestions = symQuery
+    ? allTickers
+        .filter(t => !allSymbols.includes(t.symbol) &&
+          (t.symbol.startsWith(symQuery) || (t.name ?? "").toUpperCase().includes(symQuery)))
+        .slice(0, 8)
+    : [];
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT, background: bgApp }}>
@@ -658,11 +696,11 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
             <div style={{ padding: "10px 14px", background: isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                 <Sparkles size={12} color={brand} strokeWidth={1.5} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>AI đã cải thiện prompt theo chuẩn tài chính</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>AI đã cải thiện prompt theo chuẩn tài chính — xem trước bên dưới</span>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => { setPrompt(optimizedPrompt); setShowOptimized(false); }} style={{ flex: 1, padding: "6px 0", borderRadius: 7, border: "none", background: brand, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>Áp dụng</button>
-                <button onClick={() => setShowOptimized(false)} style={{ padding: "6px 10px", borderRadius: 7, border: "0.5px solid " + divider, background: "transparent", color: fgMuted, fontSize: 11, cursor: "pointer", fontFamily: FONT }}>Bỏ qua</button>
+                <button onClick={() => setShowOptimized(false)} style={{ flex: 1, padding: "6px 0", borderRadius: 7, border: "none", background: brand, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>Áp dụng</button>
+                <button onClick={() => { setPrompt(prevPrompt); setShowOptimized(false); }} style={{ padding: "6px 10px", borderRadius: 7, border: "0.5px solid " + divider, background: "transparent", color: fgMuted, fontSize: 11, cursor: "pointer", fontFamily: FONT }}>Bỏ qua</button>
               </div>
             </div>
           )}
@@ -1094,6 +1132,66 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
         </div>
       </div>
 
+      {/* ════════ SETUP MODAL — tên + mô tả (chỉ khi tạo mới) ════════ */}
+      {needsSetup && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: FONT }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 520, maxWidth: "100%", borderRadius: 16, overflow: "hidden", background: bgPanel, boxShadow: "0 24px 80px rgba(0,0,0,0.22), 0 0 0 0.5px " + divider }}>
+            {/* header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 22px", borderBottom: "0.5px solid " + divider }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: brand + "1A", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Sparkles style={{ width: 16, height: 16, color: brand }} />
+                </div>
+                <span style={{ fontSize: 16, fontWeight: 700, color: fg }}>Tạo Agent mới</span>
+              </div>
+              <button onClick={onBack} aria-label="Đóng" style={{ background: "none", border: "none", cursor: "pointer", color: fgMuted, display: "flex", padding: 2 }}>
+                <X style={{ width: 18, height: 18 }} />
+              </button>
+            </div>
+            {/* body */}
+            <div style={{ padding: 22 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: fg, marginBottom: 8 }}>
+                Tên Agent <span style={{ color: "#e0524d" }}>*</span>
+              </label>
+              <div style={{ position: "relative", marginBottom: 20 }}>
+                <input
+                  value={agentName}
+                  onChange={e => setAgentName(e.target.value.slice(0, 40))}
+                  placeholder="Đặt tên ngắn gọn, dễ nhận biết"
+                  autoFocus
+                  onKeyDown={e => { if (e.key === "Enter" && agentName.trim()) setNeedsSetup(false); }}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "11px 54px 11px 14px", borderRadius: 10, border: "1px solid " + inputBorder, background: bgMuted, color: fg, fontSize: 14, fontFamily: FONT, outline: "none" }}
+                />
+                <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: fgSubtle }}>{agentName.length}/40</span>
+              </div>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: fg, marginBottom: 8 }}>
+                Mô tả chức năng <span style={{ fontSize: 12, fontWeight: 500, color: fgSubtle }}>(tùy chọn)</span>
+              </label>
+              <div style={{ position: "relative" }}>
+                <textarea
+                  value={agentDesc}
+                  onChange={e => setAgentDesc(e.target.value.slice(0, 800))}
+                  placeholder="Giới thiệu ngắn về chức năng của agent — hiển thị cho người dùng."
+                  rows={4}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px 24px", borderRadius: 10, border: "1px solid " + inputBorder, background: bgMuted, color: fg, fontSize: 14, fontFamily: FONT, outline: "none", resize: "vertical", lineHeight: 1.5 }}
+                />
+                <span style={{ position: "absolute", right: 12, bottom: 12, fontSize: 11, color: fgSubtle }}>{agentDesc.length}/800</span>
+              </div>
+            </div>
+            {/* footer */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 22px", borderTop: "0.5px solid " + divider }}>
+              <button onClick={onBack} style={{ padding: "9px 18px", borderRadius: 9, border: "1px solid " + inputBorder, background: "transparent", color: fgMuted, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>Huỷ</button>
+              <button
+                onClick={() => agentName.trim() && setNeedsSetup(false)}
+                disabled={!agentName.trim()}
+                style={{ padding: "9px 22px", borderRadius: 9, border: "none", background: agentName.trim() ? brand : (isDark ? "rgba(255,255,255,0.12)" : "#e5e7eb"), color: agentName.trim() ? "#fff" : fgDisabled, fontSize: 13, fontWeight: 700, cursor: agentName.trim() ? "pointer" : "not-allowed", fontFamily: FONT, display: "flex", alignItems: "center", gap: 6 }}>
+                Tiếp tục <ArrowRight style={{ width: 15, height: 15 }} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ════════ MODEL PICKER MODAL ════════ */}
       {showModelPicker && (() => {
         const lower = modelSearch.toLowerCase();
@@ -1287,12 +1385,25 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
               </div>
               <div style={{ padding: "14px 20px", borderBottom: watchlist.length > 0 ? "0.5px solid " + divider : "none" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Thêm mã theo dõi</div>
-                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 9, background: bgMuted, border: "0.5px solid " + divider }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10, position: "relative" }}>
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 9, background: bgMuted, border: "0.5px solid " + (stockSuggestions.length ? brand : divider) }}>
                     <Search size={13} color={fgDisabled} strokeWidth={1.5} />
-                    <input value={stockInput} onChange={e => setStockInput(e.target.value.toUpperCase())} onKeyDown={e => e.key === "Enter" && addStock(stockInput)} placeholder="VD: HPG, VCB..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 13, color: fg, fontFamily: FONT }} />
+                    <input value={stockInput} onChange={e => setStockInput(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") addStock(stockSuggestions[0]?.symbol ?? stockInput); }} placeholder="Gõ mã hoặc tên công ty…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 13, color: fg, fontFamily: FONT }} />
                   </div>
-                  <button onClick={() => addStock(stockInput)} style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: brand, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT, display: "flex", alignItems: "center", gap: 5 }}><Plus size={14} strokeWidth={2.5} /></button>
+                  <button onClick={() => addStock(stockSuggestions[0]?.symbol ?? stockInput)} style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: brand, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT, display: "flex", alignItems: "center", gap: 5 }}><Plus size={14} strokeWidth={2.5} /></button>
+                  {stockSuggestions.length > 0 && (
+                    <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 30, background: bgPanel, border: "0.5px solid " + divider, borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.16)", overflow: "hidden", maxHeight: 264, overflowY: "auto" }}>
+                      {stockSuggestions.map(t => (
+                        <div key={t.symbol} onMouseDown={e => { e.preventDefault(); addStock(t.symbol); }}
+                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 13px", cursor: "pointer", borderBottom: "0.5px solid " + dividerFaint }}
+                          onMouseEnter={e => (e.currentTarget.style.background = bgMuted)}
+                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: brand, minWidth: 46, flexShrink: 0 }}>{t.symbol}</span>
+                          <span style={{ fontSize: 12, color: fgMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {POPULAR_STOCKS.filter(s => !allSymbols.includes(s)).map(s => (

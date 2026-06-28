@@ -8,6 +8,8 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { financialReport, TYPE_LABEL } from "../_shared/financial-report.ts";
+import { valueChainReport } from "../_shared/value-chain.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -40,39 +42,17 @@ async function buildFinancialsContext(symbol: string, registry?: SourceRegistry)
   const sym  = symbol.toUpperCase();
   const lines: string[] = [`\n## Dữ liệu tài chính: ${sym}`];
 
-  // Financials annual
+  // Báo cáo tài chính chi tiết: IS/BS/CF + chỉ số RIÊNG theo loại hình + KQKD quý gần nhất
   try {
-    const { data: fins } = await sb
-      .from("financials_annual")
-      .select("year,revenue,net_profit,eps,pe_ratio,pb_ratio,roe,roa,debt_to_equity")
-      .eq("symbol", sym)
-      .order("year", { ascending: false })
-      .limit(4);
-
-    if (fins?.length) {
-      const countFields = (f: (typeof fins)[0]) =>
-        [f.revenue, f.net_profit, f.eps, f.pe_ratio, f.pb_ratio, f.roe, f.roa, f.debt_to_equity]
-          .filter(v => v != null).length;
-      const qualifiedRows = fins.filter(f => countFields(f) >= 3);
-      if (qualifiedRows.length === 0) {
-        lines.push(`\n*Không có số liệu tài chính chi tiết cho ${sym} trong hệ thống. Không được tự ước tính các chỉ số tài chính.*`);
-      } else {
-        const ref = registry ? ` ${registry.add("BCTC", faUrl(sym))}` : "";
-        lines.push(`\n### Kết quả tài chính theo năm${ref}`);
-        lines.push("| Năm | Doanh thu (tỷ) | LNST (tỷ) | EPS | P/E | P/B | ROE | ROA | D/E |");
-        lines.push("|-----|---------------|-----------|-----|-----|-----|-----|-----|-----|");
-        for (const f of qualifiedRows) {
-          const rev  = f.revenue        != null ? (Number(f.revenue)        / 1e9).toFixed(0) : "—";
-          const np   = f.net_profit     != null ? (Number(f.net_profit)     / 1e9).toFixed(0) : "—";
-          const eps  = f.eps            != null ? Number(f.eps).toLocaleString("vi-VN")        : "—";
-          const pe   = f.pe_ratio       != null ? Number(f.pe_ratio).toFixed(1)                : "—";
-          const pb   = f.pb_ratio       != null ? Number(f.pb_ratio).toFixed(2)                : "—";
-          const roe  = f.roe            != null ? (Number(f.roe) * 100).toFixed(1) + "%"       : "—";
-          const roa  = f.roa            != null ? (Number(f.roa) * 100).toFixed(2) + "%"       : "—";
-          const de   = f.debt_to_equity != null ? Number(f.debt_to_equity).toFixed(2)          : "—";
-          lines.push(`| ${f.year} | ${rev} | ${np} | ${eps} | ${pe} | ${pb} | ${roe} | ${roa} | ${de} |`);
-        }
-      }
+    const { data: tk } = await sb.from("tickers").select("company_type").eq("symbol", sym).single();
+    const ctype = tk?.company_type ?? "normal";
+    const report = await financialReport(sb, sym, ctype);
+    if (report.trim()) {
+      const ref = registry ? ` ${registry.add("BCTC", faUrl(sym))}` : "";
+      lines.push(`\n### Báo cáo tài chính (${TYPE_LABEL[ctype] ?? ctype})${ref}`);
+      lines.push(report);
+    } else {
+      lines.push(`\n*Không có số liệu tài chính chi tiết cho ${sym} trong hệ thống. Không được tự ước tính các chỉ số tài chính.*`);
     }
   } catch { /* ignore */ }
 
@@ -693,6 +673,18 @@ const OPENAI_TOOL_DEFS: Record<string, object> = {
       },
     },
   },
+  value_chain: {
+    type: "function",
+    function: {
+      name: "value_chain",
+      description: "Chuỗi giá trị & yếu tố tác động của một mã: nguyên liệu ĐẦU VÀO (vd quặng sắt/than cốc với thép; dầu/nhiên liệu với hàng không/cảng), sản phẩm ĐẦU RA (thép HRC, urea, heo hơi), giá cước & yếu tố vĩ mô. Dùng khi phân tích biên LN chịu tác động bởi giá hàng hóa hoặc 'yếu tố nào ảnh hưởng đến mã'.",
+      parameters: {
+        type: "object",
+        properties: { symbol: { type: "string", description: "Mã cổ phiếu, ví dụ 'HPG', 'GAS', 'GMD'" } },
+        required: ["symbol"],
+      },
+    },
+  },
   portfolio_read: {
     type: "function",
     function: {
@@ -719,7 +711,7 @@ const OPENAI_TOOL_DEFS: Record<string, object> = {
 
 function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
   const defs: object[] = [];
-  for (const name of ["price_feed", "news_feed", "financials", "portfolio_read"]) {
+  for (const name of ["price_feed", "news_feed", "financials", "value_chain", "portfolio_read"]) {
     if (enabled.includes(name) && OPENAI_TOOL_DEFS[name]) defs.push(OPENAI_TOOL_DEFS[name]);
   }
   if (hasKb) defs.push(OPENAI_TOOL_DEFS.kb_search);
@@ -755,6 +747,17 @@ async function executeToolCall(
     const ctx = await buildFinancialsContext(sym, registry);
     await buildSymbolSources(sym, sources);
     return ctx || `Không có dữ liệu tài chính cho ${sym} trong hệ thống`;
+  }
+  if (name === "value_chain") {
+    const sym = String(args.symbol ?? "").toUpperCase();
+    if (!sym) return "Lỗi: thiếu tham số symbol";
+    let sectorName: string | undefined;
+    try {
+      const { data } = await sb.from("stocks").select("sector_name").eq("symbol", sym).single();
+      sectorName = data?.sector_name ?? undefined;
+    } catch { /* skip */ }
+    const ctx = await valueChainReport(sb, sym, sectorName);
+    return ctx || `Ngành của ${sym} chưa gắn sơ đồ chuỗi giá trị hàng hóa.`;
   }
   if (name === "portfolio_read") {
     return (await buildPortfolioContext(userId)) || "Chưa có danh mục đầu tư";
@@ -799,6 +802,7 @@ function toolStepLabel(name: string, args: Record<string, any>): string {
       return s.length ? `Tin tức ${s.join(", ")} (48h)` : "Tin tức thị trường (48h)";
     }
     case "financials":     return `Báo cáo tài chính: ${args.symbol ?? ""}`;
+    case "value_chain":    return `Chuỗi cung ứng & yếu tố tác động: ${args.symbol ?? ""}`;
     case "portfolio_read": return "Danh mục đầu tư";
     case "kb_search":      return `Knowledge Base: "${String(args.query ?? "").slice(0, 40)}"`;
     default: return name;
