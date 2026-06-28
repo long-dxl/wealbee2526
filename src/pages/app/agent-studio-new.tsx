@@ -42,7 +42,7 @@ const MODELS = [
   {
     id: "default", name: "Wealbee AI", provider: "Wealbee",
     tags: ["Balance", "v1.0"],
-    desc: "Khung xử lý Wealbee đã tinh chỉnh — tự hiểu yêu cầu, query đúng dữ liệu (giá, BCTC, tin tức, báo cáo phân tích, đồ thị nhân-quả vĩ mô) làm ngữ cảnh. Cân bằng hiệu suất, trích nguồn đầy đủ.",
+    desc: "Mô hình tối ưu chi phí và hiệu suất, tích hợp bộ khung tư duy tài chính",
     available: true,
   },
   {
