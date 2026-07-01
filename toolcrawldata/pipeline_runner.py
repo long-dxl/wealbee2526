@@ -880,31 +880,13 @@ Nếu không trash:
 
 # ── Bước 3: Email ──────────────────────────────────────────────────────────────
 
-def run_email(test_email: str = None, manual_email: str = None):
-    """Gửi email. manual_email: chỉ gửi cho 1 người khi chạy thủ công."""
-    step_header(3, 'GỬI EMAIL THÔNG BÁO')
-    try:
-        from email_notifier import run
-        run(test_email=test_email, manual_email=manual_email)
-    except Exception as e:
-        log.error(f'  Email lỗi: {e}')
-
-
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
-    import argparse
-    parser = argparse.ArgumentParser(description='Wealbee Pipeline Runner')
-    parser.add_argument('--test-email',    metavar='EMAIL', help='Test: gửi email cho địa chỉ này')
-    parser.add_argument('--manual-email',  metavar='EMAIL', help='Chạy thủ công: chỉ gửi cho user này')
-    args = parser.parse_args()
-
     start = time.time()
 
     log.info('=' * 55)
     log.info(f'  WEALBEE PIPELINE — {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
-    if args.manual_email:
-        log.info(f'  CHẾ ĐỘ THỦ CÔNG → gửi cho: {args.manual_email}')
     log.info('=' * 55)
 
     since_dt = get_last_crawled_at()
@@ -915,12 +897,6 @@ def main():
     time.sleep(2)
 
     n_labeled = run_label_and_score(new_urls)
-    time.sleep(2)
-
-    run_email(
-        test_email=args.test_email,
-        manual_email=args.manual_email,
-    )
 
     elapsed = time.time() - start
     log.info('=' * 55)

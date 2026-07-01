@@ -1,9 +1,7 @@
-import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Navbar } from "../../components/landing/Navbar";
 import { Footer } from "../../components/landing/Footer";
 import svgPaths from "../../imports/svg-bgfixn5yhu";
-import { joinProWaitlist } from "../../lib/landing/subscribe";
 
 function CheckIcon({ color = "#2563EB" }: { color?: string }) {
   return (
@@ -57,23 +55,7 @@ function FreePlan() {
 }
 
 function ProPlan() {
-  const [showForm, setShowForm] = useState(false);
-  const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
-  const [joined, setJoined] = useState(false);
-
-  const handleJoinWaitlist = async () => {
-    setErrorMsg("");
-    setLoading(true);
-    const result = await joinProWaitlist(email);
-    setLoading(false);
-    if (result.success) {
-      setJoined(true);
-    } else {
-      setErrorMsg(result.message);
-    }
-  };
+  const navigate = useNavigate();
 
   return (
     <div
@@ -141,68 +123,12 @@ function ProPlan() {
 
       {/* CTA area */}
       <div className="mt-10 relative z-10">
-        {joined ? (
-          /* Success state */
-          <div className="w-full bg-[rgba(255,255,255,0.15)] backdrop-blur-sm rounded-xl px-5 py-4 flex items-center gap-3 border border-[rgba(255,255,255,0.25)]">
-            <div className="w-8 h-8 rounded-full bg-[rgba(255,255,255,0.2)] flex items-center justify-center shrink-0">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M3 8L6.5 11.5L13 5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <div>
-              <p className="text-[14px] font-semibold text-white leading-[1.3]">Đã đăng ký thành công!</p>
-              <p className="text-[12px] text-[#e8f2ff] mt-0.5">Chúng tôi sẽ thông báo khi Pro mở.</p>
-            </div>
-          </div>
-        ) : !showForm ? (
-          /* Initial button */
-          <button
-            onClick={() => setShowForm(true)}
-            className="w-full bg-white text-[#0849ac] py-5 rounded-xl text-[16px] font-semibold font-['Montserrat',sans-serif] hover:bg-[#f0f4ff] transition-colors"
-          >
-            Liên hệ
-          </button>
-        ) : (
-          /* Inline waitlist form */
-          <div className="space-y-3">
-            <p className="text-[13px] text-[#e8f2ff] text-center">
-              Để lại email — chúng tôi thông báo ngay khi Pro mở.
-            </p>
-            <input
-              type="email"
-              placeholder="email@example.com"
-              value={email}
-              onChange={(e) => { setEmail(e.target.value); setErrorMsg(""); }}
-              onKeyDown={(e) => e.key === "Enter" && !loading && email && handleJoinWaitlist()}
-              className="w-full px-4 py-3 rounded-xl text-[15px] text-[#111827] placeholder-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-white bg-white"
-              autoFocus
-            />
-            {errorMsg && (
-              <p className="text-[12px] text-[#fca5a5] text-center">{errorMsg}</p>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={() => { setShowForm(false); setEmail(""); setErrorMsg(""); }}
-                className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-white bg-[rgba(255,255,255,0.15)] hover:bg-[rgba(255,255,255,0.25)] transition-colors border border-[rgba(255,255,255,0.2)]"
-              >
-                Huỷ
-              </button>
-              <button
-                disabled={!email || loading}
-                onClick={handleJoinWaitlist}
-                className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-[#0849ac] bg-white hover:bg-[#f0f4ff] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                  <svg className="animate-spin w-4 h-4 text-[#0849ac]" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
-                  </svg>
-                ) : null}
-                {loading ? "Đang gửi..." : "Thông báo tôi"}
-              </button>
-            </div>
-          </div>
-        )}
+        <button
+          onClick={() => navigate("/")}
+          className="w-full bg-white text-[#0849ac] py-5 rounded-xl text-[16px] font-semibold font-['Montserrat',sans-serif] hover:bg-[#f0f4ff] transition-colors"
+        >
+          Liên hệ
+        </button>
       </div>
     </div>
   );

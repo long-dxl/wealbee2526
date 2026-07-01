@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Plus, Link2, Unlink, Eye, EyeOff } from "lucide-react";
+import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Link2, Unlink, Eye, EyeOff } from "lucide-react";
 import { useTheme } from "../../lib/theme-context";
 import { supabase } from "../../lib/supabase/client";
 import { useBrokerConfig, type BrokerConfig } from "../../lib/hooks/useBrokerConfig";
@@ -102,13 +102,6 @@ export function Settings() {
     agentAlert:   true,
   });
 
-  // ── Bản tin hàng ngày — watch symbols ─────────────────────────────────────
-  const [watchSymbols,  setWatchSymbols]  = useState<string[]>([]);
-  const [symbolInput,   setSymbolInput]   = useState("");
-  const [digestLoading, setDigestLoading] = useState(false);
-  const [digestSaving,  setDigestSaving]  = useState(false);
-  const [digestSaved,   setDigestSaved]   = useState(false);
-
   // ── Token usage (real from Supabase) ──────────────────────────────────────
   interface UsageRow { day: string; tokens: number; }
   interface UsageLog { created_at: string; tokens_used: number; label: string; source: "test" | "run"; }
@@ -117,7 +110,7 @@ export function Settings() {
   const [totalTokens,  setTotalTokens]  = useState(0);
   const [loadingUsage, setLoadingUsage] = useState(true);
 
-  useEffect(() => { loadProfile(); loadDigestSubscription(); loadTokenUsage(); }, []);
+  useEffect(() => { loadProfile(); loadTokenUsage(); }, []);
 
   const loadTokenUsage = async () => {
     setLoadingUsage(true);
@@ -238,52 +231,6 @@ export function Settings() {
     } finally {
       setSavingProfile(false);
     }
-  };
-
-  const loadDigestSubscription = async () => {
-    setDigestLoading(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
-        .from("digest_subscribers")
-        .select("watch_symbols")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (data?.watch_symbols) setWatchSymbols(data.watch_symbols);
-    } finally {
-      setDigestLoading(false);
-    }
-  };
-
-  const saveDigestSubscription = async (symbols: string[]) => {
-    setDigestSaving(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      await supabase.from("digest_subscribers").upsert({
-        user_id:      user.id,
-        email:        user.email ?? "",
-        watch_symbols: symbols,
-        updated_at:   new Date().toISOString(),
-      }, { onConflict: "email" });
-      setDigestSaved(true);
-      setTimeout(() => setDigestSaved(false), 2000);
-    } finally {
-      setDigestSaving(false);
-    }
-  };
-
-  const addWatchSymbol = () => {
-    const sym = symbolInput.trim().toUpperCase();
-    if (!sym || watchSymbols.includes(sym)) { setSymbolInput(""); return; }
-    const updated = [...watchSymbols, sym];
-    setWatchSymbols(updated);
-    setSymbolInput("");
-  };
-
-  const removeWatchSymbol = (sym: string) => {
-    setWatchSymbols(prev => prev.filter(s => s !== sym));
   };
 
   const saveNotifSettings = async (key: string, value: boolean) => {
@@ -455,85 +402,6 @@ export function Settings() {
                   />
                 </div>
               ))}
-
-              {/* ── Bản tin hàng ngày ─────────────────────────────────────── */}
-              <div style={{ paddingTop: 20, marginTop: 4 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: headingColor }}>Bản tin hàng ngày</div>
-                  {digestLoading && <RefreshCw size={13} style={{ color: theme.brand, animation: "spin 1s linear infinite" }} />}
-                </div>
-                <div style={{ fontSize: 13, color: subtleColor, marginBottom: 14 }}>
-                  Chọn mã cổ phiếu muốn nhận tin tức mỗi sáng qua email
-                </div>
-
-                {/* Chip list */}
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12, minHeight: 32 }}>
-                  {watchSymbols.length === 0 && !digestLoading && (
-                    <span style={{ fontSize: 13, color: subtleColor, fontStyle: "italic" }}>Chưa có mã nào</span>
-                  )}
-                  {watchSymbols.map(sym => (
-                    <span key={sym} style={{
-                      display: "inline-flex", alignItems: "center", gap: 5,
-                      background: isDark ? "rgba(77,143,232,0.14)" : "rgba(8,73,172,0.08)",
-                      color: theme.brand, fontSize: 12, fontWeight: 700,
-                      padding: "4px 10px", borderRadius: 20,
-                    }}>
-                      {sym}
-                      <button
-                        onClick={() => removeWatchSymbol(sym)}
-                        style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", color: theme.brand, opacity: 0.6 }}
-                      >
-                        <X size={11} strokeWidth={2.5} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-
-                {/* Add + Save */}
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <input
-                    value={symbolInput}
-                    onChange={e => setSymbolInput(e.target.value.toUpperCase())}
-                    onKeyDown={e => e.key === "Enter" && addWatchSymbol()}
-                    placeholder="Nhập mã (VD: VCB)"
-                    maxLength={10}
-                    style={{
-                      width: 140, padding: "8px 12px", borderRadius: 10,
-                      border: "0.5px solid " + inputBorder, background: inputBg,
-                      fontSize: 13, color: headingColor, outline: "none", fontFamily: FONT,
-                    }}
-                  />
-                  <button
-                    onClick={addWatchSymbol}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 4,
-                      padding: "8px 14px", borderRadius: 10, border: "none", cursor: "pointer",
-                      background: isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.07)",
-                      color: theme.brand, fontSize: 13, fontWeight: 600, fontFamily: FONT,
-                    }}
-                  >
-                    <Plus size={13} strokeWidth={2.5} /> Thêm
-                  </button>
-                  <button
-                    onClick={() => saveDigestSubscription(watchSymbols)}
-                    disabled={digestSaving}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      padding: "8px 16px", borderRadius: 10, border: "none", cursor: digestSaving ? "not-allowed" : "pointer",
-                      background: digestSaved ? "#34C759" : theme.brand,
-                      color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: FONT,
-                      transition: "background 200ms", opacity: digestSaving ? 0.7 : 1,
-                    }}
-                  >
-                    {digestSaving
-                      ? <><RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }} /> Đang lưu…</>
-                      : digestSaved
-                      ? <><Check size={13} /> Đã lưu</>
-                      : <><Save size={13} /> Lưu</>
-                    }
-                  </button>
-                </div>
-              </div>
             </div>
           )}
 
