@@ -269,7 +269,10 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   // ở trang danh sách) thì cũng bỏ qua vì user đã nhập tên rồi, tránh hỏi lại lần 2.
   const [needsSetup, setNeedsSetup] = useState(!agentId && !initialName);
   const [templateId, setTemplateId] = useState("daily_digest");
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  // Sửa agent (có agentId): khởi tạo RỖNG, chờ load prompt thật từ DB → không nháy prompt mẫu.
+  // Tạo mới (không agentId): dùng prompt mẫu mặc định.
+  const [prompt, setPrompt] = useState(agentId ? "" : DEFAULT_PROMPT);
+  const [promptLoading, setPromptLoading] = useState(!!agentId);
   const [selectedModel, setSelectedModel] = useState("default");
   const [selectedKB, setSelectedKB] = useState<Set<string>>(new Set());
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set(["price_feed", "news_feed", "financials"]));
@@ -487,13 +490,14 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   useEffect(() => {
     if (!agentId) return;
     supabase.from("agents").select("*").eq("id", agentId).single().then(({ data }) => {
-      if (!data) return;
+      if (!data) { setPromptLoading(false); return; }
       if (data.name) setAgentName(data.name);
       if (data.description != null) setAgentDesc(data.description);
       if (data.template_id) setTemplateId(data.template_id);
       const isDeepResearch = data.template_id === "deep_research";
       const isOldSystemPrompt = !isDeepResearch && (data.system_prompt?.startsWith("Bạn là chuyên gia") || data.system_prompt?.startsWith("Bạn là AI"));
-      if (data.system_prompt && !isOldSystemPrompt) setPrompt(data.system_prompt);
+      setPrompt(data.system_prompt && !isOldSystemPrompt ? data.system_prompt : DEFAULT_PROMPT);
+      setPromptLoading(false);
       if (data.model) {
         const available = MODELS.find(m => m.id === data.model)?.available;
         setSelectedModel(available ? data.model : "default");
@@ -714,7 +718,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
             ref={textareaRef}
             value={prompt}
             onChange={e => setPrompt(e.target.value)}
-            style={{ flex: 1, border: "none", outline: "none", resize: "none", padding: "14px 16px", fontSize: 12, lineHeight: 1.7, color: fg, background: bgPanel, fontFamily: FONT }}
+            disabled={promptLoading}
+            placeholder={promptLoading ? "Đang tải prompt…" : "Nhập persona & prompt cho agent…"}
+            style={{ flex: 1, border: "none", outline: "none", resize: "none", padding: "14px 16px", fontSize: 12, lineHeight: 1.7, color: promptLoading ? fgDisabled : fg, background: bgPanel, fontFamily: FONT }}
           />
 
           <div style={{ padding: "8px 14px", borderTop: "0.5px solid " + dividerFaint, background: bgFaint, flexShrink: 0 }}>
