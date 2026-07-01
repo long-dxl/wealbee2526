@@ -1,8 +1,10 @@
 name: Wealbee Daily Pipeline
 
 on:
-  schedule:
-    - cron: '30 23 * * *'  # 23:30 UTC = 6:30 AM Vietnam (UTC+7)
+  # Lịch tự động ĐÃ TẮT — gom pipeline về VPS cron (đúng giờ VN, tin 3x/ngày + giá + báo cáo).
+  # GitHub cron chạy trễ ~2h + trùng VPS. Giữ workflow_dispatch để chạy tay khi cần.
+  # schedule:
+  #   - cron: '30 23 * * *'  # 23:30 UTC = 6:30 AM Vietnam (UTC+7)
   workflow_dispatch:
 
 jobs:

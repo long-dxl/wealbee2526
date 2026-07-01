@@ -1,8 +1,9 @@
 name: Wealbee Daily Sampling
 
 on:
-  schedule:
-    - cron: '0 0 * * *'   # 0:00 UTC = 7:00 AM Vietnam (UTC+7)
+  # Lịch tự động ĐÃ TẮT (gom về VPS; daily_sampling không dùng nữa). Giữ chạy tay nếu cần.
+  # schedule:
+  #   - cron: '0 0 * * *'   # 0:00 UTC = 7:00 AM Vietnam (UTC+7)
   workflow_dispatch:
 
 jobs:
