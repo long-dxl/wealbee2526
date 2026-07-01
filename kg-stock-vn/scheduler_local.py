@@ -115,14 +115,15 @@ def run_agent(agent: dict, event_ctx: str = "", event_syms=None) -> str:
     r = serve.run_agent_core(
         system_prompt=agent.get("system_prompt"), symbols=syms, event_ctx=event_ctx,
         save_brief=True, agent_id=agent["id"], user_id=agent["user_id"],
-        name=agent.get("name"), template_id=agent.get("template_id"))
+        name=agent.get("name"), template_id=agent.get("template_id"),
+        email_notify=bool(agent.get("email_notify")))
     return r["title"]
 
 
 def check_once(force_agent: str | None = None):
     rows = (SB.table("agents")
             .select("id,user_id,name,template_id,system_prompt,target_symbols,"
-                    "trigger_type,trigger_config,schedule,status")
+                    "trigger_type,trigger_config,schedule,status,email_notify")
             .eq("status", "active").execute().data) or []
     ran = 0
     for a in rows:

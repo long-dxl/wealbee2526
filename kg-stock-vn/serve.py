@@ -468,8 +468,9 @@ def build_agent_message(system_prompt: str | None, symbols=None, event_ctx: str 
 def run_agent_core(*, system_prompt: str | None = "", symbols=None, event_ctx: str = "",
                    save_brief: bool = False, agent_id: str | None = None,
                    user_id: str | None = None, name: str = "Agent",
-                   template_id: str | None = None) -> dict:
-    """Chạy 1 agent qua brain → (tùy chọn) lưu brief. Trả markdown/sources/title/summary/brief_id."""
+                   template_id: str | None = None, email_notify: bool = False) -> dict:
+    """Chạy 1 agent qua brain → (tùy chọn) lưu brief + (tùy chọn) gửi email.
+    email_notify: chỉ gửi email khi True (mặc định False = agent KHÔNG gửi email)."""
     syms = [s.upper() for s in (symbols or []) if s]
     msg = build_agent_message(system_prompt, syms, event_ctx)
     res = build_report(msg, symbols=syms or None)
@@ -492,9 +493,11 @@ def run_agent_core(*, system_prompt: str | None = "", symbols=None, event_ctx: s
         summary = md.replace("#", "").replace("*", "").strip()[:240] or title
 
     brief_id = None
+    email_sent = False
     if save_brief and agent_id and user_id:
+        sb = wb._wb()
         try:
-            r = wb._wb().table("briefs").insert({
+            r = sb.table("briefs").insert({
                 "user_id": user_id, "agent_id": agent_id,
                 "title": title, "summary": summary, "content": md,
                 "refs": sources, "sources": sources,
@@ -504,8 +507,19 @@ def run_agent_core(*, system_prompt: str | None = "", symbols=None, event_ctx: s
         except Exception as e:
             print(f"    [!] lưu brief lỗi: {str(e)[:140]}")
 
-    return {"markdown": md, "sources": sources, "title": title,
-            "summary": summary, "brief_id": brief_id, "steps": steps}
+        # Gửi email CHỈ khi agent bật email_notify (mặc định off)
+        if email_notify:
+            try:
+                from core.email_sender import get_user_email, send_brief_email
+                to_email, _uname = get_user_email(sb, user_id)
+                if to_email:
+                    email_sent = send_brief_email(to_email, name or "Agent", title, md, sources)
+                    print(f"    [mail] {'đã gửi' if email_sent else 'không gửi được'} → {to_email}")
+            except Exception as e:
+                print(f"    [!] email lỗi: {str(e)[:140]}")
+
+    return {"markdown": md, "sources": sources, "title": title, "summary": summary,
+            "brief_id": brief_id, "steps": steps, "email_sent": email_sent}
 
 
 class RunAgentIn(BaseModel):
@@ -517,6 +531,7 @@ class RunAgentIn(BaseModel):
     user_id: str | None = None
     name: str = "Agent"
     template_id: str | None = None
+    email_notify: bool = False
 
 
 @app.post("/run-agent")
@@ -527,6 +542,6 @@ def run_agent_ep(inp: RunAgentIn):
         return run_agent_core(
             system_prompt=inp.system_prompt, symbols=inp.symbols, event_ctx=inp.event_ctx,
             save_brief=inp.save_brief, agent_id=inp.agent_id, user_id=inp.user_id,
-            name=inp.name, template_id=inp.template_id)
+            name=inp.name, template_id=inp.template_id, email_notify=inp.email_notify)
     except Exception as e:
         return {"markdown": f"⚠️ Lỗi chạy agent: {str(e)[:160]}", "sources": []}
