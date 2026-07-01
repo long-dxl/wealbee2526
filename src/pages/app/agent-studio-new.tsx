@@ -15,6 +15,8 @@ import wealbeeLogo from "../../assets/Logo.svg";
 interface StudioProps {
   onBack: () => void;
   agentId?: string;
+  initialName?: string;
+  initialDescription?: string;
   isDark?: boolean;
 }
 
@@ -244,7 +246,7 @@ const DEFAULT_PROMPT = `Tôi muốn xem bản tin hàng ngày về danh mục c�
 const POPULAR_STOCKS = ["VCB", "HPG", "FPT", "VIC", "TCB", "ACB", "MWG", "VNM", "MSN", "STB"];
 
 // ══════════════════════════════════════════════════════════════════════════════
-export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
+export function AgentStudio({ onBack, agentId, initialName, initialDescription, isDark = false }: StudioProps) {
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
   const fgMuted = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.55)";
   const fgSubtle = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
@@ -260,11 +262,12 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   const FONT = "'Montserrat', system-ui, sans-serif";
 
   // ── Config state ──────────────────────────────────────────────────────────
-  const [agentName, setAgentName] = useState(agentId ? "Bản tin hàng ngày" : "");
-  const [agentDesc, setAgentDesc] = useState("");
+  const [agentName, setAgentName] = useState(agentId ? "Bản tin hàng ngày" : (initialName ?? ""));
+  const [agentDesc, setAgentDesc] = useState(initialDescription ?? "");
   // Bước nhập tên + mô tả TRƯỚC khi vào editor — chỉ khi TẠO MỚI (không có agentId).
-  // Sửa agent cũ thì bỏ qua hẳn bước này.
-  const [needsSetup, setNeedsSetup] = useState(!agentId);
+  // Sửa agent cũ thì bỏ qua hẳn bước này. Nếu đã có initialName (đến từ modal "Tạo Agent"
+  // ở trang danh sách) thì cũng bỏ qua vì user đã nhập tên rồi, tránh hỏi lại lần 2.
+  const [needsSetup, setNeedsSetup] = useState(!agentId && !initialName);
   const [templateId, setTemplateId] = useState("daily_digest");
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [selectedModel, setSelectedModel] = useState("default");

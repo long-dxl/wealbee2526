@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 
 // Landing + Login (thiết kế mới — luồng request demo)
 import { LandingPage } from "./pages/landing/wb/app/pages/LandingPage";
@@ -7,10 +7,8 @@ import { DemoResultPage } from "./pages/landing/wb/app/pages/DemoResultPage";
 import { RequireAuth } from "./components/require-auth";
 
 // Landing sub-pages (giữ nguyên)
-import OnboardingPage from "./pages/landing/OnboardingPage";
 import PricingPage from "./pages/landing/PricingPage";
 import FeedbackPage from "./pages/landing/FeedbackPage";
-import UnsubscribePage from "./pages/landing/UnsubscribePage";
 import BlogListPage from "./pages/landing/blog/BlogListPage";
 import BlogPostPage from "./pages/landing/blog/BlogPostPage";
 import { NotFound } from "./pages/not-found";
@@ -43,10 +41,12 @@ import { AdminDailyReview } from "./pages/admin-daily-review";
 export const router = createBrowserRouter([
   // ── Public routes ──────────────────────────────────────────────────────────
   { path: "/",              Component: LandingPage    },
-  { path: "/start",         Component: OnboardingPage },
+  // /start và /unsubscribe thuộc tính năng "bản tin qua digest_subscribers" đã ngừng —
+  // chuyển hướng về trang chủ để không hiện link chết.
+  { path: "/start",         element: <Navigate to="/" replace /> },
   { path: "/pricing",       Component: PricingPage    },
   { path: "/feedback",      Component: FeedbackPage   },
-  { path: "/unsubscribe",   Component: UnsubscribePage },
+  { path: "/unsubscribe",   element: <Navigate to="/" replace /> },
   { path: "/blog",          Component: BlogListPage   },
   { path: "/blog/:slug",    Component: BlogPostPage   },
   { path: "/login",         Component: LoginPage      },
