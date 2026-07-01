@@ -2,7 +2,7 @@
  * Route wrapper components that connect new UI pages to the NewLayout outlet context.
  * Each wrapper calls useOutletContext() to get navigation and theme props.
  */
-import { useOutletContext, useNavigate, useSearchParams } from "react-router";
+import { useOutletContext, useNavigate, useLocation, useSearchParams } from "react-router";
 import type { Theme } from "../../lib/theme-context";
 import type { ContextCard } from "../../types/cards";
 
@@ -24,6 +24,7 @@ export interface AppOutletContext {
   removeContextCard: (id: string) => void;
   isDark: boolean;
   theme: Theme;
+  openCreateAgentModal: () => void;
 }
 
 function useApp() {
@@ -53,15 +54,27 @@ export function InboxRoute() {
 export function AgentStudioRoute() {
   const { onNavigate, isDark } = useApp();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const agentId = searchParams.get("agent_id") ?? undefined;
+  // Tên/mô tả đã được nhập ở modal "Tạo Agent mới" (trang Agent của tôi / Mẫu Agent / sidebar)
+  // được chuyển qua router state để Studio bỏ qua bước hỏi lại tên.
+  const state = location.state as { agentName?: string; agentDesc?: string } | null;
   void onNavigate;
-  return <AgentStudio onBack={() => navigate("/app/agents")} agentId={agentId} isDark={isDark} />;
+  return (
+    <AgentStudio
+      onBack={() => navigate("/app/agents")}
+      agentId={agentId}
+      initialName={state?.agentName}
+      initialDescription={state?.agentDesc}
+      isDark={isDark}
+    />
+  );
 }
 
 export function TemplatesRoute() {
-  const { onNavigate, isDark } = useApp();
-  return <Templates onNavigate={onNavigate} isDark={isDark} />;
+  const { onNavigate, isDark, openCreateAgentModal } = useApp();
+  return <Templates onNavigate={onNavigate} onCreateAgent={openCreateAgentModal} isDark={isDark} />;
 }
 
 export function ToolLibraryRoute() {

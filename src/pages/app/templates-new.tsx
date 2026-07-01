@@ -2,12 +2,10 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
 import {
   Clock, Zap, TrendingUp, PieChart, BarChart2, Search,
-  FileText, Globe, Plus, ArrowRight, Mail, RefreshCw, Bot,
+  FileText, Globe, Plus, ArrowRight, Mail, RefreshCw, Bot, Loader2,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
-
-// Các template đã hoàn thiện — đồng bộ với agents.tsx
-const READY_TEMPLATES = ["deep_research", "daily_digest", "insider_buy", "volume_spike"];
+import { activateAgentTemplate, findAgentByTemplate, READY_TEMPLATE_IDS } from "../../lib/services/agent-templates";
 
 // DB schedule → label hiển thị
 const SCHEDULE_LABEL: Record<string, { label: string; type: "cron" | "event" | "manual" }> = {
@@ -58,11 +56,13 @@ interface AgentTemplate {
   default_schedule: string;
 }
 
-export function Templates({ onNavigate, isDark = false }: { onNavigate: (page: string) => void; isDark?: boolean }) {
+export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNavigate: (page: string) => void; onCreateAgent: () => void; isDark?: boolean }) {
   const navigate = useNavigate();
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [loading, setLoading]     = useState(true);
   const [active, setActive]       = useState("Tất cả");
+  const [userId, setUserId]       = useState<string | null>(null);
+  const [activatingId, setActivatingId] = useState<string | null>(null);
 
   const fg       = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
   const fgMuted  = isDark ? "rgba(240,242,255,0.52)" : "rgba(26,26,46,0.58)";
@@ -86,6 +86,12 @@ export function Templates({ onNavigate, isDark = false }: { onNavigate: (page: s
       });
   }, []);
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setUserId(session?.user.id ?? null));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setUserId(session?.user.id ?? null));
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Tập hợp categories từ DB data
   const allLabels = [...new Set(
     templates.map(t => CAT_META[t.category]?.label ?? t.category)
@@ -97,12 +103,18 @@ export function Templates({ onNavigate, isDark = false }: { onNavigate: (page: s
     : templates.filter(t => (CAT_META[t.category]?.label ?? t.category) === active);
   // Agent đã sẵn sàng luôn lên đầu (giữ nguyên thứ tự sort_order trong từng nhóm)
   const list = [...base].sort((a, b) =>
-    (READY_TEMPLATES.includes(b.id) ? 1 : 0) - (READY_TEMPLATES.includes(a.id) ? 1 : 0));
+    (READY_TEMPLATE_IDS.includes(b.id) ? 1 : 0) - (READY_TEMPLATE_IDS.includes(a.id) ? 1 : 0));
 
-  const handleUse = (tmpl: AgentTemplate) => {
-    // Điều hướng sang Agents để user kích hoạt template từ đó
+  const handleUse = async (tmpl: AgentTemplate) => {
+    if (!userId) { navigate("/login"); return; }
+    setActivatingId(tmpl.id);
+    try {
+      const existing = await findAgentByTemplate(userId, tmpl.id);
+      if (!existing) await activateAgentTemplate(userId, tmpl);
+    } finally {
+      setActivatingId(null);
+    }
     onNavigate("agents");
-    void tmpl;
   };
 
   return (
@@ -113,11 +125,11 @@ export function Templates({ onNavigate, isDark = false }: { onNavigate: (page: s
         <div>
           <h1 style={{ margin: "0 0 4px", fontSize: 24, fontWeight: 800, color: fg, letterSpacing: "-0.025em" }}>Templates</h1>
           <p style={{ margin: 0, fontSize: 13, color: fgSubtle }}>
-            {loading ? "Đang tải…" : `${templates.length} template · ${READY_TEMPLATES.filter(id => templates.some(t => t.id === id)).length} sẵn sàng`}
+            {loading ? "Đang tải…" : `${templates.length} template · ${READY_TEMPLATE_IDS.filter(id => templates.some(t => t.id === id)).length} sẵn sàng`}
           </p>
         </div>
         <button
-          onClick={() => navigate("/app/agents")}
+          onClick={onCreateAgent}
           style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "9px 18px", borderRadius: 22, border: "none",
@@ -167,7 +179,7 @@ export function Templates({ onNavigate, isDark = false }: { onNavigate: (page: s
       {!loading && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
           {list.map(t => {
-            const isReady    = READY_TEMPLATES.includes(t.id);
+            const isReady    = READY_TEMPLATE_IDS.includes(t.id);
             const meta       = CAT_META[t.category];
             const catBg      = isReady ? (isDark ? meta?.dBg : meta?.bg)   ?? "rgba(8,73,172,0.08)"  : (isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)");
             const catText    = isReady ? (isDark ? meta?.dText : meta?.text) ?? brand                 : (isDark ? "rgba(255,255,255,0.25)" : "rgba(26,26,46,0.30)");
@@ -263,18 +275,23 @@ export function Templates({ onNavigate, isDark = false }: { onNavigate: (page: s
                   ) : (
                     <button
                       onClick={() => handleUse(t)}
+                      disabled={activatingId === t.id}
                       style={{
                         display: "flex", alignItems: "center", gap: 4,
                         padding: "6px 13px", borderRadius: 20, border: "none",
                         background: catBg, color: catText,
-                        fontSize: 12, fontWeight: 700, cursor: "pointer",
+                        fontSize: 12, fontWeight: 700,
+                        cursor: activatingId === t.id ? "default" : "pointer",
+                        opacity: activatingId === t.id ? 0.6 : 1,
                         fontFamily: "'Montserrat', system-ui, sans-serif",
                         transition: "opacity 120ms",
                       }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = "0.70"; }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+                      onMouseEnter={e => { if (activatingId !== t.id) (e.currentTarget as HTMLElement).style.opacity = "0.70"; }}
+                      onMouseLeave={e => { if (activatingId !== t.id) (e.currentTarget as HTMLElement).style.opacity = "1"; }}
                     >
-                      Dùng <ArrowRight size={11} strokeWidth={2} />
+                      {activatingId === t.id
+                        ? <><Loader2 size={11} strokeWidth={2} style={{ animation: "spin 1s linear infinite" }} /> Đang thêm…</>
+                        : <>Dùng <ArrowRight size={11} strokeWidth={2} /></>}
                     </button>
                   )}
                 </div>

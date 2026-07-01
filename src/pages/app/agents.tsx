@@ -5,9 +5,11 @@ import {
   CheckCircle, Loader2, Database, Bell, ExternalLink, // icons
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { useNavigate, useLocation } from "react-router";
+import { useNavigate, useLocation, useOutletContext } from "react-router";
 import { supabase } from "../../lib/supabase/client";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
+import { activateAgentTemplate, READY_TEMPLATE_IDS, type UserAgent } from "../../lib/services/agent-templates";
+import type { AppOutletContext } from "./page-wrappers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,21 +21,6 @@ interface AgentTemplate {
   color: string;
   category: string;
   sort_order: number;
-}
-
-interface UserAgent {
-  id: string;
-  template_id: string;
-  name: string;
-  description: string;
-  status: "active" | "paused" | "draft";
-  schedule: string;
-  last_run_at: string | null;
-  run_count: number;
-  system_prompt?: string;
-  target_symbols?: string[];
-  trigger_type?: "manual" | "scheduled" | "event";
-  trigger_config?: { event_type?: string; [k: string]: unknown } | null;
 }
 
 interface RunStep {
@@ -667,6 +654,7 @@ export function AgentsPage() {
   const [symbolPicker, setSymbolPicker] = useState<{ agentId: string; symbols: string[] } | null>(null);
   const [runPanel, setRunPanel] = useState<RunPanelState | null>(null);
   const navigate = useNavigate();
+  const { openCreateAgentModal } = useOutletContext<AppOutletContext>();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -705,22 +693,8 @@ export function AgentsPage() {
 
   const activateTemplate = async (tmpl: AgentTemplate) => {
     if (!userId) return;
-    // Fetch full template: prompt + tools + điều kiện kích hoạt (trigger)
-    const { data: full } = await supabase
-      .from("agent_templates")
-      .select("id, tools, system_prompt, trigger_type, trigger_config, default_schedule")
-      .eq("id", tmpl.id)
-      .single();
-    const { data: agent } = await supabase.from("agents").insert({
-      user_id: userId, template_id: tmpl.id, name: tmpl.name,
-      description: tmpl.description, status: "active",
-      schedule: full?.default_schedule ?? "manual",
-      trigger_type: full?.trigger_type ?? "manual",
-      trigger_config: full?.trigger_config ?? null,
-      tools: full?.tools ?? [],
-      system_prompt: full?.system_prompt ?? null,
-    }).select("*").single();
-    if (agent) { setAgents(prev => [...prev, agent as UserAgent]); setShowTemplates(false); }
+    const agent = await activateAgentTemplate(userId, tmpl);
+    if (agent) { setAgents(prev => [...prev, agent]); setShowTemplates(false); }
   };
 
   const toggleAgent = async (agent: UserAgent) => {
@@ -872,9 +846,9 @@ export function AgentsPage() {
             {activeCount} agent đang bật · {agents.length} tổng cộng
           </p>
         </div>
-        <button onClick={() => navigate("/app/agent-studio")}
+        <button onClick={openCreateAgentModal}
           style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", borderRadius: 10, border: "none", background: "#0849ac", color: "#fff", cursor: "pointer", fontSize: "0.8125rem", fontWeight: 600, fontFamily: "inherit" }}>
-          <Plus style={{ width: 15, height: 15 }} />Thêm agent
+          <Plus style={{ width: 15, height: 15 }} />Tạo Agent
         </button>
       </div>
 
@@ -887,8 +861,7 @@ export function AgentsPage() {
               const Icon = ICON_MAP[tmpl.icon] || Bot;
               const colors = TEMPLATE_COLORS[tmpl.id] || { bg: "rgba(8,73,172,0.1)", color: "#0849ac" };
               const alreadyAdded = agents.some(a => a.template_id === tmpl.id);
-              const READY_TEMPLATES = ["daily_digest", "deep_research", "insider_buy", "volume_spike"];
-              const isReady = READY_TEMPLATES.includes(tmpl.id);
+              const isReady = READY_TEMPLATE_IDS.includes(tmpl.id);
               const disabled = alreadyAdded || !isReady;
               return (
                 <div key={tmpl.id} style={{
@@ -1015,14 +988,14 @@ export function AgentsPage() {
             );
           })}
 
-          <div onClick={() => navigate("/app/agent-studio")}
+          <div onClick={() => navigate("/app/templates")}
             style={{ background: "transparent", border: "2px dashed rgba(8,73,172,0.15)", borderRadius: 14, padding: "18px 18px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", minHeight: 180 }}>
             <div style={{ textAlign: "center" }}>
               <div style={{ width: 40, height: 40, borderRadius: 11, background: "rgba(8,73,172,0.06)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
                 <Plus style={{ width: 18, height: 18, color: "#0849ac" }} />
               </div>
-              <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0849ac" }}>Thêm agent</p>
-              <p style={{ fontSize: "0.75rem", color: "#99a1af", marginTop: 4 }}>Đặt tên &amp; thiết lập agent mới</p>
+              <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0849ac" }}>Thêm Agent mẫu</p>
+              <p style={{ fontSize: "0.75rem", color: "#99a1af", marginTop: 4 }}>Chọn từ các Agent mẫu có sẵn</p>
             </div>
           </div>
         </div>
@@ -1030,7 +1003,7 @@ export function AgentsPage() {
 
       {agents.length === 0 && !loading && (
         <div style={{ textAlign: "center", padding: "20px 0 0" }}>
-          <p style={{ fontSize: "0.8125rem", color: "#99a1af" }}>Chưa có agent nào. Nhấn "Thêm agent" để chọn template.</p>
+          <p style={{ fontSize: "0.8125rem", color: "#99a1af" }}>Chưa có agent nào. Nhấn "Thêm Agent mẫu" để chọn template, hoặc "Tạo Agent" để tự thiết lập.</p>
         </div>
       )}
 

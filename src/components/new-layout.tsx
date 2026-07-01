@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { Sidebar } from "./new-sidebar";
 import { ActionHub } from "./new-action-hub";
 import { GlobalSearch } from "./global-search";
+import { CreateAgentModal } from "./CreateAgentModal";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { ProtectedRoute } from "./protected-route";
 import { supabase } from "../lib/supabase/client";
@@ -50,6 +51,7 @@ function NewLayoutInner() {
   const [hubWidth, setHubWidth] = useState(380);
   const [hubContextCards, setHubContextCards] = useState<ContextCard[]>([]);
   const [tokenUsed, setTokenUsed] = useState(0);
+  const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const TOKEN_LIMIT = 500_000;
 
   const fetchTokens = (userId: string) => {
@@ -95,12 +97,22 @@ function NewLayoutInner() {
   const isStudioMode = currentPage === "agent-studio" || currentPage === "create-agent";
 
   const handleNavigate = (page: string) => {
+    // "Tạo Agent" luôn mở modal đặt tên trước — không điều hướng ngay để user
+    // có thể Huỷ/click ra ngoài mà không rời trang đang xem.
+    if (page === "create-agent") { setCreateAgentOpen(true); return; }
     const route = PAGE_ROUTE[page];
     if (route) navigate(route);
-    if (page === "agent-studio" || page === "create-agent") {
+    if (page === "agent-studio") {
       setSidebarCollapsed(true);
       setActionHubOpen(false);
     }
+  };
+
+  const handleCreateAgentContinue = (agentName: string, agentDesc: string) => {
+    setCreateAgentOpen(false);
+    setSidebarCollapsed(true);
+    setActionHubOpen(false);
+    navigate("/app/agent-studio", { state: { agentName, agentDesc } });
   };
 
   const addContextCard = (card: ContextCard) => {
@@ -156,7 +168,7 @@ function NewLayoutInner() {
         )}
 
         <div style={{ flex: 1, overflowY: "auto", paddingBottom: 24, background: theme.bg }}>
-          <Outlet context={{ onNavigate: handleNavigate, addContextCard, removeContextCard, isDark, theme }} />
+          <Outlet context={{ onNavigate: handleNavigate, addContextCard, removeContextCard, isDark, theme, openCreateAgentModal: () => setCreateAgentOpen(true) }} />
         </div>
       </div>
 
@@ -208,6 +220,13 @@ function NewLayoutInner() {
           Wealbee cung cấp thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019, NĐ 155/2020/NĐ-CP
         </p>
       </div>
+
+      <CreateAgentModal
+        open={createAgentOpen}
+        isDark={isDark}
+        onCancel={() => setCreateAgentOpen(false)}
+        onContinue={handleCreateAgentContinue}
+      />
 
       <Toaster theme={isDark ? "dark" : "light"} position="bottom-right" richColors />
       <style>{`
