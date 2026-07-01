@@ -53,18 +53,29 @@ def _fetch(kind: str, symbol: str) -> list[dict]:
     return out
 
 
-def get_db_symbols() -> list[str]:
-    """Lấy toàn bộ mã đang có trong prices_daily (vượt giới hạn 1000 dòng mặc định)."""
-    sb = get_client()
-    syms, off = set(), 0
+def _paged_symbols(sb, table: str, col: str = "symbol") -> set:
+    """Đọc hết cột mã của 1 bảng (vượt giới hạn 1000 dòng)."""
+    out, off = set(), 0
     while True:
-        rows = sb.table("prices_daily").select("symbol").range(off, off + 999).execute().data
+        rows = sb.table(table).select(col).range(off, off + 999).execute().data
         if not rows:
             break
-        syms.update(x["symbol"] for x in rows)
+        out.update(x[col] for x in rows if x.get(col))
         if len(rows) < 1000:
             break
         off += 1000
+    return out
+
+
+def get_db_symbols() -> list[str]:
+    """Danh sách mã cần cập nhật giá = mã đã có trong prices_daily HỢP với TOÀN BỘ mã
+    trong `tickers` (401 HOSE) → đảm bảo phủ đủ 400+ HOSE, kể cả mã mới niêm yết."""
+    sb = get_client()
+    syms = _paged_symbols(sb, "prices_daily")
+    try:
+        syms |= _paged_symbols(sb, "tickers")   # đảm bảo đủ HOSE
+    except Exception as e:
+        print(f"  (không đọc được tickers, chỉ dùng prices_daily: {str(e)[:80]})")
     return sorted(syms)
 
 
