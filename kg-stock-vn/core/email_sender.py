@@ -128,7 +128,10 @@ def send_brief_email(to_email: str, agent_name: str, title: str,
     }).encode("utf-8")
     req = urllib.request.Request(
         RESEND_URL, data=payload, method="POST",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                 # Cloudflare trước api.resend.com CHẶN User-Agent mặc định của urllib
+                 # (Python-urllib) → lỗi 1010. Đặt UA riêng để qua.
+                 "User-Agent": "Wealbee/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return 200 <= resp.status < 300
