@@ -9,6 +9,7 @@ import { useNavigate, useLocation, useOutletContext } from "react-router";
 import { supabase } from "../../lib/supabase/client";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { activateAgentTemplate, READY_TEMPLATE_IDS, type UserAgent } from "../../lib/services/agent-templates";
+import { NeedPortfolioModal } from "../../components/NeedPortfolioModal";
 import type { AppOutletContext } from "./page-wrappers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -652,6 +653,7 @@ export function AgentsPage() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [symbolPicker, setSymbolPicker] = useState<{ agentId: string; symbols: string[] } | null>(null);
+  const [needPortfolio, setNeedPortfolio] = useState(false);
   const [runPanel, setRunPanel] = useState<RunPanelState | null>(null);
   const navigate = useNavigate();
   const { openCreateAgentModal } = useOutletContext<AppOutletContext>();
@@ -693,8 +695,10 @@ export function AgentsPage() {
 
   const activateTemplate = async (tmpl: AgentTemplate) => {
     if (!userId) return;
-    const agent = await activateAgentTemplate(userId, tmpl);
-    if (agent) { setAgents(prev => [...prev, agent]); setShowTemplates(false); }
+    const result = await activateAgentTemplate(userId, tmpl);
+    if (result.status === "needs_portfolio") { setNeedPortfolio(true); return; }
+    setAgents(prev => [...prev, result.agent]);
+    setShowTemplates(false);
   };
 
   const toggleAgent = async (agent: UserAgent) => {
@@ -837,6 +841,8 @@ export function AgentsPage() {
           onCancel={() => setSymbolPicker(null)}
         />
       )}
+
+      {needPortfolio && <NeedPortfolioModal onDismiss={() => setNeedPortfolio(false)} />}
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>

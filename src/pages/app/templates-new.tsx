@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { activateAgentTemplate, findAgentByTemplate, READY_TEMPLATE_IDS } from "../../lib/services/agent-templates";
+import { NeedPortfolioModal } from "../../components/NeedPortfolioModal";
 
 // DB schedule → label hiển thị
 const SCHEDULE_LABEL: Record<string, { label: string; type: "cron" | "event" | "manual" }> = {
@@ -63,6 +64,7 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
   const [active, setActive]       = useState("Tất cả");
   const [userId, setUserId]       = useState<string | null>(null);
   const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [needPortfolio, setNeedPortfolio] = useState(false);
 
   const fg       = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
   const fgMuted  = isDark ? "rgba(240,242,255,0.52)" : "rgba(26,26,46,0.58)";
@@ -110,7 +112,9 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
     setActivatingId(tmpl.id);
     try {
       const existing = await findAgentByTemplate(userId, tmpl.id);
-      if (!existing) await activateAgentTemplate(userId, tmpl);
+      if (existing) { onNavigate("agents"); return; }
+      const result = await activateAgentTemplate(userId, tmpl);
+      if (result.status === "needs_portfolio") { setNeedPortfolio(true); return; }
     } finally {
       setActivatingId(null);
     }
@@ -119,6 +123,8 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
 
   return (
     <div style={{ maxWidth: 940, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+
+      {needPortfolio && <NeedPortfolioModal onDismiss={() => setNeedPortfolio(false)} />}
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
