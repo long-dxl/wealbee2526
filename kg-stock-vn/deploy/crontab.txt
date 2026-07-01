@@ -1,18 +1,23 @@
 # crontab pipelines Wealbee — setup_vm.sh thay __VENV__/__APP__ rồi nạp cho user 'wealbee'.
-# Giờ Việt Nam. Các job nạp dữ liệu mà AGENT đọc → phải chạy TRƯỚC giờ agent buổi sáng.
+# Cập nhật dữ liệu 2 LẦN/NGÀY: 1 lần trước 6h sáng, 1 lần trước 6h chiều (giờ VN).
+# YÊU CẦU: VM đặt timezone = Asia/Ho_Chi_Minh (sudo timedatectl set-timezone Asia/Ho_Chi_Minh).
 CRON_TZ=Asia/Ho_Chi_Minh
 
-# 06:00 — Crawl tin tức tài chính (pipeline_runner)
-0 6 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_runner.py        >> /var/log/wealbee/crawl.log   2>&1
+# ── Lần 1: TRƯỚC 6h SÁNG ──
+# 05:00 crawl tin → 05:20 gán nhãn
+0 5 * * *    cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_runner.py  >> /var/log/wealbee/crawl.log 2>&1
+20 5 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python run_label_only.py   >> /var/log/wealbee/label.log 2>&1
 
-# 06:25 — Gán nhãn tin vừa crawl (để agent tóm tắt buổi sáng có nhãn/impact)
-25 6 * * *  cd __APP__/toolcrawldata && __VENV__/bin/python run_label_only.py         >> /var/log/wealbee/label.log   2>&1
+# ── Lần 2: TRƯỚC 6h CHIỀU ──
+# 17:00 crawl tin → 17:20 gán nhãn
+0 17 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_runner.py  >> /var/log/wealbee/crawl.log 2>&1
+20 17 * * *  cd __APP__/toolcrawldata && __VENV__/bin/python run_label_only.py   >> /var/log/wealbee/label.log 2>&1
 
-# 07:05 — Báo cáo phân tích Vietstock (cho thẻ "Báo cáo phân tích" + grounding)
-5 7 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python sync_vietstock_reports.py --pages 2 >> /var/log/wealbee/reports.log 2>&1
+# ── Giá/khối lượng sau phiên (T2–T6) 15:30 — trước 6h chiều ──
+30 15 * * 1-5 cd __APP__/toolcrawldata && __VENV__/bin/python seed_prices_dnse.py >> /var/log/wealbee/prices.log 2>&1
 
-# 15:30 — Cập nhật giá/khối lượng sau phiên (T2–T6) — nguồn cho agent volume_spike
-30 15 * * 1-5 cd __APP__/toolcrawldata && __VENV__/bin/python seed_prices_dnse.py     >> /var/log/wealbee/prices.log  2>&1
+# ── Báo cáo phân tích Vietstock: sáng 07:00 ──
+0 7 * * *    cd __APP__/toolcrawldata && __VENV__/bin/python sync_vietstock_reports.py --pages 2 >> /var/log/wealbee/reports.log 2>&1
 
-# Lưu ý: agent "tóm tắt tin buổi sáng" đặt schedule "daily:07:00" (sau crawl 06:00 + label 06:25)
-#        → scheduler (systemd) tự kích hoạt, KHÔNG cần cron riêng cho agent.
+# Lưu ý: agent theo lịch của NGƯỜI DÙNG do scheduler_local.py (systemd wealbee-scheduler)
+#        tự chạy — KHÔNG đặt ở cron này.
