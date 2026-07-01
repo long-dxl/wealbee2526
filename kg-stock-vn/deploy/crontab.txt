@@ -2,13 +2,12 @@
 # YÊU CẦU: VM đặt timezone = Asia/Ho_Chi_Minh (sudo timedatectl set-timezone Asia/Ho_Chi_Minh).
 CRON_TZ=Asia/Ho_Chi_Minh
 
-# ── TIN TỨC: 3 lần/ngày (06:00, 12:00, 18:00) — crawl + gán nhãn sau 20' ──
-0 6 * * *    cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_runner.py >> /var/log/wealbee/crawl.log 2>&1
-20 6 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python run_label_only.py  >> /var/log/wealbee/label.log 2>&1
-0 12 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_runner.py >> /var/log/wealbee/crawl.log 2>&1
-20 12 * * *  cd __APP__/toolcrawldata && __VENV__/bin/python run_label_only.py  >> /var/log/wealbee/label.log 2>&1
-0 18 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_runner.py >> /var/log/wealbee/crawl.log 2>&1
-20 18 * * *  cd __APP__/toolcrawldata && __VENV__/bin/python run_label_only.py  >> /var/log/wealbee/label.log 2>&1
+# ── TIN TỨC: crawl + gán nhãn, KHÔNG gửi email — 3 lần/ngày (06:00, 12:00, 18:00) ──
+# Email tin do AGENT của từng người dùng tự gửi theo lịch riêng (email_notify) — KHÔNG gửi
+# đồng loạt ở pipeline nữa. pipeline_no_email.py = crawl + label gọn trong 1 script.
+0 6 * * *    cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_no_email.py >> /var/log/wealbee/pipeline.log 2>&1
+0 12 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_no_email.py >> /var/log/wealbee/pipeline.log 2>&1
+0 18 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_no_email.py >> /var/log/wealbee/pipeline.log 2>&1
 
 # ── BÁO CÁO phân tích Vietstock: 1 lần/ngày, 06:30 (lệch crawl 06:00) ──
 30 6 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python sync_vietstock_reports.py --pages 2 >> /var/log/wealbee/reports.log 2>&1
