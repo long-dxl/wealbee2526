@@ -13,6 +13,8 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { financialReport, TYPE_LABEL } from "../_shared/financial-report.ts";
+import { valueChainReport } from "../_shared/value-chain.ts";
 
 const SUPABASE_URL         = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -76,7 +78,7 @@ const TOOL_DEFS = [
     type: "function",
     function: {
       name: "get_financials",
-      description: "Lấy báo cáo tài chính (BCTC) theo năm, cổ tức, giao dịch insider của một mã CP. Trả về doanh thu, LNST, EPS, P/E, P/B, ROE, ROA theo từng năm với nguồn HSX/HNX.",
+      description: "Lấy BCTC chi tiết của một mã CP để phân tích sâu như Analyst: 3 bảng IS/BS/CF theo 5 năm + bảng chỉ số tài chính RIÊNG theo loại hình (thường: ROE/biên LN/vòng quay; ngân hàng: NIM/CIR/NPL/CASA/LDR; chứng khoán: dư nợ margin/VCSH; bảo hiểm: combined ratio) + KQKD quý gần nhất (YoY) + cổ tức + giao dịch nội bộ. Nguồn HSX/HNX.",
       parameters: {
         type: "object",
         properties: {
@@ -85,6 +87,18 @@ const TOOL_DEFS = [
             description: "Mã CP, ví dụ 'VCB', 'HPG', 'FPT'",
           },
         },
+        required: ["symbol"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_value_chain",
+      description: "Lấy chuỗi giá trị & yếu tố tác động của một mã CP: nguyên liệu ĐẦU VÀO (vd thép: quặng sắt/than cốc; hàng không/cảng: dầu/nhiên liệu), sản phẩm ĐẦU RA (vd thép HRC, urea, heo hơi), giá cước & yếu tố vĩ mô. Dùng khi hỏi về chuỗi cung ứng, biên lợi nhuận chịu tác động bởi giá hàng hóa, hoặc 'yếu tố nào ảnh hưởng đến {MÃ}'.",
+      parameters: {
+        type: "object",
+        properties: { symbol: { type: "string", description: "Mã CP, ví dụ 'HPG', 'GAS', 'GMD'" } },
         required: ["symbol"],
       },
     },
@@ -270,49 +284,25 @@ async function toolGetNews(symbols?: string[], days = 3, source?: string): Promi
 
 async function toolGetFinancials(symbol: string): Promise<string> {
   const sym = symbol.toUpperCase().trim();
-  const lines: string[] = [`## BCTC & Tài chính: ${sym}`];
+  const lines: string[] = [`## BCTC & Phân tích tài chính: ${sym}`];
+  let ctype = "normal";
 
-  // Ticker info
+  // Ticker info + loại hình
   try {
     const { data: ticker } = await sb
       .from("tickers")
-      .select("name, exchange, sector")
+      .select("name, exchange, sector, company_type")
       .eq("symbol", sym)
       .single();
     if (ticker) {
+      ctype = ticker.company_type ?? "normal";
       lines.push(`**${sym}** — ${ticker.name}`);
-      lines.push(`Sàn: **${ticker.exchange ?? "N/A"}** | Ngành: ${ticker.sector ?? "N/A"} · Nguồn: ${ticker.exchange === "HNX" ? "HNX" : "HOSE"}`);
+      lines.push(`Sàn: **${ticker.exchange ?? "N/A"}** · Ngành: ${ticker.sector ?? "N/A"} · Loại hình: **${TYPE_LABEL[ctype] ?? ctype}**`);
     }
   } catch { /* skip */ }
 
-  // Annual financials
-  try {
-    const { data: fins } = await sb
-      .from("financials_annual")
-      .select("year, revenue, net_profit, eps, pe_ratio, pb_ratio, roe, roa, debt_to_equity")
-      .eq("symbol", sym)
-      .order("year", { ascending: false })
-      .limit(5);
-
-    if (fins?.length) {
-      lines.push(`\n### Báo cáo tài chính theo năm · Nguồn: HSX/HNX (BCTC kiểm toán)`);
-      lines.push("| Năm | Doanh thu | LNST | EPS | P/E | P/B | ROE | ROA | D/E |");
-      lines.push("|-----|-----------|------|-----|-----|-----|-----|-----|-----|");
-      for (const f of fins) {
-        const rev  = f.revenue   != null ? `${(Number(f.revenue) / 1e9).toFixed(1)} tỷ`   : "—";
-        const lnst = f.net_profit!= null ? `${(Number(f.net_profit) / 1e9).toFixed(1)} tỷ` : "—";
-        const eps  = f.eps       != null ? `${Number(f.eps).toLocaleString("vi-VN")}đ`     : "—";
-        const pe   = f.pe_ratio  != null ? String(f.pe_ratio)  : "—";
-        const pb   = f.pb_ratio  != null ? String(f.pb_ratio)  : "—";
-        const roe  = f.roe       != null ? `${(Number(f.roe) * 100).toFixed(1)}%`   : "—";
-        const roa  = f.roa       != null ? `${(Number(f.roa) * 100).toFixed(1)}%`   : "—";
-        const de   = f.debt_to_equity != null ? String(f.debt_to_equity) : "—";
-        lines.push(`| ${f.year} | ${rev} | ${lnst} | ${eps} | ${pe} | ${pb} | ${roe} | ${roa} | ${de} |`);
-      }
-    } else {
-      lines.push("\n*Chưa có dữ liệu BCTC hàng năm trong database.*");
-    }
-  } catch { /* skip */ }
+  // 4 bảng IS/BS/CF/Chỉ số (theo loại hình) + KQKD quý gần nhất — module dùng chung
+  lines.push(await financialReport(sb, sym, ctype));
 
   // Dividends
   try {
@@ -486,6 +476,18 @@ async function toolWebSearch(query: string): Promise<string> {
   } catch (e) { return `Web search lỗi: ${String(e)}`; }
 }
 
+async function toolGetValueChain(symbol: string): Promise<string> {
+  const sym = (symbol || "").toUpperCase().trim();
+  if (!sym) return "Thiếu mã cổ phiếu.";
+  let sectorName: string | undefined;
+  try {
+    const { data } = await sb.from("stocks").select("sector_name").eq("symbol", sym).single();
+    sectorName = data?.sector_name ?? undefined;
+  } catch { /* skip */ }
+  const report = await valueChainReport(sb, sym, sectorName);
+  return report || `Ngành của ${sym} chưa gắn sơ đồ chuỗi giá trị hàng hóa (vd ngân hàng/chứng khoán/công nghệ không có nguyên liệu đầu vào hàng hóa).`;
+}
+
 // ─── Execute any tool call ────────────────────────────────────────────────────
 
 async function executeTool(name: string, args: Record<string, any>, userId: string): Promise<string> {
@@ -493,6 +495,7 @@ async function executeTool(name: string, args: Record<string, any>, userId: stri
     case "get_market_data":      return toolGetMarketData();
     case "get_news":             return toolGetNews(args.symbols, args.days ?? 3, args.source);
     case "get_financials":       return toolGetFinancials(args.symbol ?? "");
+    case "get_value_chain":      return toolGetValueChain(args.symbol ?? "");
     case "get_portfolio":        return toolGetPortfolio(userId);
     case "search_knowledge_base":return toolSearchKB(args.query ?? "", userId);
     case "web_search":           return toolWebSearch(args.query ?? "");
@@ -511,6 +514,8 @@ function toolLabel(name: string, args: Record<string, any>): { loading: string; 
     }
     case "get_financials":
       return { loading: `Đang lấy BCTC ${args.symbol}...`, done: `BCTC & Tài chính ${args.symbol}` };
+    case "get_value_chain":
+      return { loading: `Đang phân tích chuỗi cung ứng ${args.symbol}...`, done: `Chuỗi cung ứng & yếu tố tác động ${args.symbol}` };
     case "get_portfolio":
       return { loading: "Đang lấy danh mục...", done: "Danh mục đầu tư" };
     case "search_knowledge_base":

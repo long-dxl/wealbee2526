@@ -7,7 +7,7 @@ import {
 import { supabase } from "../../lib/supabase/client";
 
 // Các template đã hoàn thiện — đồng bộ với agents.tsx
-const READY_TEMPLATES = ["deep_research", "daily_digest"];
+const READY_TEMPLATES = ["deep_research", "daily_digest", "insider_buy", "volume_spike"];
 
 // DB schedule → label hiển thị
 const SCHEDULE_LABEL: Record<string, { label: string; type: "cron" | "event" | "manual" }> = {
@@ -92,9 +92,12 @@ export function Templates({ onNavigate, isDark = false }: { onNavigate: (page: s
   )];
   const CATS = ["Tất cả", ...allLabels];
 
-  const list = active === "Tất cả"
+  const base = active === "Tất cả"
     ? templates
     : templates.filter(t => (CAT_META[t.category]?.label ?? t.category) === active);
+  // Agent đã sẵn sàng luôn lên đầu (giữ nguyên thứ tự sort_order trong từng nhóm)
+  const list = [...base].sort((a, b) =>
+    (READY_TEMPLATES.includes(b.id) ? 1 : 0) - (READY_TEMPLATES.includes(a.id) ? 1 : 0));
 
   const handleUse = (tmpl: AgentTemplate) => {
     // Điều hướng sang Agents để user kích hoạt template từ đó

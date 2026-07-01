@@ -32,6 +32,8 @@ interface UserAgent {
   run_count: number;
   system_prompt?: string;
   target_symbols?: string[];
+  trigger_type?: "manual" | "scheduled" | "event";
+  trigger_config?: { event_type?: string; [k: string]: unknown } | null;
 }
 
 interface RunStep {
@@ -100,6 +102,20 @@ const STEP_ICONS: Record<string, React.ElementType> = {
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SYM_PREFIX   = "__TARGET_SYMBOL__: ";
 
+const EVENT_LABEL: Record<string, string> = {
+  volume_spike: "Khối lượng đột biến",
+  insider_buy: "Nội bộ/lãnh đạo MUA",
+  high_impact_news: "Tin tác động mạnh",
+};
+// Hiển thị điều kiện kích hoạt: ưu tiên trigger_type (event/scheduled) rồi mới tới schedule.
+function formatTrigger(agent: UserAgent): string {
+  if (agent.trigger_type === "event") {
+    return `Sự kiện · ${EVENT_LABEL[agent.trigger_config?.event_type ?? ""] ?? "Theo sự kiện"}`;
+  }
+  if (agent.trigger_type === "scheduled") return formatSchedule(agent.schedule);
+  return formatSchedule(agent.schedule); // agent cũ / thủ công
+}
+
 function formatSchedule(schedule: string): string {
   if (!schedule || schedule === "manual") return "Thủ công";
   if (schedule === "realtime") return "Realtime · khi có tín hiệu";
@@ -153,10 +169,17 @@ const VN30_FALLBACK = [
   "ACB","BID","CTG","MSN","MBB","SSI","VPB","STB",
 ];
 
-function SymbolPickerModal({ onConfirm, onCancel }: { onConfirm: (symbols: string[]) => void; onCancel: () => void }) {
+function SymbolPickerModal({ initialSymbols = [], onConfirm, onCancel }: { initialSymbols?: string[]; onConfirm: (symbols: string[]) => void; onCancel: () => void }) {
   const [input,       setInput]       = useState("");
-  const [selected,    setSelected]    = useState<string[]>([]);
+  const [selected,    setSelected]    = useState<string[]>(initialSymbols.slice(0, 5));
   const [suggestions, setSuggestions] = useState<string[]>(VN30_FALLBACK);
+  const [allTickers,  setAllTickers]  = useState<{ symbol: string; name: string }[]>([]);
+
+  // Nạp mã + tên công ty để gợi ý khi gõ
+  useEffect(() => {
+    supabase.from("tickers").select("symbol,name").eq("is_active", true).order("symbol")
+      .then(({ data }) => setAllTickers((data ?? []) as { symbol: string; name: string }[]));
+  }, []);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -188,6 +211,15 @@ function SymbolPickerModal({ onConfirm, onCancel }: { onConfirm: (symbols: strin
     );
   };
 
+  // Gợi ý theo tiền tố mã HOẶC tên công ty; ẩn mã đã chọn
+  const symQuery = input.trim().toUpperCase();
+  const tickerSuggestions = symQuery
+    ? allTickers
+        .filter(t => !selected.includes(t.symbol) &&
+          (t.symbol.startsWith(symQuery) || (t.name ?? "").toUpperCase().includes(symQuery)))
+        .slice(0, 7)
+    : [];
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.40)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(2px)" }}>
       <div style={{ background: "#fff", borderRadius: 18, padding: "28px 28px 24px", width: 440, boxShadow: "0 24px 64px rgba(0,0,0,0.18)", fontFamily: FONT }}>
@@ -213,27 +245,40 @@ function SymbolPickerModal({ onConfirm, onCancel }: { onConfirm: (symbols: strin
           </div>
         )}
 
-        {/* Input */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        {/* Input + gợi ý mã/tên công ty */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, position: "relative" }}>
           <input
             autoFocus
             value={input}
-            onChange={e => setInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+            onChange={e => setInput(e.target.value.toUpperCase().replace(/[^A-Z0-9 ]/g, ""))}
             onKeyDown={e => {
-              if (e.key === "Enter" && input.trim()) addSymbol(input);
+              if (e.key === "Enter" && (tickerSuggestions[0] || input.trim())) addSymbol(tickerSuggestions[0]?.symbol ?? input);
               if (e.key === "Escape") onCancel();
             }}
-            placeholder="Nhập mã và Enter (VD: HPG)"
-            maxLength={5}
-            style={{ flex: 1, padding: "9px 14px", borderRadius: 9, border: "1.5px solid rgba(8,73,172,0.20)", fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", fontFamily: FONT, outline: "none", letterSpacing: "0.05em" }}
+            placeholder="Gõ mã hoặc tên công ty…"
+            maxLength={20}
+            style={{ flex: 1, padding: "9px 14px", borderRadius: 9, border: `1.5px solid ${tickerSuggestions.length ? "#8b5cf6" : "rgba(8,73,172,0.20)"}`, fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", fontFamily: FONT, outline: "none", letterSpacing: "0.05em" }}
           />
           <button
-            onClick={() => addSymbol(input)}
-            disabled={!input.trim() || selected.length >= 5}
-            style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: input.trim() && selected.length < 5 ? "#8b5cf6" : "#e5e7eb", color: input.trim() && selected.length < 5 ? "#fff" : "#99a1af", cursor: "pointer", fontWeight: 700, fontFamily: FONT, fontSize: "0.8125rem" }}
+            onClick={() => addSymbol(tickerSuggestions[0]?.symbol ?? input)}
+            disabled={(!tickerSuggestions[0] && !input.trim()) || selected.length >= 5}
+            style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: (tickerSuggestions[0] || input.trim()) && selected.length < 5 ? "#8b5cf6" : "#e5e7eb", color: (tickerSuggestions[0] || input.trim()) && selected.length < 5 ? "#fff" : "#99a1af", cursor: "pointer", fontWeight: 700, fontFamily: FONT, fontSize: "0.8125rem" }}
           >
             Thêm
           </button>
+          {tickerSuggestions.length > 0 && (
+            <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20, background: "#fff", border: "1px solid rgba(8,73,172,0.12)", borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.14)", overflow: "hidden", maxHeight: 240, overflowY: "auto" }}>
+              {tickerSuggestions.map(t => (
+                <div key={t.symbol} onMouseDown={e => { e.preventDefault(); addSymbol(t.symbol); }}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid rgba(0,0,0,0.04)" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(139,92,246,0.06)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                  <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#8b5cf6", minWidth: 46, flexShrink: 0 }}>{t.symbol}</span>
+                  <span style={{ fontSize: "0.75rem", color: "#6a7282", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Quick-pick grid */}
@@ -619,7 +664,7 @@ export function AgentsPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
-  const [symbolPicker, setSymbolPicker] = useState<{ agentId: string } | null>(null);
+  const [symbolPicker, setSymbolPicker] = useState<{ agentId: string; symbols: string[] } | null>(null);
   const [runPanel, setRunPanel] = useState<RunPanelState | null>(null);
   const navigate = useNavigate();
 
@@ -709,43 +754,75 @@ export function AgentsPage() {
     const displaySym = syms?.join(", ");
 
     setRunPanel({
-      agentId: agent.id, agentName: agent.name, templateId: agent.template_id,
-      steps: [{ step: "analyze", status: "loading", label: "Đang phân tích (KG + dữ liệu Wealbee)..." }],
-      output: "", done: false,
+      agentId: agent.id, agentName: agent.name, templateId: agent.template_id, steps: [], output: "", done: false,
       targetSymbol: syms?.[0], targetSymbols: syms,
     });
 
-    // ĐỒNG BỘ: cùng brain (/run-agent) với "Chạy thử" (Studio) và scheduler tự động.
-    // Chỉ khác: ở đây save_brief=true (chạy thật → lưu vào Inbox).
-    const KG_API = (import.meta.env.VITE_KG_API_URL as string) || "http://localhost:8077";
+    // Bộ khung tư duy Wealbee (đã tích hợp KG) — edge function run-agent, stream SSE.
+    let res: Response;
     try {
-      const res = await fetch(`${KG_API}/run-agent`, {
+      res = await fetch(`${SUPABASE_URL}/functions/v1/run-agent`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_prompt: agent.system_prompt, symbols: syms ?? [],
-          save_brief: true, agent_id: agent.id, user_id: userId,
-          name: agent.name, template_id: agent.template_id,
-        }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
+        body: JSON.stringify({ agent_id: agent.id, target_symbols: syms }),
       });
       void displaySym;
-      const j = await res.json();
-      if (!res.ok || j.error) throw new Error(j.error ?? `HTTP ${res.status}`);
-      const realSteps = Array.isArray(j.steps) && j.steps.length
-        ? j.steps.map((s: { label: string; status?: string }, i: number) =>
-            ({ step: `s${i}`, status: (s.status ?? "done"), label: s.label }))
-        : [{ step: "analyze", status: "done", label: "Phân tích hoàn tất" }];
-      setRunPanel(prev => prev ? {
-        ...prev,
-        steps: realSteps,
-        output: j.markdown ?? "", refs: j.sources, sources: j.sources,
-        done: true, title: j.title, briefId: j.brief_id,
-      } : null);
-      setAgents(prev => prev.map(a =>
-        a.id === agent.id ? { ...a, last_run_at: new Date().toISOString(), run_count: (a.run_count ?? 0) + 1 } : a
-      ));
     } catch (err) {
       setRunPanel(prev => prev ? { ...prev, done: true, error: String(err) } : null);
+      return;
+    }
+
+    if (!res.body) {
+      setRunPanel(prev => prev ? { ...prev, done: true, error: "Không nhận được stream từ server" } : null);
+      return;
+    }
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    const updatePanel = (fn: (p: RunPanelState) => RunPanelState) =>
+      setRunPanel(prev => prev ? fn(prev) : prev);
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6).trim();
+        if (!raw) continue;
+        try {
+          const ev = JSON.parse(raw);
+
+          if (ev.type === "step") {
+            updatePanel(prev => ({
+              ...prev,
+              steps: prev.steps.some(s => s.step === ev.step)
+                ? prev.steps.map(s => s.step === ev.step ? { ...s, status: ev.status, label: ev.label } : s)
+                : [...prev.steps, { step: ev.step, status: ev.status, label: ev.label }],
+            }));
+          } else if (ev.type === "chunk") {
+            updatePanel(prev => ({ ...prev, output: prev.output + ev.text }));
+          } else if (ev.type === "reset_output") {
+            updatePanel(prev => ({ ...prev, output: ev.output }));
+          } else if (ev.type === "ref_registry") {
+            updatePanel(prev => ({ ...prev, refs: ev.refs }));
+          } else if (ev.type === "sources") {
+            updatePanel(prev => ({ ...prev, sources: ev.sources }));
+          } else if (ev.type === "done") {
+            updatePanel(prev => ({ ...prev, done: true, title: ev.title, briefId: ev.brief_id, tokens: ev.tokens, brief: ev.brief ?? undefined }));
+            setAgents(prev => prev.map(a =>
+              a.id === agent.id ? { ...a, last_run_at: new Date().toISOString(), run_count: (a.run_count ?? 0) + 1 } : a
+            ));
+          } else if (ev.type === "error") {
+            updatePanel(prev => ({ ...prev, done: true, error: ev.error }));
+          }
+        } catch { /* ignore parse errors */ }
+      }
     }
   };
 
@@ -777,6 +854,7 @@ export function AgentsPage() {
     <div style={{ padding: 24 }}>
       {symbolPicker && (
         <SymbolPickerModal
+          initialSymbols={symbolPicker.symbols}
           onConfirm={(symbols) => {
             const agent = agents.find(a => a.id === symbolPicker.agentId);
             setSymbolPicker(null);
@@ -794,7 +872,7 @@ export function AgentsPage() {
             {activeCount} agent đang bật · {agents.length} tổng cộng
           </p>
         </div>
-        <button onClick={() => setShowTemplates(!showTemplates)}
+        <button onClick={() => navigate("/app/agent-studio")}
           style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", borderRadius: 10, border: "none", background: "#0849ac", color: "#fff", cursor: "pointer", fontSize: "0.8125rem", fontWeight: 600, fontFamily: "inherit" }}>
           <Plus style={{ width: 15, height: 15 }} />Thêm agent
         </button>
@@ -896,14 +974,27 @@ export function AgentsPage() {
 
                 <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
                   <Clock style={{ width: 11, height: 11, color: "#99a1af" }} />
-                  <span style={{ fontSize: "0.6875rem", color: "#99a1af" }}>{formatSchedule(agent.schedule)}</span>
+                  <span style={{ fontSize: "0.6875rem", color: "#99a1af" }}>{formatTrigger(agent)}</span>
                   {agent.run_count > 0 && <span style={{ fontSize: "0.6875rem", color: "#c4c9d4" }}>· Đã chạy {agent.run_count} lần</span>}
                 </div>
                 {agent.last_run_at && <div style={{ fontSize: "0.625rem", color: "#c4c9d4", marginBottom: 14 }}>Lần cuối: {new Date(agent.last_run_at).toLocaleString("vi-VN")}</div>}
                 {!agent.last_run_at && <div style={{ marginBottom: 14 }} />}
 
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button onClick={() => runAgent(agent)} disabled={!!runPanel}
+                  <button
+                    onClick={() => {
+                      // CHỈ agent THỦ CÔNG phân tích theo mã (vd Deep Research) mới hỏi/đổi mã trước khi chạy.
+                      // Agent theo lịch / theo sự kiện → tự kích hoạt theo mã đã cấu hình, chạy thẳng.
+                      const saved = agent.target_symbols?.length ? agent.target_symbols : savedSym ? [savedSym] : [];
+                      const isManual = !agent.trigger_type || agent.trigger_type === "manual";
+                      const symbolBased = agent.template_id === "deep_research" || saved.length > 0;
+                      if (isManual && symbolBased) {
+                        setSymbolPicker({ agentId: agent.id, symbols: saved });
+                      } else {
+                        runAgent(agent);
+                      }
+                    }}
+                    disabled={!!runPanel}
                     style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "none", background: colors.color, color: "#fff", cursor: runPanel ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit", opacity: runPanel ? 0.5 : 1 }}>
                     <Play style={{ width: 11, height: 11 }} />Chạy ngay
                   </button>
@@ -924,14 +1015,14 @@ export function AgentsPage() {
             );
           })}
 
-          <div onClick={() => setShowTemplates(true)}
+          <div onClick={() => navigate("/app/agent-studio")}
             style={{ background: "transparent", border: "2px dashed rgba(8,73,172,0.15)", borderRadius: 14, padding: "18px 18px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", minHeight: 180 }}>
             <div style={{ textAlign: "center" }}>
               <div style={{ width: 40, height: 40, borderRadius: 11, background: "rgba(8,73,172,0.06)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
                 <Plus style={{ width: 18, height: 18, color: "#0849ac" }} />
               </div>
               <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0849ac" }}>Thêm agent</p>
-              <p style={{ fontSize: "0.75rem", color: "#99a1af", marginTop: 4 }}>Chọn từ {templates.length} template</p>
+              <p style={{ fontSize: "0.75rem", color: "#99a1af", marginTop: 4 }}>Đặt tên &amp; thiết lập agent mới</p>
             </div>
           </div>
         </div>
