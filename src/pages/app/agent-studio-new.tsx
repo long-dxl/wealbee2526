@@ -367,6 +367,7 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   const [scheduleTime, setScheduleTime] = useState("09:15");
   const [selectedDays, setSelectedDays] = useState<Set<number>>(new Set([0, 1, 2, 3, 4]));
   const [notifyEmail, setNotifyEmail] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
   const [notifyZalo, setNotifyZalo] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -410,6 +411,7 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return;
+      setUserEmail(user.email ?? "");
       supabase.from("portfolio_holdings").select("symbol").eq("user_id", user.id).then(({ data }) => {
         if (data?.length) {
           const syms = data.map((h: { symbol: string }) => h.symbol);
@@ -945,7 +947,7 @@ export function AgentStudio({ onBack, agentId, isDark = false }: StudioProps) {
 
                 <div onClick={() => setNotifyEmail(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: notifyEmail ? "1px solid " + (isDark ? "rgba(77,143,232,0.30)" : "rgba(8,73,172,0.25)") : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.10)"), background: notifyEmail ? (isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.03)") : bgPanel, transition: "all 120ms ease" }}>
                   <div style={{ width: 32, height: 32, borderRadius: 9, background: notifyEmail ? (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.10)") : isDark ? "rgba(255,255,255,0.06)" : "#F5F5F7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Mail size={16} color={notifyEmail ? brand : fgDisabled} strokeWidth={1.5} /></div>
-                  <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: notifyEmail ? 700 : 400, color: fg }}>Email</div><div style={{ fontSize: 11, color: fgSubtle }}>{notifyEmail ? "wealbee2026@gmail.com" : "Gửi brief qua email"}</div></div>
+                  <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: notifyEmail ? 700 : 400, color: fg }}>Email</div><div style={{ fontSize: 11, color: fgSubtle }}>{notifyEmail ? (userEmail || "email của bạn") : "Gửi brief qua email"}</div></div>
                   <div style={{ width: 36, height: 20, borderRadius: 99, flexShrink: 0, background: notifyEmail ? brand : isDark ? "rgba(255,255,255,0.18)" : "rgba(26,26,46,0.18)", display: "flex", alignItems: "center", justifyContent: notifyEmail ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms ease" }}><div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.15)" }} /></div>
                 </div>
 
