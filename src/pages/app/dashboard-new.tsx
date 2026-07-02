@@ -47,6 +47,23 @@ function newsTime(ts: string): string {
   return sameDay ? hhmm : `${hhmm} ${d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })}`;
 }
 
+// Ngày báo cáo: "2026-06-30" → "30/06/2026"; rỗng → ""
+function reportDate(d: string | null): string {
+  if (!d) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : d;
+}
+
+// Màu chip khuyến nghị theo loại (không cào bằng xanh nữa)
+function recoStyle(reco: string | null, isDark: boolean): { bg: string; text: string } {
+  const r = (reco || "").toLowerCase();
+  if (/mua|khả quan|tích lũy|outperform|tăng tỷ trọng|\badd\b|\bbuy\b/.test(r))
+    return { bg: isDark ? "rgba(52,199,89,0.14)" : "rgba(52,199,89,0.10)", text: "#1a7f37" };   // xanh
+  if (/bán|kém|underperform|reduce|\bsell\b|giảm tỷ trọng/.test(r))
+    return { bg: isDark ? "rgba(224,82,77,0.16)" : "rgba(224,82,77,0.10)", text: "#c0392b" };   // đỏ
+  return { bg: isDark ? "rgba(245,158,11,0.16)" : "rgba(245,158,11,0.12)", text: "#b45309" };   // hổ phách (trung lập/nắm giữ)
+}
+
 function fmtVol(v: number | null): string {
   if (!v) return "—";
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
@@ -984,7 +1001,9 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
 
         {!reportsLoading && reports.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-            {reports.map((rp, i) => {
+            {reports.slice(0, 5).map((rp, i) => {
+              const shown = Math.min(reports.length, 5);
+              const rs = recoStyle(rp.recommendation, isDark);
               const metaBits = [rp.recommendation, rp.target_price ? `MT ${rp.target_price.toLocaleString("vi-VN")}đ` : null].filter(Boolean).join(" · ");
               const card: ContextCard = { id: rp.id, type: "report", label: rp.title.slice(0, 60), badge: rp.source_firm ?? "Vietstock", summary: [rp.ticker, metaBits].filter(Boolean).join(" · ").slice(0, 90) };
               return (
@@ -992,25 +1011,28 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                   onDragStart={e => handleReportDragStart(e, card)}
                   onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
                   onDragStartCapture={e => { (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
-                  style={{ padding: "14px 0", borderBottom: i < reports.length - 1 ? "0.5px solid " + divider : "none", cursor: "grab", position: "relative", userSelect: "none", transition: "background 100ms" }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.025)"; (e.currentTarget as HTMLElement).style.margin = "0 -20px"; (e.currentTarget as HTMLElement).style.padding = "14px 20px"; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "1"; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.margin = "0"; (e.currentTarget as HTMLElement).style.padding = "14px 0"; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "0"; }}>
+                  style={{ padding: "14px 0", borderBottom: i < shown - 1 ? "0.5px solid " + divider : "none", cursor: "grab", position: "relative", userSelect: "none", transition: "background 100ms" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.025)"; (e.currentTarget as HTMLElement).style.margin = "0 -20px"; (e.currentTarget as HTMLElement).style.padding = "14px 20px"; (e.currentTarget as HTMLElement).querySelectorAll(".drag-hint").forEach(h => { (h as HTMLElement).style.opacity = "1"; }); }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.margin = "0"; (e.currentTarget as HTMLElement).style.padding = "14px 0"; (e.currentTarget as HTMLElement).querySelectorAll(".drag-hint").forEach(h => { (h as HTMLElement).style.opacity = "0"; }); }}>
                   <DragHint />
                   <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                    <div style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, background: "linear-gradient(135deg, #0a2a6e 0%, #1a56c8 100%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <FileText size={20} color="rgba(255,255,255,0.90)" strokeWidth={1.5} />
+                    <div style={{ width: 46, height: 46, borderRadius: 12, flexShrink: 0, background: "linear-gradient(135deg, #0a2a6e 0%, #1a56c8 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: 2 }}>
+                      {rp.ticker
+                        ? <span style={{ fontSize: 14, fontWeight: 800, color: "#fff", letterSpacing: "0.01em", fontFamily: "'Montserrat', system-ui, sans-serif", textAlign: "center", lineHeight: 1 }}>{rp.ticker}</span>
+                        : <FileText size={20} color="rgba(255,255,255,0.90)" strokeWidth={1.5} />}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 5 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: fg, lineHeight: 1.4, flex: 1, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{rp.title}</div>
                         <button onClick={e => { e.stopPropagation(); window.open(rp.pdf_url, "_blank", "noopener"); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: "transparent", color: brand, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                           <Eye size={12} strokeWidth={1.5} /> Xem
                         </button>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        {rp.ticker && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", color: brand }}>{rp.ticker}</span>}
-                        <span style={{ fontSize: 12, color: fgSubtle }}>{rp.source_firm ?? "Vietstock"}{rp.report_date ? " · " + rp.report_date : ""}</span>
-                        {rp.recommendation && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: isDark ? "rgba(52,199,89,0.12)" : "rgba(52,199,89,0.10)", color: "#1a7f37" }}>{rp.recommendation}{rp.target_price ? ` · MT ${rp.target_price.toLocaleString("vi-VN")}đ` : ""}</span>}
+                        <span style={{ fontSize: 12, color: fgSubtle }}>{rp.source_firm ?? "Vietstock"}{reportDate(rp.report_date) ? " · " + reportDate(rp.report_date) : ""}</span>
+                        {rp.recommendation && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: rs.bg, color: rs.text }}>{rp.recommendation}</span>}
+                        {rp.target_price != null && <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>Giá MT {rp.target_price.toLocaleString("vi-VN")}đ</span>}
+                        <span className="drag-hint" style={{ fontSize: 11, color: fgSubtle, opacity: 0, transition: "opacity 120ms", marginLeft: "auto", whiteSpace: "nowrap" }}>⠿ Kéo vào ActionHub</span>
                       </div>
                     </div>
                   </div>
