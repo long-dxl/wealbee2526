@@ -16,6 +16,7 @@ import { Portfolio } from "./portfolio-new";
 import { Settings } from "./settings-new";
 import { MarketPulse } from "./market-pulse";
 import { Tickers } from "./tickers";
+import { AnalystReportsPage } from "./analyst-reports";
 
 // Outlet context type shared by NewLayout
 export interface AppOutletContext {
@@ -43,6 +44,11 @@ export function DashboardRoute() {
       isDark={isDark}
     />
   );
+}
+
+export function AnalystReportsRoute() {
+  const { addContextCard, isDark } = useApp();
+  return <AnalystReportsPage isDark={isDark} addContextCard={addContextCard} />;
 }
 
 export function InboxRoute() {

@@ -980,7 +980,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       <div style={{ background: cardBg, borderRadius: 14, padding: 20, boxShadow: cardShadow, marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: fg }}>BÁO CÁO PHÂN TÍCH</div>
-          <button onClick={() => onNavigate("inbox")} style={{ fontSize: 12, fontWeight: 600, color: brand, background: "transparent", border: "none", cursor: "pointer", padding: "4px 8px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+          <button onClick={() => onNavigate("reports")} style={{ fontSize: 12, fontWeight: 600, color: brand, background: "transparent", border: "none", cursor: "pointer", padding: "4px 8px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
             Xem tất cả →
           </button>
         </div>
@@ -1004,8 +1004,8 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
             {reports.slice(0, 5).map((rp, i) => {
               const shown = Math.min(reports.length, 5);
               const rs = recoStyle(rp.recommendation, isDark);
-              const metaBits = [rp.recommendation, rp.target_price ? `MT ${rp.target_price.toLocaleString("vi-VN")}đ` : null].filter(Boolean).join(" · ");
-              const card: ContextCard = { id: rp.id, type: "report", label: rp.title.slice(0, 60), badge: rp.source_firm ?? "Vietstock", summary: [rp.ticker, metaBits].filter(Boolean).join(" · ").slice(0, 90) };
+              const metaBits = [rp.recommendation, rp.target_price ? `MT ${rp.target_price.toLocaleString("vi-VN")}đ` : null, reportDate(rp.report_date) || null].filter(Boolean).join(" · ");
+              const card: ContextCard = { id: rp.id, type: "report", label: rp.title.slice(0, 60), badge: rp.source_firm ?? "Vietstock", summary: [rp.ticker, metaBits].filter(Boolean).join(" · ").slice(0, 110) };
               return (
                 <div key={rp.id} draggable
                   onDragStart={e => handleReportDragStart(e, card)}

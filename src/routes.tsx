@@ -27,6 +27,7 @@ import {
   PortfolioRoute,
   SettingsRoute,
   TickersRoute,
+  AnalystReportsRoute,
 } from "./pages/app/page-wrappers";
 
 // Agents page (has full run functionality with SSE)
@@ -62,6 +63,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true,             Component: DashboardRoute    },
           { path: "inbox",           Component: InboxRoute        },
+          { path: "reports",         Component: AnalystReportsRoute },
           { path: "agents",          Component: AgentsPage        },
           { path: "agent-studio",    Component: AgentStudioRoute  },
           { path: "templates",       Component: TemplatesRoute    },
