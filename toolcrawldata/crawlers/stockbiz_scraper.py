@@ -192,16 +192,23 @@ def fetch_content(idx: int, article: dict, session: requests.Session) -> tuple[i
         resp.encoding = "utf-8"
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Date — ưu tiên ngày ở trang bài; KHÔNG có thì GIỮ ngày đã parse từ trang listing
-        # (đừng ghi đè bằng now() → mất giờ đăng thật). Chỉ now() khi cả hai đều không có.
+        # Date — stockbiz nhúng giờ đăng trong JSON: "date":"2026-07-02T09:49:00+07:00"
+        # (meta tag / listing đều KHÔNG có → phải lấy từ đây). Giữ offset +07 → aware.
         pub_dt = None
-        for sel in ["meta[property='article:published_time']", "time[datetime]"]:
-            tag = soup.select_one(sel)
-            if tag:
-                val = tag.get("content") or tag.get("datetime") or ""
-                pub_dt = parse_date(val)
-                if pub_dt:
-                    break
+        mjson = re.search(r'"date"\s*:\s*"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+\-]\d{2}:\d{2})"', resp.text)
+        if mjson:
+            try:
+                pub_dt = datetime.fromisoformat(mjson.group(1))
+            except ValueError:
+                pub_dt = None
+        if not pub_dt:
+            for sel in ["meta[property='article:published_time']", "time[datetime]"]:
+                tag = soup.select_one(sel)
+                if tag:
+                    val = tag.get("content") or tag.get("datetime") or ""
+                    pub_dt = parse_date(val)
+                    if pub_dt:
+                        break
         if pub_dt:
             article["published_at"] = pub_dt
         elif not article.get("published_at"):
