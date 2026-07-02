@@ -12,7 +12,7 @@ if sys.stdout.encoding != 'utf-8':
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
@@ -241,7 +241,7 @@ def upsert_news_to_supabase(articles: list[dict]) -> None:
             "price_change_pct": a.get("% Thay đổi") or None,
             "article_url":      url,
             "finance_url":      a.get("Link tài chính") or None,
-            "published_at":     pub_ts.isoformat() if pub_ts else None,
+            "published_at":     pub_ts.replace(tzinfo=timezone.utc).isoformat() if pub_ts else None,
         })
 
     print(f"{'='*55}")
