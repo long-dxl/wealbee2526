@@ -119,9 +119,21 @@ def parse_detail(session: requests.Session, item: dict) -> dict | None:
 
 
 def extract_pdf_text(session: requests.Session, pdf_url: str) -> str:
+    """PDF → text cho ActionHub. Ưu tiên pymupdf4llm (markdown sạch, bảng đúng cột/hàng
+    — kiểu NotebookLM, FREE local, không tốn token LLM). Fallback fitz get_text nếu lỗi."""
     r = session.get(pdf_url, headers=HEADERS, timeout=40)
     if r.status_code != 200 or not r.content:
         return ""
+    # 1) pymupdf4llm → markdown có cấu trúc bảng
+    try:
+        import pymupdf4llm
+        doc = fitz.open(stream=r.content, filetype="pdf")
+        md = pymupdf4llm.to_markdown(doc, show_progress=False).strip()
+        if md:
+            return md
+    except Exception as e:
+        print(f"    [!] pymupdf4llm lỗi → fallback get_text: {str(e)[:80]}")
+    # 2) Fallback: text thô
     try:
         doc = fitz.open(stream=r.content, filetype="pdf")
         return "\n".join(p.get_text() for p in doc).strip()
