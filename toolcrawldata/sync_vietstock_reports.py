@@ -142,6 +142,40 @@ def extract_pdf_text(session: requests.Session, pdf_url: str) -> str:
         return ""
 
 
+_VN_MONTHS = {"một": 1, "hai": 2, "ba": 3, "tư": 4, "bốn": 4, "năm": 5, "sáu": 6,
+              "bảy": 7, "tám": 8, "chín": 9, "mười một": 11, "mười hai": 12, "mười": 10}
+
+
+def parse_report_date(text: str) -> str | None:
+    """Trích ngày báo cáo (YYYY-MM-DD) từ text — nhiều định dạng VN. None nếu không thấy.
+    Chỉ tháng (không có ngày) → lấy ngày 01."""
+    if not text:
+        return None
+    t = text[:4000]   # ngày thường ở đầu báo cáo
+    # 1) DD/MM/YYYY hoặc DD-MM-YYYY
+    m = re.search(r"\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b", t)
+    if m:
+        try: return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).strftime("%Y-%m-%d")
+        except ValueError: pass
+    # 2) "ngày DD tháng MM năm YYYY"
+    m = re.search(r"ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(20\d{2})", t, re.I)
+    if m:
+        try: return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).strftime("%Y-%m-%d")
+        except ValueError: pass
+    # 3) "tháng MM/YYYY" hoặc "tháng MM, YYYY" (chỉ tháng)
+    m = re.search(r"tháng\s+(\d{1,2})\s*[,/]?\s*(20\d{2})", t, re.I)
+    if m:
+        try: return datetime(int(m.group(2)), int(m.group(1)), 1).strftime("%Y-%m-%d")
+        except ValueError: pass
+    # 4) "Tháng <tên> YYYY" (vd "Tháng Sáu, 2026")
+    m = re.search(r"tháng\s+(mười một|mười hai|một|hai|ba|tư|bốn|năm|sáu|bảy|tám|chín|mười)\s*[,/]?\s*(20\d{2})", t, re.I)
+    if m:
+        mm = _VN_MONTHS.get(m.group(1).lower())
+        if mm:
+            return datetime(int(m.group(2)), mm, 1).strftime("%Y-%m-%d")
+    return None
+
+
 def extract_metadata(item: dict, text: str) -> dict:
     slug = item["slug"]                      # vd: bmp-khuyen-nghi-kha-quan-voi-gia-muc-tieu-168500-dong
     title = item["title"]                    # og:title: "BMP: Khuyến nghị KHẢ QUAN với giá mục tiêu 168,500 đồng/cổ phiếu"
@@ -188,14 +222,8 @@ def extract_metadata(item: dict, text: str) -> dict:
             firm = label
             break
 
-    # ── Ngày báo cáo: tìm trong 1500 ký tự đầu PDF (DD/MM/YYYY) ──
-    report_date = None
-    md = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", text[:1500])
-    if md:
-        try:
-            report_date = datetime(int(md.group(3)), int(md.group(2)), int(md.group(1))).strftime("%Y-%m-%d")
-        except ValueError:
-            pass
+    # ── Ngày báo cáo: parser đa-định-dạng VN (DD/MM/YYYY, ngày..tháng..năm, tháng tên) ──
+    report_date = parse_report_date(text)
 
     return {"ticker": ticker, "recommendation": reco, "target_price": target,
             "source_firm": firm, "report_date": report_date}
