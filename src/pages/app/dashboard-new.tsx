@@ -39,6 +39,14 @@ function relativeTime(ts: string): string {
   return `${Math.round(mins / 1440)} ngày`;
 }
 
+// Giờ đăng tin: hôm nay → "HH:MM", ngày khác → "HH:MM DD/MM"
+function newsTime(ts: string): string {
+  const d = new Date(ts);
+  const hhmm = d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay ? hhmm : `${hhmm} ${d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })}`;
+}
+
 function fmtVol(v: number | null): string {
   if (!v) return "—";
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
@@ -402,7 +410,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
           title: n.title,
           tag: normLabel(n.label),
           source: (() => { try { return new URL(n.article_url).hostname.replace("www.", ""); } catch { return "Wealbee"; } })(),
-          time: relativeTime(n.published_at),
+          time: newsTime(n.published_at),
           url: n.article_url,
         })));
       } finally {
@@ -551,7 +559,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
     : losers;
 
   const handleNewsDragStart = (e: React.DragEvent, item: NewsItem) => {
-    const card: ContextCard = { id: `news-${item.title.slice(0, 20)}`, type: "news", label: item.title.length > 32 ? item.title.slice(0, 32) + "…" : item.title, badge: item.tag, summary: `${item.source} · ${item.time} trước` };
+    const card: ContextCard = { id: `news-${item.title.slice(0, 20)}`, type: "news", label: item.title.length > 32 ? item.title.slice(0, 32) + "…" : item.title, badge: item.tag, summary: `${item.source} · ${item.time}` };
     e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
     e.dataTransfer.effectAllowed = "copy";
   };
@@ -936,7 +944,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                 <DragHint />
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                   <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 6, background: tagStyle.bg, color: tagStyle.text }}>{item.tag}</span>
-                  <span style={{ fontSize: 12, color: fgSubtle }}>{item.source} · {item.time} trước</span>
+                  <span style={{ fontSize: 12, color: fgSubtle }}>{item.source} · {item.time}</span>
                 </div>
                 <p style={{ margin: 0, fontSize: 14, color: fg, lineHeight: 1.5 }}>{item.title}</p>
                 {item.url && (
