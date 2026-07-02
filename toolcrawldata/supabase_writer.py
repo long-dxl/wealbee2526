@@ -26,13 +26,16 @@ _VN_TZ = timezone(timedelta(hours=7))
 
 def _to_utc_iso(v):
     """Chuẩn hóa mốc thời gian trước khi ghi vào cột timestamptz (DB session = UTC).
-    Chuỗi ISO KHÔNG offset → coi là GIỜ VN → đổi sang UTC (tránh lệch +7).
-    Chuỗi CÓ offset (aware, vd vietstock +00:00) → giữ nguyên (chuẩn về UTC)."""
-    if not isinstance(v, str) or not v:
-        return v
-    try:
-        dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
-    except ValueError:
+    Nhận datetime HOẶC chuỗi ISO. Naive (không offset) → coi là GIỜ VN → đổi sang UTC
+    (tránh lệch +7). Aware (vd vietstock +00:00) → giữ nguyên (chuẩn về UTC)."""
+    if isinstance(v, datetime):
+        dt = v
+    elif isinstance(v, str) and v:
+        try:
+            dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except ValueError:
+            return v
+    else:
         return v
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=_VN_TZ)      # naive = giờ VN
