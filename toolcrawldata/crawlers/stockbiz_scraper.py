@@ -192,7 +192,8 @@ def fetch_content(idx: int, article: dict, session: requests.Session) -> tuple[i
         resp.encoding = "utf-8"
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Date — stockbiz không hiển thị ngày trên trang bài viết, dùng now() làm fallback
+        # Date — ưu tiên ngày ở trang bài; KHÔNG có thì GIỮ ngày đã parse từ trang listing
+        # (đừng ghi đè bằng now() → mất giờ đăng thật). Chỉ now() khi cả hai đều không có.
         pub_dt = None
         for sel in ["meta[property='article:published_time']", "time[datetime]"]:
             tag = soup.select_one(sel)
@@ -201,9 +202,10 @@ def fetch_content(idx: int, article: dict, session: requests.Session) -> tuple[i
                 pub_dt = parse_date(val)
                 if pub_dt:
                     break
-        if not pub_dt:
-            pub_dt = datetime.now()
-        article["published_at"] = pub_dt
+        if pub_dt:
+            article["published_at"] = pub_dt
+        elif not article.get("published_at"):
+            article["published_at"] = datetime.now()
 
         # Content — Tailwind CSS class: post_content
         content_tag = (
