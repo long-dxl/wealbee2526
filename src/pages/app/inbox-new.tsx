@@ -23,6 +23,7 @@ function makeDragHandlers(card: ContextCard) {
 interface Brief {
   id: string;
   agentName: string;
+  briefType: string;
   title: string;
   summary: string;
   rawContent: string;
@@ -236,7 +237,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
     if (!user) { setLoadingBriefs(false); return; }
     const { data, error } = await supabase
       .from("briefs")
-      .select("id, type, title, summary, content, is_read, created_at, tickers, agent_id, refs")
+      .select("id, type, title, summary, content, is_read, created_at, tickers, agent_id, refs, agents(name)")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(50);
@@ -248,7 +249,8 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
         const createdAt = new Date(row.created_at);
         return {
           id: row.id,
-          agentName: row.type ?? "Agent",
+          agentName: (row.agents as { name?: string } | null)?.name ?? "Agent đã xoá",
+          briefType: row.type ?? "system",
           title: row.title ?? "Untitled",
           summary: row.summary ?? "",
           rawContent,
@@ -275,7 +277,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
     return () => { supabase.removeChannel(ch); };
   }, []);
 
-  const filtered    = filter === "all" ? briefs : briefs.filter(b => b.agentName === filter);
+  const filtered    = filter === "all" ? briefs : briefs.filter(b => b.briefType === filter);
   const unreadCount = briefs.filter(b => !b.read).length;
 
   const handleDeleteBrief = async (brief: Brief) => {
@@ -546,7 +548,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                       color: brand,
                     }}>
                       <BookOpen size={10} strokeWidth={2} />
-                      {brief.agentName === "daily_digest" ? "Daily Digest" : brief.agentName}
+                      {brief.agentName}
                     </span>
                     {brief.symbol && (
                       <span

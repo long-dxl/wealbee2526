@@ -8,13 +8,11 @@ import { supabase } from "../../lib/supabase/client";
 import { activateAgentTemplate, findAgentByTemplate, READY_TEMPLATE_IDS } from "../../lib/services/agent-templates";
 import { NeedPortfolioModal } from "../../components/NeedPortfolioModal";
 
-// DB schedule → label hiển thị
-const SCHEDULE_LABEL: Record<string, { label: string; type: "cron" | "event" | "manual" }> = {
-  daily_7am:    { label: "Hàng ngày 07:00", type: "cron"   },
-  daily_8pm:    { label: "Hàng ngày 20:00", type: "cron"   },
-  weekday_noon: { label: "Thứ 2–6, 11:45",  type: "cron"   },
-  weekly_mon:   { label: "Thứ 2 hàng tuần", type: "cron"   },
-  manual:       { label: "Theo yêu cầu",    type: "manual" },
+// trigger_type → nhãn điều kiện kích hoạt
+const TRIGGER_LABEL: Record<string, { label: string; type: "cron" | "event" | "manual" }> = {
+  manual:    { label: "Thủ công",     type: "manual" },
+  scheduled: { label: "Theo lịch",    type: "cron"   },
+  event:     { label: "Theo sự kiện", type: "event"  },
 };
 
 // DB category → label tiếng Việt + màu
@@ -55,6 +53,7 @@ interface AgentTemplate {
   color: string;
   sort_order: number;
   default_schedule: string;
+  trigger_type: "manual" | "scheduled" | "event" | null;
 }
 
 export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNavigate: (page: string) => void; onCreateAgent: () => void; isDark?: boolean }) {
@@ -79,7 +78,7 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
   useEffect(() => {
     supabase
       .from("agent_templates")
-      .select("id,name,description,category,icon,color,sort_order,default_schedule")
+      .select("id,name,description,category,icon,color,sort_order,default_schedule,trigger_type")
       .eq("is_active", true)
       .order("sort_order")
       .then(({ data }) => {
@@ -190,7 +189,7 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
             const catBg      = isReady ? (isDark ? meta?.dBg : meta?.bg)   ?? "rgba(8,73,172,0.08)"  : (isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)");
             const catText    = isReady ? (isDark ? meta?.dText : meta?.text) ?? brand                 : (isDark ? "rgba(255,255,255,0.25)" : "rgba(26,26,46,0.30)");
             const catLabel   = meta?.label ?? t.category;
-            const sched      = SCHEDULE_LABEL[t.default_schedule] ?? { label: "Theo yêu cầu", type: "manual" as const };
+            const sched      = TRIGGER_LABEL[t.trigger_type ?? "manual"] ?? TRIGGER_LABEL.manual;
 
             return (
               <div
