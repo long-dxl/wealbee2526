@@ -17,9 +17,8 @@ import { financialReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { valueChainReport } from "../_shared/value-chain.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
 
-// Model chính toàn hệ thống: gpt-5-mini (reasoning minimal để không đốt output token).
-// LƯU Ý gpt-5: KHÔNG nhận temperature tùy chỉnh, dùng max_completion_tokens thay max_tokens.
-const CHAT_MODEL = "gpt-5-mini";
+// Model chính toàn hệ thống: gpt-4.1-mini (ổn định, output đúng giọng như bản cũ).
+const CHAT_MODEL = "gpt-4.1-mini";
 
 const SUPABASE_URL         = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -672,7 +671,7 @@ Deno.serve(async (req) => {
     { role: "user", content: message },
   ];
 
-  // Chuẩn hóa toàn hệ thống về gpt-5-mini (tắt nhánh Anthropic; giữ code để bật lại khi cần)
+  // Chuẩn hóa toàn hệ thống về gpt-4.1-mini (tắt nhánh Anthropic; giữ code để bật lại khi cần)
   const useAnthropic = false && ANTHROPIC_API_KEY.length > 10;
   const finalModel   = useAnthropic ? "claude-sonnet-4-6" : CHAT_MODEL;
 
@@ -706,11 +705,11 @@ Deno.serve(async (req) => {
 
           const callBody: any = {
             model: CHAT_MODEL,
-            reasoning_effort: "minimal",
             messages: loopMessages,
             tools: TOOL_DEFS,
             tool_choice: "auto",
-            max_completion_tokens: 2000,
+            temperature: 0,
+            max_tokens: 1500,
           };
 
           const callRes = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -846,9 +845,9 @@ Deno.serve(async (req) => {
               headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
               body: JSON.stringify({
                 model: CHAT_MODEL,
-                reasoning_effort: "minimal",
                 messages: loopMessages,
-                max_completion_tokens: 3000,
+                temperature: 0,
+                max_tokens: 1500,
                 stream: true,
                 stream_options: { include_usage: true },
                 tool_choice: "none", // final answer only, no more tool calls

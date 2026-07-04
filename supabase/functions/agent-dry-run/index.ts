@@ -171,9 +171,9 @@ const GROUNDING_RULES_DATA_ONLY = `
 // ── Model map ─────────────────────────────────────────────────────────────────
 
 function resolveModel(_model?: string): string {
-  // Chuẩn hóa toàn hệ thống: mọi lựa chọn model đều chạy gpt-5-mini
-  // (reasoning minimal — không đốt output token; credit trừ theo token thật).
-  return "gpt-5-mini";
+  // Chuẩn hóa toàn hệ thống: mọi lựa chọn model đều chạy gpt-4.1-mini
+  // (ổn định output; Beeny trừ theo token thật).
+  return "gpt-4.1-mini";
 }
 
 const DEFAULT_DAILY_DIGEST_PROMPT = `Bạn là trợ lý phân tích chứng khoán Wealbee. Nhiệm vụ: tạo bản tin thị trường hàng ngày.
@@ -274,8 +274,8 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
     headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      reasoning_effort: "minimal",
-      max_completion_tokens: 3000,
+      temperature: 0,
+      max_tokens: 3000,
       stream: true,
       stream_options: { include_usage: true },
       messages: [
@@ -360,8 +360,8 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
     headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      reasoning_effort: "minimal",
-      max_completion_tokens: 3000,
+      temperature: 0,
+      max_tokens: 3000,
       stream: true,
       stream_options: { include_usage: true },
       messages: [

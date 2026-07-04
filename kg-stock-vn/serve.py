@@ -41,9 +41,8 @@ _client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 _MODELS = [GEMINI_DEFAULT] + [m for m in GEMINI_MODELS if m != GEMINI_DEFAULT] + ["gemini-2.5-flash"]
 _MODELS = list(dict.fromkeys(_MODELS))
 
-# ── OpenAI gpt-5-mini = model CHÍNH (reasoning mạnh, minimal effort để không đốt
-#    output token); Gemini giữ làm FALLBACK khi OpenAI lỗi/hết quota. ──
-OPENAI_MODEL = "gpt-5-mini"
+# ── OpenAI gpt-4.1-mini = model CHÍNH (ổn định output); Gemini giữ FALLBACK. ──
+OPENAI_MODEL = "gpt-4.1-mini"
 try:
     from openai import OpenAI as _OpenAI
     _oa_key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -73,13 +72,13 @@ def _usage_track(tin: int, tout: int, cached: int = 0):
 
 def _oa_gen(prompt: str, system: str, json_mode: bool = False,
             max_tokens: int = 8192) -> str:
-    """Gọi gpt-5-mini (reasoning minimal). Ghi nhận token thật. Raise nếu lỗi."""
+    """Gọi gpt-4.1-mini. Ghi nhận token thật. Raise nếu lỗi."""
     r = _oa.chat.completions.create(
         model=OPENAI_MODEL,
-        reasoning_effort="minimal",
+        temperature=0.2,
         messages=[{"role": "system", "content": system},
                   {"role": "user", "content": prompt}],
-        max_completion_tokens=max_tokens,
+        max_tokens=max_tokens,
         **({"response_format": {"type": "json_object"}} if json_mode else {}),
     )
     u = getattr(r, "usage", None)
@@ -123,7 +122,7 @@ def _gen(model: str, prompt: str, system: str) -> str:
 
 
 def _gen_with_fallback(prompt: str, system: str) -> tuple[str, str]:
-    """gpt-5-mini (chính) → Gemini fallback khi lỗi/hết quota."""
+    """gpt-4.1-mini (chính) → Gemini fallback khi lỗi/hết quota."""
     last = ""
     if _oa is not None:
         try:
@@ -235,7 +234,7 @@ _PLAN_ANSWER_SYS = (
 
 def plan_answer(q: str) -> dict:
     """Hoạch định: hiểu yêu cầu thật → khung trả lời (outline/depth) + data cần. Rỗng nếu lỗi."""
-    # gpt-5-mini (chính) — JSON mode
+    # gpt-4.1-mini (chính) — JSON mode
     if _oa is not None:
         try:
             txt = _oa_gen(f"CÂU HỎI: {q}", _PLAN_ANSWER_SYS, json_mode=True, max_tokens=900)

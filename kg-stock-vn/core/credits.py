@@ -17,10 +17,10 @@ VN_TZ = timezone(timedelta(hours=7))
 # ── Kinh tế: Beeny = đơn vị tiền Wealbee. 1000đ = 25 Beeny → 1 Beeny = 40đ ───────
 VND_PER_BEENY = 40.0
 USD_VND = 26000.0
-# Giá gpt-5-mini (USD / 1 token)
-PRICE_IN = 0.25 / 1e6
-PRICE_CACHED = 0.025 / 1e6   # input đã cache = 10% giá
-PRICE_OUT = 2.00 / 1e6
+# Bảng giá gpt-4.1-mini (USD / 1 token)
+PRICE_IN = 0.40 / 1e6
+PRICE_CACHED = 0.10 / 1e6   # input đã cache = 25% giá
+PRICE_OUT = 1.60 / 1e6
 
 # Gói: agent tối đa · refill/ngày · trần balance
 PLANS = {

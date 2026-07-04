@@ -20,17 +20,17 @@ const RESEND_API_KEY    = Deno.env.get("RESEND_API_KEY") ?? "";
 const EMAIL_FROM        = Deno.env.get("EMAIL_FROM") ?? "Wealbee <no-reply@wealbee.com>";
 
 // Studio model ID → { provider, apiModel }
-// Chuẩn hóa toàn hệ thống: mọi lựa chọn model đều chạy gpt-5-mini
-// (reasoning minimal; credit trừ theo token thật — xem _shared/credits.ts).
+// Chuẩn hóa toàn hệ thống: mọi lựa chọn model đều chạy gpt-4.1-mini
+// (ổn định output; Beeny trừ theo token thật — xem _shared/credits.ts).
 const MODEL_MAP: Record<string, { provider: "openai" | "anthropic"; apiModel: string }> = {
-  "gpt-4o-mini":   { provider: "openai", apiModel: "gpt-5-mini" },
-  "gpt-4o":        { provider: "openai", apiModel: "gpt-5-mini" },
-  "claude-sonnet": { provider: "openai", apiModel: "gpt-5-mini" },
-  "claude-opus":   { provider: "openai", apiModel: "gpt-5-mini" },
-  "gemini-pro":    { provider: "openai", apiModel: "gpt-5-mini" },
-  "gemini-flash":  { provider: "openai", apiModel: "gpt-5-mini" },
+  "gpt-4o-mini":   { provider: "openai", apiModel: "gpt-4.1-mini" },
+  "gpt-4o":        { provider: "openai", apiModel: "gpt-4.1-mini" },
+  "claude-sonnet": { provider: "openai", apiModel: "gpt-4.1-mini" },
+  "claude-opus":   { provider: "openai", apiModel: "gpt-4.1-mini" },
+  "gemini-pro":    { provider: "openai", apiModel: "gpt-4.1-mini" },
+  "gemini-flash":  { provider: "openai", apiModel: "gpt-4.1-mini" },
 };
-const DEFAULT_MODEL = { provider: "openai" as const, apiModel: "gpt-5-mini" };
+const DEFAULT_MODEL = { provider: "openai" as const, apiModel: "gpt-4.1-mini" };
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -1033,7 +1033,7 @@ ${toolDefs.length > 0
         if (provider === "anthropic" && !ANTHROPIC_API_KEY) {
           console.warn(`[run-agent] ANTHROPIC_API_KEY not set, falling back to gpt-4o-mini`);
           provider = "openai";
-          apiModel  = "gpt-5-mini";
+          apiModel  = "gpt-4.1-mini";
           emit({ type: "step", step: "gpt", status: "loading", label: `⚠ ${agent.model} chưa có API key → dùng GPT-4o mini` });
         } else {
           emit({ type: "step", step: "gpt", status: "loading", label: `Đang phân tích...` });
@@ -1056,13 +1056,13 @@ ${toolDefs.length > 0
           // ── OpenAI tool-calling (non-streaming for intermediate, streaming for final) ──
           if (provider === "openai" || (provider === "anthropic" && toolDefs.length > 0)) {
             const useOpenAI = provider === "openai" || !ANTHROPIC_API_KEY;
-            const callModel = useOpenAI ? apiModel : "gpt-5-mini"; // use OpenAI for tool loop even if final is Anthropic
+            const callModel = useOpenAI ? apiModel : "gpt-4.1-mini"; // use OpenAI for tool loop even if final is Anthropic
 
             const callBody: Record<string, any> = {
               model: callModel,
-              reasoning_effort: "minimal",
               messages,
-              max_completion_tokens: 3000,
+              temperature: 0,
+              max_tokens: 2000,
             };
             if (toolDefs.length > 0) {
               callBody.tools = toolDefs;
@@ -1240,10 +1240,10 @@ QUY TẮC:
             method: "POST",
             headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
             body: JSON.stringify({
-              model: "gpt-5-mini",
-              reasoning_effort: "minimal",
+              model: "gpt-4.1-mini",
               messages: [{ role: "system", content: valSystem }, { role: "user", content: valUser }],
-              max_completion_tokens: 3000,
+              temperature: 0,
+              max_tokens: 2000,
             }),
           });
 

@@ -7,9 +7,10 @@
 
 export const VND_PER_BEENY = 40;   // 1000đ = 25 Beeny
 const USD_VND = 26000;
-const PRICE_IN = 0.25 / 1e6;    // gpt-5-mini USD/token input (chưa cache)
-const PRICE_CACHED = 0.025 / 1e6; // input ĐÃ CACHE = 10% giá (OpenAI prompt caching)
-const PRICE_OUT = 2.00 / 1e6;   // gpt-5-mini USD/token output
+// Bảng giá gpt-4.1-mini (USD / token)
+const PRICE_IN = 0.40 / 1e6;    // input (chưa cache)
+const PRICE_CACHED = 0.10 / 1e6; // input ĐÃ CACHE = 25% giá (OpenAI prompt caching)
+const PRICE_OUT = 1.60 / 1e6;   // output
 
 export const PLANS: Record<string, { agents: number; refill: number; cap: number }> = {
   free:    { agents: 2,  refill: 10,  cap: 20 },
