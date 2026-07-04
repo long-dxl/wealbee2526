@@ -17,3 +17,12 @@ kg-stock-vn/.env
 kg-stock-vn/.venv/
 **/__pycache__/
 kg-stock-vn/**/*.pyc
+
+# Tài liệu pitch / file tạm (không đưa vào repo)
+*.pdf
+*.xlsx
+wealbee-pitch-qa.html
+VN30.md
+compass_artifact_loop.md
+CUserspmin* 
+supabase/.temp/
