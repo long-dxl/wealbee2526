@@ -10,6 +10,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { valueChainReport } from "../_shared/value-chain.ts";
+import { hasCredits, deduct } from "../_shared/credits.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -19,15 +20,17 @@ const RESEND_API_KEY    = Deno.env.get("RESEND_API_KEY") ?? "";
 const EMAIL_FROM        = Deno.env.get("EMAIL_FROM") ?? "Wealbee <no-reply@wealbee.com>";
 
 // Studio model ID → { provider, apiModel }
+// Chuẩn hóa toàn hệ thống: mọi lựa chọn model đều chạy gpt-5-mini
+// (reasoning minimal; credit trừ theo token thật — xem _shared/credits.ts).
 const MODEL_MAP: Record<string, { provider: "openai" | "anthropic"; apiModel: string }> = {
-  "gpt-4o-mini":   { provider: "openai",    apiModel: "gpt-4o-mini"          },
-  "gpt-4o":        { provider: "openai",    apiModel: "gpt-4o"               },
-  "claude-sonnet": { provider: "anthropic", apiModel: "claude-sonnet-4-6"    },
-  "claude-opus":   { provider: "anthropic", apiModel: "claude-opus-4-7"      },
-  "gemini-pro":    { provider: "openai",    apiModel: "gpt-4.1-mini"         }, // fallback
-  "gemini-flash":  { provider: "openai",    apiModel: "gpt-4.1-mini"         }, // fallback
+  "gpt-4o-mini":   { provider: "openai", apiModel: "gpt-5-mini" },
+  "gpt-4o":        { provider: "openai", apiModel: "gpt-5-mini" },
+  "claude-sonnet": { provider: "openai", apiModel: "gpt-5-mini" },
+  "claude-opus":   { provider: "openai", apiModel: "gpt-5-mini" },
+  "gemini-pro":    { provider: "openai", apiModel: "gpt-5-mini" },
+  "gemini-flash":  { provider: "openai", apiModel: "gpt-5-mini" },
 };
-const DEFAULT_MODEL = { provider: "openai" as const, apiModel: "gpt-4.1-mini" };
+const DEFAULT_MODEL = { provider: "openai" as const, apiModel: "gpt-5-mini" };
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -838,6 +841,15 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // ── CREDIT GATE: hết credit → chặn trước khi tốn token ──
+  const { ok: hasCr } = await hasCredits(sb, user.id);
+  if (!hasCr) {
+    return new Response(JSON.stringify({
+      error: "Bạn đã hết credit hôm nay. Credit sẽ được nạp lại vào ngày mai, hoặc nâng cấp gói để có thêm.",
+      code: "not_enough_credits",
+    }), { status: 402, headers: { ...CORS, "Content-Type": "application/json" } });
+  }
+
   let body: { agent_id: string; target_symbol?: string; target_symbols?: string[] };
   try { body = await req.json(); }
   catch {
@@ -1021,7 +1033,7 @@ ${toolDefs.length > 0
         if (provider === "anthropic" && !ANTHROPIC_API_KEY) {
           console.warn(`[run-agent] ANTHROPIC_API_KEY not set, falling back to gpt-4o-mini`);
           provider = "openai";
-          apiModel  = "gpt-4o-mini";
+          apiModel  = "gpt-5-mini";
           emit({ type: "step", step: "gpt", status: "loading", label: `⚠ ${agent.model} chưa có API key → dùng GPT-4o mini` });
         } else {
           emit({ type: "step", step: "gpt", status: "loading", label: `Đang phân tích...` });
@@ -1037,19 +1049,20 @@ ${toolDefs.length > 0
 
         let fullOutput = "";
         let tokens = 0;
+        let tokensIn = 0, tokensOut = 0;
         const MAX_TOOL_ITERS = 8; // max tool-call rounds before forcing final answer
 
         for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
           // ── OpenAI tool-calling (non-streaming for intermediate, streaming for final) ──
           if (provider === "openai" || (provider === "anthropic" && toolDefs.length > 0)) {
             const useOpenAI = provider === "openai" || !ANTHROPIC_API_KEY;
-            const callModel = useOpenAI ? apiModel : "gpt-4o-mini"; // use OpenAI for tool loop even if final is Anthropic
+            const callModel = useOpenAI ? apiModel : "gpt-5-mini"; // use OpenAI for tool loop even if final is Anthropic
 
             const callBody: Record<string, any> = {
               model: callModel,
+              reasoning_effort: "minimal",
               messages,
-              temperature: 0,
-              max_tokens: 2000,
+              max_completion_tokens: 3000,
             };
             if (toolDefs.length > 0) {
               callBody.tools = toolDefs;
@@ -1065,6 +1078,8 @@ ${toolDefs.length > 0
 
             const json = await aiRes.json();
             tokens += json.usage?.total_tokens ?? 0;
+            tokensIn  += json.usage?.prompt_tokens ?? 0;
+            tokensOut += json.usage?.completion_tokens ?? 0;
             const assistantMsg = json.choices?.[0]?.message;
 
             if (!assistantMsg?.tool_calls?.length) {
@@ -1224,15 +1239,18 @@ QUY TẮC:
             method: "POST",
             headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
             body: JSON.stringify({
-              model: "gpt-4o-mini",
+              model: "gpt-5-mini",
+              reasoning_effort: "minimal",
               messages: [{ role: "system", content: valSystem }, { role: "user", content: valUser }],
-              temperature: 0,
-              max_tokens: 2000,
+              max_completion_tokens: 3000,
             }),
           });
 
           if (valRes.ok) {
             const valJson = await valRes.json();
+            tokens    += valJson.usage?.total_tokens ?? 0;
+            tokensIn  += valJson.usage?.prompt_tokens ?? 0;
+            tokensOut += valJson.usage?.completion_tokens ?? 0;
             let validated = valJson.choices?.[0]?.message?.content?.trim() ?? "";
             // Restore [ref:N] tokens from placeholders
             for (const [ph, ref] of Object.entries(refPlaceholders)) {
@@ -1348,7 +1366,10 @@ QUY TẮC:
           emit({ type: "sources", sources: uniqueSourcesPersist });
         }
 
-        emit({ type: "done", title, brief_id: brief?.id, run_id: run.id, tokens, duration_ms: durationMs });
+        // Trừ credit theo token thật (1 credit = 40đ giá trị API)
+        const charge = await deduct(sb, user.id, tokensIn, tokensOut, `run-agent:${agent.name ?? ""}`.slice(0, 80));
+
+        emit({ type: "done", title, brief_id: brief?.id, run_id: run.id, tokens, duration_ms: durationMs, credits_used: charge.credits_used, balance: charge.balance });
 
       } catch (err) {
         const durationMs = Date.now() - startedAt;

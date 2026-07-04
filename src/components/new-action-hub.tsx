@@ -6,6 +6,8 @@ import {
 import { ContextCard, CardType, DRAG_CARD_MIME, cardTypeQuestions } from "../types/cards";
 import { lightTheme, type Theme } from "../lib/theme-context";
 import { sendChatMessage, type ToolStep } from "../lib/supabase/bee-ai";
+import { supabase } from "../lib/supabase/client";
+import { getCreditBalance } from "../lib/plan-limits";
 import { MdContent } from "./MdContent";
 
 // Render inline markdown + wealbee-platform XML tags
@@ -162,6 +164,18 @@ export function ActionHub({
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const cancelRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Credit còn lại (refresh khi mở panel + sau mỗi lượt trả lời xong)
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user || cancelled) return;
+      getCreditBalance(user.id).then(b => { if (!cancelled) setCreditBalance(b); });
+    });
+    return () => { cancelled = true; };
+  }, [open, isTyping]);
 
   const toggleCot = (idx: number) => {
     setMessages(prev => prev.map((m, i) =>
@@ -461,6 +475,18 @@ export function ActionHub({
           }}>
             Action Hub
           </span>
+
+          {creditBalance != null && (
+            <span title="Credit còn lại hôm nay — mỗi lượt phân tích trừ theo lượng xử lý thật"
+              style={{
+                display: "flex", alignItems: "center", gap: 4, padding: "3px 9px",
+                borderRadius: 99, background: t.bgAccent, color: t.brand,
+                fontSize: 11, fontWeight: 700, flexShrink: 0,
+                fontFamily: "'Montserrat', system-ui, sans-serif",
+              }}>
+              ⚡ {Math.max(0, Math.floor(creditBalance))} credit
+            </span>
+          )}
 
           {!isAtDefault && (
             <button

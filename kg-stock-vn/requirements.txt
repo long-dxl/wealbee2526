@@ -25,3 +25,6 @@ plotly>=5.20.0
 # Auto-scheduler cho daily/weekly sync
 APScheduler>=3.10.0
 yfinance>=0.2
+
+# OpenAI gpt-5-mini — model chính của brain (Gemini giữ làm fallback)
+openai>=1.50.0

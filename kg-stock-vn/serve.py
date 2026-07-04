@@ -41,6 +41,51 @@ _client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 _MODELS = [GEMINI_DEFAULT] + [m for m in GEMINI_MODELS if m != GEMINI_DEFAULT] + ["gemini-2.5-flash"]
 _MODELS = list(dict.fromkeys(_MODELS))
 
+# ── OpenAI gpt-5-mini = model CHÍNH (reasoning mạnh, minimal effort để không đốt
+#    output token); Gemini giữ làm FALLBACK khi OpenAI lỗi/hết quota. ──
+OPENAI_MODEL = "gpt-5-mini"
+try:
+    from openai import OpenAI as _OpenAI
+    _oa_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    _oa = _OpenAI(api_key=_oa_key) if _oa_key else None
+except Exception:
+    _oa = None
+
+# ── Đo token THẬT mỗi request (để trừ credit) — contextvars an toàn đa luồng ──
+import contextvars
+_usage_acc: contextvars.ContextVar = contextvars.ContextVar("usage_acc", default=None)
+
+
+def _usage_begin() -> dict:
+    acc = {"in": 0, "out": 0, "calls": 0}
+    _usage_acc.set(acc)
+    return acc
+
+
+def _usage_track(tin: int, tout: int):
+    acc = _usage_acc.get()
+    if acc is not None:
+        acc["in"] += int(tin or 0)
+        acc["out"] += int(tout or 0)
+        acc["calls"] += 1
+
+
+def _oa_gen(prompt: str, system: str, json_mode: bool = False,
+            max_tokens: int = 8192) -> str:
+    """Gọi gpt-5-mini (reasoning minimal). Ghi nhận token thật. Raise nếu lỗi."""
+    r = _oa.chat.completions.create(
+        model=OPENAI_MODEL,
+        reasoning_effort="minimal",
+        messages=[{"role": "system", "content": system},
+                  {"role": "user", "content": prompt}],
+        max_completion_tokens=max_tokens,
+        **({"response_format": {"type": "json_object"}} if json_mode else {}),
+    )
+    u = getattr(r, "usage", None)
+    if u:
+        _usage_track(getattr(u, "prompt_tokens", 0), getattr(u, "completion_tokens", 0))
+    return (r.choices[0].message.content or "").strip()
+
 app = FastAPI(title="KG-Stock-VN brain (Wealbee ActionHub)")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -51,6 +96,7 @@ class AnalyzeIn(BaseModel):
     message: str
     context: str | None = None              # (legacy) text ngữ cảnh
     context_cards: list[dict] | None = None  # thẻ kéo vào: [{id,type,label,badge,summary}]
+    user_id: str | None = None               # để trừ credit theo token thật
 
 
 def _gen(model: str, prompt: str, system: str) -> str:
@@ -59,6 +105,10 @@ def _gen(model: str, prompt: str, system: str) -> str:
         config=types_mod.GenerateContentConfig(
             system_instruction=system, temperature=0.2, max_output_tokens=8192),
     )
+    um = getattr(resp, "usage_metadata", None)
+    if um:
+        _usage_track(getattr(um, "prompt_token_count", 0),
+                     getattr(um, "candidates_token_count", 0))
     try:
         return resp.text or ""
     except Exception:
@@ -70,8 +120,15 @@ def _gen(model: str, prompt: str, system: str) -> str:
 
 
 def _gen_with_fallback(prompt: str, system: str) -> tuple[str, str]:
-    """Thử lần lượt model trong _MODELS; gặp 429/503 → fallback model kế."""
+    """gpt-5-mini (chính) → Gemini fallback khi lỗi/hết quota."""
     last = ""
+    if _oa is not None:
+        try:
+            txt = _oa_gen(prompt, system)
+            if txt.strip():
+                return txt, OPENAI_MODEL
+        except Exception as e:
+            last = str(e)
     for m in _MODELS:
         try:
             txt = _gen(m, prompt, system)
@@ -96,7 +153,8 @@ def _is_deep(q: str) -> bool:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "gemini": bool(_client),
+    return {"ok": True, "gemini": bool(_client), "openai": bool(_oa),
+            "primary": OPENAI_MODEL if _oa else (_MODELS[0] if _MODELS else None),
             "wealbee": bool(os.environ.get("WEALBEE_SUPABASE_URL")),
             "models": _MODELS}
 
@@ -174,6 +232,15 @@ _PLAN_ANSWER_SYS = (
 
 def plan_answer(q: str) -> dict:
     """Hoạch định: hiểu yêu cầu thật → khung trả lời (outline/depth) + data cần. Rỗng nếu lỗi."""
+    # gpt-5-mini (chính) — JSON mode
+    if _oa is not None:
+        try:
+            txt = _oa_gen(f"CÂU HỎI: {q}", _PLAN_ANSWER_SYS, json_mode=True, max_tokens=900)
+            data = _json.loads(txt)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
     if _client is None:
         return {}
     for model in _MODELS:
@@ -183,6 +250,10 @@ def plan_answer(q: str) -> dict:
                 config=types_mod.GenerateContentConfig(
                     temperature=0, max_output_tokens=600, response_mime_type="application/json"),
             )
+            um = getattr(r, "usage_metadata", None)
+            if um:
+                _usage_track(getattr(um, "prompt_token_count", 0),
+                             getattr(um, "candidates_token_count", 0))
             data = _json.loads((r.text or "").strip())
             if isinstance(data, dict):
                 return data
@@ -436,12 +507,40 @@ def _count_bundle(b: dict) -> tuple[int, int, int]:
     return ns, nn, nf
 
 
+_NO_CREDIT_MSG = ("⚠️ **Bạn đã hết credit hôm nay.** Credit sẽ được nạp lại vào ngày mai, "
+                  "hoặc nâng cấp gói để có thêm credit và nhiều agent hơn.")
+
+
+def _charge(user_id: str | None, acc: dict, note: str) -> dict:
+    """Trừ credit theo token thật sau khi chạy. Trả {credits_used, balance} (rỗng nếu không có user)."""
+    if not user_id or not acc or (acc["in"] + acc["out"]) <= 0:
+        return {}
+    from core import credits as cr
+    sb = wb._wb()
+    if sb is None:
+        return {}
+    return cr.deduct(sb, user_id, acc["in"], acc["out"], note)
+
+
 @app.post("/analyze")
 def analyze(inp: AnalyzeIn):
-    if _client is None:
-        return {"markdown": "⚠️ Chưa cấu hình GEMINI_API_KEY trên server.", "sources": []}
+    if _client is None and _oa is None:
+        return {"markdown": "⚠️ Chưa cấu hình model AI trên server.", "sources": []}
+    # Chặn trước khi chạy nếu hết credit
+    if inp.user_id:
+        from core import credits as cr
+        sb = wb._wb()
+        if sb is not None:
+            ok, bal = cr.has_credits(sb, inp.user_id)
+            if not ok:
+                return {"markdown": _NO_CREDIT_MSG, "sources": [],
+                        "error": "not_enough_credits", "balance": bal}
+    acc = _usage_begin()
     try:
-        return build_report(inp.message, inp.context, inp.context_cards)
+        out = build_report(inp.message, inp.context, inp.context_cards)
+        out.update({"tokens_in": acc["in"], "tokens_out": acc["out"]})
+        out.update(_charge(inp.user_id, acc, "actionhub /analyze"))
+        return out
     except Exception as e:
         return {"markdown": f"⚠️ Lỗi tạo báo cáo: {str(e)[:160]}", "sources": []}
 
@@ -470,7 +569,21 @@ def run_agent_core(*, system_prompt: str | None = "", symbols=None, event_ctx: s
                    user_id: str | None = None, name: str = "Agent",
                    template_id: str | None = None, email_notify: bool = False) -> dict:
     """Chạy 1 agent qua brain → (tùy chọn) lưu brief + (tùy chọn) gửi email.
-    email_notify: chỉ gửi email khi True (mặc định False = agent KHÔNG gửi email)."""
+    email_notify: chỉ gửi email khi True (mặc định False = agent KHÔNG gửi email).
+    Có user_id → CHẶN nếu hết credit + TRỪ credit theo token thật sau khi chạy."""
+    # Chặn trước khi chạy nếu hết credit
+    if user_id:
+        from core import credits as cr
+        sb0 = wb._wb()
+        if sb0 is not None:
+            ok, bal = cr.has_credits(sb0, user_id)
+            if not ok:
+                return {"markdown": _NO_CREDIT_MSG, "sources": [], "title": name or "Agent",
+                        "summary": "Hết credit — không chạy được agent.", "brief_id": None,
+                        "steps": [], "error": "not_enough_credits", "balance": bal,
+                        "email_sent": False}
+
+    acc = _usage_begin()
     syms = [s.upper() for s in (symbols or []) if s]
     msg = build_agent_message(system_prompt, syms, event_ctx)
     res = build_report(msg, symbols=syms or None)
@@ -518,8 +631,12 @@ def run_agent_core(*, system_prompt: str | None = "", symbols=None, event_ctx: s
             except Exception as e:
                 print(f"    [!] email lỗi: {str(e)[:140]}")
 
+    # Trừ credit theo token thật (mọi đường: Chạy thử / Run now / scheduler)
+    charge = _charge(user_id, acc, f"agent:{name or 'Agent'}"[:80])
+
     return {"markdown": md, "sources": sources, "title": title, "summary": summary,
-            "brief_id": brief_id, "steps": steps, "email_sent": email_sent}
+            "brief_id": brief_id, "steps": steps, "email_sent": email_sent,
+            "tokens_in": acc["in"], "tokens_out": acc["out"], **charge}
 
 
 class RunAgentIn(BaseModel):

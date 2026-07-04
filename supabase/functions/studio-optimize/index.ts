@@ -78,13 +78,13 @@ Deno.serve(async (req: Request) => {
         method: "POST",
         headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: "gpt-5-mini",
+          reasoning_effort: "minimal",
           messages: [
             { role: "system", content: OPTIMIZER_SYSTEM },
             { role: "user",   content: `Tối ưu hóa prompt sau:\n\n${prompt}` },
           ],
-          max_tokens: 1500,
-          temperature: 0.3,
+          max_completion_tokens: 2000,
         }),
       });
       if (res.ok) {

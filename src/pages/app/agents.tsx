@@ -10,6 +10,7 @@ import { supabase } from "../../lib/supabase/client";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { activateAgentTemplate, READY_TEMPLATE_IDS, type UserAgent } from "../../lib/services/agent-templates";
 import { NeedPortfolioModal } from "../../components/NeedPortfolioModal";
+import { canCreateAgent } from "../../lib/plan-limits";
 import type { AppOutletContext } from "./page-wrappers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -695,6 +696,12 @@ export function AgentsPage() {
 
   const activateTemplate = async (tmpl: AgentTemplate) => {
     if (!userId) return;
+    // Giới hạn số agent theo gói (free 2 · pro 5 · premium 15)
+    const lim = await canCreateAgent(userId);
+    if (!lim.ok) {
+      alert(`Gói ${lim.plan.toUpperCase()} chỉ tạo được tối đa ${lim.limit} agent (bạn đang có ${lim.count}). Nâng cấp gói để tạo thêm.`);
+      return;
+    }
     const result = await activateAgentTemplate(userId, tmpl);
     if (result.status === "needs_portfolio") { setNeedPortfolio(true); return; }
     setAgents(prev => [...prev, result.agent]);

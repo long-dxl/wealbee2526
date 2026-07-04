@@ -9,6 +9,7 @@ import {
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { MdContent, RichContent } from "../../components/MdContent";
 import { supabase } from "../../lib/supabase/client";
+import { canCreateAgent } from "../../lib/plan-limits";
 import { projectId } from "../../utils/supabase/info";
 import wealbeeLogo from "../../assets/Logo.svg";
 
@@ -592,6 +593,13 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       if (error) { console.error("Save agent error:", error.message); setIsSaved(false); return; }
     } else {
       const { data: { user } } = await supabase.auth.getUser();
+      // Giới hạn số agent theo gói (free 2 · pro 5 · premium 15)
+      const lim = await canCreateAgent(user!.id);
+      if (!lim.ok) {
+        alert(`Gói ${lim.plan.toUpperCase()} chỉ tạo được tối đa ${lim.limit} agent (bạn đang có ${lim.count}). Nâng cấp gói để tạo thêm.`);
+        setIsSaved(false);
+        return;
+      }
       const { error } = await supabase.from("agents").insert({ ...payload, user_id: user!.id, template_id: "daily_digest" });
       if (error) { console.error("Save agent error:", error.message); setIsSaved(false); return; }
     }

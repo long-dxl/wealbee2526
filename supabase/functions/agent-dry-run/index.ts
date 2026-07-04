@@ -8,6 +8,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, TYPE_LABEL } from "../_shared/financial-report.ts";
+import { hasCredits, deduct } from "../_shared/credits.ts";
 
 const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -169,16 +170,10 @@ const GROUNDING_RULES_DATA_ONLY = `
 
 // ── Model map ─────────────────────────────────────────────────────────────────
 
-function resolveModel(model?: string): string {
-  const MAP: Record<string, string> = {
-    "gpt-4o-mini":   "gpt-4o-mini",
-    "gpt-4o":        "gpt-4o",
-    "claude-sonnet": "gpt-4o",
-    "claude-opus":   "gpt-4o",
-    "gemini-pro":    "gpt-4o-mini",
-    "gemini-flash":  "gpt-4o-mini",
-  };
-  return MAP[model ?? ""] ?? "gpt-4o-mini";
+function resolveModel(_model?: string): string {
+  // Chuẩn hóa toàn hệ thống: mọi lựa chọn model đều chạy gpt-5-mini
+  // (reasoning minimal — không đốt output token; credit trừ theo token thật).
+  return "gpt-5-mini";
 }
 
 const DEFAULT_DAILY_DIGEST_PROMPT = `Bạn là trợ lý phân tích chứng khoán Wealbee. Nhiệm vụ: tạo bản tin thị trường hàng ngày.
@@ -279,8 +274,8 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
     headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      temperature: 0,
-      max_tokens: 3000,
+      reasoning_effort: "minimal",
+      max_completion_tokens: 3000,
       stream: true,
       stream_options: { include_usage: true },
       messages: [
@@ -296,6 +291,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
   const decoder = new TextDecoder();
   let accumulated = "";
   let tokensUsed = 0;
+  let tokensIn = 0, tokensOut = 0;
   let leftover = "";
 
   while (true) {
@@ -312,12 +308,16 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
         const parsed = JSON.parse(payload);
         const delta = parsed.choices?.[0]?.delta?.content;
         if (delta) accumulated += delta;
-        if (parsed.usage?.total_tokens) tokensUsed = parsed.usage.total_tokens;
+        if (parsed.usage?.total_tokens) {
+          tokensUsed = parsed.usage.total_tokens;
+          tokensIn = parsed.usage.prompt_tokens ?? 0;
+          tokensOut = parsed.usage.completion_tokens ?? 0;
+        }
       } catch { /* skip */ }
     }
   }
 
-  return { output: accumulated, tokensUsed, refs: registry.toArray() };
+  return { output: accumulated, tokensUsed, tokensIn, tokensOut, refs: registry.toArray() };
 }
 
 // ── Deep research dry-run (with real DB data) ─────────────────────────────────
@@ -359,8 +359,8 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
     headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      temperature: 0,
-      max_tokens: 3000,
+      reasoning_effort: "minimal",
+      max_completion_tokens: 3000,
       stream: true,
       stream_options: { include_usage: true },
       messages: [
@@ -376,6 +376,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
   const decoder = new TextDecoder();
   let accumulated = "";
   let tokensUsed = 0;
+  let tokensIn = 0, tokensOut = 0;
   let leftover = "";
 
   while (true) {
@@ -392,12 +393,16 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
         const parsed = JSON.parse(payload);
         const delta = parsed.choices?.[0]?.delta?.content;
         if (delta) accumulated += delta;
-        if (parsed.usage?.total_tokens) tokensUsed = parsed.usage.total_tokens;
+        if (parsed.usage?.total_tokens) {
+          tokensUsed = parsed.usage.total_tokens;
+          tokensIn = parsed.usage.prompt_tokens ?? 0;
+          tokensOut = parsed.usage.completion_tokens ?? 0;
+        }
       } catch { /* skip */ }
     }
   }
 
-  return { output: accumulated, tokensUsed, refs: registry.toArray() };
+  return { output: accumulated, tokensUsed, tokensIn, tokensOut, refs: registry.toArray() };
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -411,6 +416,15 @@ Deno.serve(async (req) => {
 
   const { data: { user }, error: authErr } = await sb.auth.getUser(jwt);
   if (authErr || !user) return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: { ...CORS, "Content-Type": "application/json" } });
+
+  // ── CREDIT GATE: chạy thử cũng tốn API → cũng trừ credit ──
+  const { ok: hasCr } = await hasCredits(sb, user.id);
+  if (!hasCr) {
+    return new Response(JSON.stringify({
+      error: "Bạn đã hết credit hôm nay. Credit sẽ được nạp lại vào ngày mai, hoặc nâng cấp gói để có thêm.",
+      code: "not_enough_credits",
+    }), { status: 402, headers: { ...CORS, "Content-Type": "application/json" } });
+  }
 
   const body = await req.json().catch(() => ({}));
   const {
@@ -471,9 +485,10 @@ Deno.serve(async (req) => {
     const prompt = systemPrompt ?? "Bạn là chuyên gia phân tích chứng khoán Việt Nam. Phân tích mã __TARGET_SYMBOL__.";
     const t0 = Date.now();
     try {
-      const { output, tokensUsed, refs } = await runDeepResearchDry(prompt, targetSymbol, gptModel);
+      const { output, tokensUsed, tokensIn, tokensOut, refs } = await runDeepResearchDry(prompt, targetSymbol, gptModel);
       await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
-      return new Response(JSON.stringify({ output, tokensUsed, targetSymbol, refs }), {
+      const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử deep_research");
+      return new Response(JSON.stringify({ output, tokensUsed, targetSymbol, refs, ...charge }), {
         headers: { ...CORS, "Content-Type": "application/json" },
       });
     } catch (err) {
@@ -491,9 +506,10 @@ Deno.serve(async (req) => {
 
   const t0 = Date.now();
   try {
-    const { output, tokensUsed, refs } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, gptModel);
+    const { output, tokensUsed, tokensIn, tokensOut, refs } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, gptModel);
     await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
-    return new Response(JSON.stringify({ output, tokensUsed, refs }), {
+    const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử daily_digest");
+    return new Response(JSON.stringify({ output, tokensUsed, refs, ...charge }), {
       headers: { ...CORS, "Content-Type": "application/json" },
     });
   } catch (err) {
