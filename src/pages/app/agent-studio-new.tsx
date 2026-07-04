@@ -848,17 +848,16 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
           <Section id="trigger" label="Điều kiện kích hoạt agent" icon={<Clock size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("trigger")} onToggle={() => toggleSection("trigger")} badge={triggerType === "manual" ? "Thủ công" : triggerType === "scheduled" ? scheduleTime : "Sự kiện"} isDark={isDark}>
             <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
               {([
-                { id: "manual", label: "Thủ công", desc: "Bấm là chạy", Icon: Play },
-                { id: "scheduled", label: "Theo lịch", desc: "Theo giờ định sẵn", Icon: Clock },
-                { id: "event", label: "Khác", desc: "Theo sự kiện", Icon: Zap },
+                { id: "manual", label: "Thủ công", Icon: Play },
+                { id: "scheduled", label: "Theo lịch", Icon: Clock },
+                { id: "event", label: "Theo sự kiện", Icon: Zap },
               ] as const).map(o => {
                 const active = triggerType === o.id;
                 return (
                   <div key={o.id} onClick={() => setTriggerType(o.id)} style={{ flex: 1, padding: "10px 8px", borderRadius: 10, cursor: "pointer", textAlign: "center", border: active ? "1.5px solid " + brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.10)"), background: active ? (isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.05)") : "transparent", transition: "all 120ms ease" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 13, fontWeight: 700, color: active ? brand : fgMuted, marginBottom: 2 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 13, fontWeight: 700, color: active ? brand : fgMuted }}>
                       <o.Icon size={13} strokeWidth={1.5} color={active ? brand : fgMuted} />{o.label}
                     </div>
-                    <div style={{ fontSize: 10, color: fgSubtle, lineHeight: 1.4 }}>{o.desc}</div>
                   </div>
                 );
               })}
