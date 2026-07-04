@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Roboto, Arial, sans-serif; color: #1a1a2e; font-size: 11pt; line-height: 1.5; margin: 0; }
+  .cover { text-align: center; padding: 40px 0 24px; border-bottom: 3px solid #0849AC; margin-bottom: 22px; }
+  .cover h1 { font-size: 26pt; color: #0849AC; margin: 0 0 6px; letter-spacing: -0.5px; }
+  .cover .sub { font-size: 12pt; color: #667085; margin: 0; }
+  .cover .tag { display:inline-block; margin-top:12px; font-size:9.5pt; color:#0849AC; background:#EAF1FC; padding:5px 14px; border-radius:20px; font-weight:600; }
+  h2 { font-size: 15pt; color: #0849AC; margin: 26px 0 4px; padding-bottom: 6px; border-bottom: 2px solid #EAF1FC; page-break-after: avoid; }
+  h2 .n { color:#9db8e8; font-weight:800; margin-right:8px; }
+  .lead { color:#475467; font-size:10pt; margin:0 0 14px; font-style: italic; }
+  .qa { margin: 0 0 13px; padding-left: 14px; border-left: 3px solid #dce6f7; page-break-inside: avoid; }
+  .q { font-weight: 700; color: #0d2b5e; margin: 0 0 4px; }
+  .q::before { content: "Q. "; color: #0849AC; font-weight: 800; }
+  .a { margin: 0; color: #2a2f45; }
+  .a::before { content: "A. "; color: #12805c; font-weight: 800; }
+  .a b, .qa b { color: #0d2b5e; }
+  .note { background:#FFF8E6; border-left:3px solid #F5A623; padding:8px 12px; font-size:9.7pt; color:#6b5518; margin:6px 0; border-radius:4px; }
+  table { width:100%; border-collapse:collapse; margin:8px 0 14px; font-size:9.7pt; }
+  th { background:#0849AC; color:#fff; text-align:left; padding:7px 10px; font-weight:600; }
+  td { padding:6px 10px; border-bottom:1px solid #e6ebf5; vertical-align:top; }
+  tr:nth-child(even) td { background:#f7f9fd; }
+  .pill { display:inline-block; font-size:8.5pt; font-weight:700; padding:1px 7px; border-radius:4px; }
+  .g{background:#E7F6EC;color:#1a7f37;} .y{background:#FEF3E2;color:#b45309;} .r{background:#FBE9E7;color:#c0392b;}
+  ul { margin:5px 0; padding-left:20px; } li { margin:2px 0; }
+  .foot { margin-top:26px; padding-top:10px; border-top:1px solid #e6ebf5; font-size:8.5pt; color:#98a2b3; text-align:center; }
+  .sec-intro{ font-size:9.7pt; color:#475467; margin:0 0 12px;}
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Wealbee — Bộ câu hỏi &amp; trả lời Pitch</h1>
+  <p class="sub">Chuẩn bị cho cuộc thi khởi nghiệp · Nền tảng phân tích đầu tư bằng AI cho thị trường chứng khoán Việt Nam</p>
+  <span class="tag">Tài liệu nội bộ · Trả lời sẵn theo kiến trúc thật của Wealbee</span>
+</div>
+
+<h2><span class="n">I.</span>Lợi thế cạnh tranh &amp; Rào cản (Moat)</h2>
+<p class="lead">Đây là phần giám khảo đào sâu nhất. Luôn quay về: tri thức chuyên gia + kiến trúc chống bịa số + dữ liệu tích lũy.</p>
+
+<div class="qa">
+  <p class="q">Lợi thế cạnh tranh của Wealbee là gì mà đối thủ khó sao chép?</p>
+  <p class="a">Wealbee có <b>3 lớp rào cản chồng lên nhau</b>:<br>
+  <b>(1) Bộ não tư duy — Knowledge Graph nhân-quả:</b> bản đồ nối các điểm dữ liệu, mã hóa cách một chuyên viên tài chính suy luận — tin vĩ mô tác động ngành nào, ngành tác động mã nào (kèm trọng số ×Beta, độ trễ, cơ chế), thông tin nào ảnh hưởng/​trơ với thông tin nào. Đây là <b>tri thức ngầm của chuyên gia, không có sẵn trên internet</b>.<br>
+  <b>(2) Kiến trúc "deterministic-first":</b> Wealbee <b>không để AI tự bịa số</b> — số liệu tính bằng code + hậu kiểm, AI chỉ suy luận. Đây là thứ đối thủ "gắn ChatGPT vào dữ liệu" không làm được.<br>
+  <b>(3) Vòng xoáy dữ liệu:</b> tự thu thập dữ liệu VN mỗi ngày + học từ người dùng → càng chạy lâu càng tinh, khoảng cách càng xa.</p>
+</div>
+
+<div class="qa">
+  <p class="q">Tại sao ChatGPT / một LLM lớn không thể làm điều tương tự?</p>
+  <p class="a">LLM thuần <b>không hiểu sâu nhân-quả thị trường VN</b>, <b>bịa số</b>, và <b>không có dữ liệu VN real-time</b>. Wealbee = LLM <b>được điều phối bởi đồ thị nhân-quả VN</b> + <b>engine tất định (số liệu từ code)</b> + pipeline dữ liệu VN. Đó là khác biệt "chatbot vui" và "chuyên viên đáng tin".</p>
+</div>
+
+<div class="qa">
+  <p class="q">Tại sao SSI, VNDirect, TCBS... không tự làm cái này?</p>
+  <p class="a">Họ là <b>sàn môi giới</b> — có xung đột lợi ích (khuyến khích giao dịch), không phải tổ chức AI-first, bộ máy lớn và chậm đổi mới. Wealbee <b>trung lập, AI-native</b>, tập trung 100% vào "hiểu số thay người dùng".</p>
+</div>
+
+<div class="qa">
+  <p class="q">Một startup khác copy ý tưởng thì sao?</p>
+  <p class="a">Ý tưởng thì copy được, nhưng <b>3 thứ không mua nhanh được</b>: (a) <b>quan hệ chuyên gia</b> (hợp tác Dawn of Finance — trung tâm CFA lớn nhất miền Bắc — để đào sâu đồ thị tri thức); (b) <b>năm tháng dữ liệu VN đã curated + gán nhãn</b>; (c) <b>kỹ thuật deterministic + verifier</b> để AI không bịa số. Rào cản tự lớn theo thời gian.</p>
+</div>
+
+<div class="qa">
+  <p class="q">Wealbee bảo hộ tài sản trí tuệ thế nào?</p>
+  <p class="a">Bằng <b>bí mật kinh doanh (trade secret)</b> cho đồ thị tri thức + trọng số, <b>tài sản dữ liệu độc quyền</b>, và <b>đăng ký nhãn hiệu Wealbee</b>.
+  <span class="note">Lưu ý pitch: KHÔNG nói "đăng ký bản quyền/sáng chế cho knowledge graph" — thuật toán/đồ thị khó được bảo hộ bản quyền, giám khảo am hiểu IP sẽ chất vấn. Nói "bí mật kinh doanh + tài sản dữ liệu + nhãn hiệu" nghe chín hơn.</span></p>
+</div>
+
+<h2><span class="n">II.</span>Mô hình kinh doanh &amp; Doanh thu</h2>
+<p class="sec-intro">Freemium SaaS — miễn phí để có người dùng, thu tiền ở gói nâng cao. Doanh thu chính là thuê bao, cộng B2B.</p>
+
+<div class="qa">
+  <p class="q">Wealbee sinh lời ở đâu?</p>
+  <p class="a">Doanh thu chính là <b>thuê bao (subscription)</b> — biên lợi nhuận cao vì chi phí biến đổi mỗi lượt phân tích chỉ là token LLM (vài trăm đồng). Ngoài ra có B2B/white-label, API, affiliate môi giới.</p>
+</div>
+
+<table>
+  <tr><th>Gói</th><th>Giá tham khảo</th><th>Đối tượng</th><th>Bao gồm</th></tr>
+  <tr><td><b>Free</b></td><td>0đ</td><td>Người mới</td><td>Dashboard, tin cơ bản, 1 agent, ActionHub giới hạn/ngày</td></tr>
+  <tr><td><b>Pro</b></td><td>~149–199k/tháng</td><td>NĐT cá nhân</td><td>ActionHub không giới hạn, mọi báo cáo phân tích, agent tùy chỉnh + lịch + email, dữ liệu đầy đủ</td></tr>
+  <tr><td><b>Premium</b></td><td>~399–499k/tháng</td><td>NĐT nghiêm túc</td><td>Tất cả Pro + Deep Research, nhiều agent song song, cảnh báo sự kiện, ưu tiên xử lý</td></tr>
+  <tr><td><b>B2B / API</b></td><td>Thỏa thuận</td><td>Môi giới, quỹ, advisor</td><td>White-label, API dữ liệu + agent, tích hợp</td></tr>
+</table>
+
+<div class="qa">
+  <p class="q">Có bao nhiêu nguồn doanh thu?</p>
+  <p class="a"><b>(1)</b> Thuê bao cá nhân (cốt lõi); <b>(2)</b> B2B / white-label cho công ty CK, quỹ, advisor; <b>(3)</b> API dữ liệu + agent cho fintech; <b>(4)</b> Affiliate môi giới (giới thiệu mở tài khoản → hoa hồng, không xung đột vì Wealbee trung lập); <b>(5, sau)</b> báo cáo/insight cao cấp, gói doanh nghiệp.</p>
+</div>
+
+<div class="qa">
+  <p class="q">Unit economics / biên lợi nhuận?</p>
+  <p class="a">Chi phí biến đổi mỗi lượt phân tích ≈ <b>token LLM (vài trăm đồng)</b> + hạ tầng cố định. Khi scale, biên lợi nhuận gộp <b>&gt;85%</b> như SaaS điển hình. <span class="note">Điền số thật: giá vốn/lượt, LTV, CAC, điểm hòa vốn (số thuê bao Pro cần để bù chi phí cố định).</span></p>
+</div>
+
+<h2><span class="n">III.</span>Câu hỏi Kỹ thuật</h2>
+
+<div class="qa"><p class="q">Khác gì so với dùng ChatGPT hỏi về cổ phiếu?</p>
+<p class="a">ChatGPT bịa số, không dữ liệu VN real-time, không hiểu nhân-quả thị trường VN. Wealbee = LLM <b>+ đồ thị nhân-quả VN + số liệu tính bằng code (không bịa)</b> + dữ liệu cập nhật hằng ngày.</p></div>
+
+<div class="qa"><p class="q">Làm sao đảm bảo số liệu chính xác, AI không bịa?</p>
+<p class="a">Triết lý <b>deterministic-first</b>: mọi con số (doanh thu, EPS, P/E, giá, khối lượng) lấy từ dữ liệu thật + tính bằng code, có bước <b>hậu kiểm (verifier)</b> chặn AI chế số. AI chỉ lo suy luận + diễn giải.</p></div>
+
+<div class="qa"><p class="q">Dữ liệu lấy từ đâu, cập nhật thế nào?</p>
+<p class="a">Pipeline tự động: <b>tin tức 13 nguồn (3 lần/ngày: 6h–12h–18h)</b>, <b>giá đóng cửa 400+ mã HOSE (hằng ngày 15h)</b>, <b>BCTC, báo cáo phân tích CTCK (hằng ngày 6h), giao dịch nội bộ</b>. Chuẩn hóa + gán nhãn tác động về kho tập trung.</p></div>
+
+<div class="qa"><p class="q">Knowledge Graph cụ thể là gì, xây thế nào?</p>
+<p class="a">Là đồ thị có hướng: <b>đỉnh</b> = yếu tố vĩ mô / ngành / mã / sự kiện; <b>cạnh</b> = quan hệ nhân-quả có <b>trọng số, chiều (+/−), độ trễ, cơ chế</b>. Tri thức (cạnh/trọng số) do <b>chuyên gia định nghĩa trong code</b> (nguồn chân lý), còn dữ liệu khối lượng lớn (mã/Beta/giá trị vĩ mô/tin) nằm ở database — tách bạch tri-thức vs dữ-liệu.</p></div>
+
+<div class="qa"><p class="q">Agent hoạt động ra sao?</p>
+<p class="a">Yêu cầu người dùng → <b>hiểu ý định</b> → <b>truy xuất dữ liệu Wealbee liên quan</b> → <b>đồ thị nhân-quả suy luận</b> (vĩ mô→ngành→mã) → <b>LLM tổng hợp</b> báo cáo có trích nguồn. Chạy thủ công, <b>theo lịch riêng từng người</b>, hoặc <b>kích hoạt theo sự kiện</b> (lãnh đạo mua cổ phiếu, khối lượng đột biến vs TB20 phiên).</p></div>
+
+<div class="qa"><p class="q">Đọc được báo cáo phân tích dạng bảng/PDF không?</p>
+<p class="a">Có. Bọn em trích PDF thành <b>markdown có cấu trúc (bảng đúng cột)</b> bằng công cụ local (miễn phí, không tốn token). Kéo báo cáo vào ActionHub → AI đọc <b>toàn văn + bảng</b> như NotebookLM, phân tích grounded đúng nội dung.</p></div>
+
+<div class="qa"><p class="q">Có scale được không? Hạ tầng ra sao?</p>
+<p class="a">Kiến trúc tách lớp: <b>frontend (Vercel)</b> · <b>bộ não (máy chủ cloud, chạy nhiều worker)</b> · <b>dữ liệu (Supabase)</b>. Chi phí biến đổi thấp, scale ngang được. Nút thắt duy nhất là quota LLM — giải bằng nhiều key và có thể tự host model khi lớn.</p></div>
+
+<div class="qa"><p class="q">Phụ thuộc Google/OpenAI thì rủi ro không?</p>
+<p class="a">Kiến trúc <b>không khóa vào một nhà cung cấp</b>: LLM là lớp thay được (Gemini/GPT/model mở). Tài sản lõi — <b>đồ thị tri thức + dữ liệu VN + engine tất định</b> — là của Wealbee, không nằm ở LLM.</p></div>
+
+<div class="qa"><p class="q">Real-time tới mức nào?</p>
+<p class="a">Tin 3 lần/ngày, giá cuối phiên hằng ngày, sự kiện theo lịch. Đủ cho <b>NĐT phân tích/quyết định</b> — không nhắm HFT (giao dịch tần suất cao).</p></div>
+
+<div class="qa"><p class="q">Đo độ chính xác của AI thế nào?</p>
+<p class="a">Có <b>bộ eval hồi quy</b> (định tuyến + câu trả lời) chạy trước mỗi lần cập nhật, ngưỡng đạt ~95%+. Cộng với <b>verifier</b> hậu kiểm số liệu. Định hướng: kiểm thử định tính lặp lại nhiều lần trên các mẫu câu hỏi điển hình.</p></div>
+
+<div class="qa"><p class="q">Bảo mật &amp; quyền riêng tư dữ liệu người dùng?</p>
+<p class="a">Dữ liệu người dùng (danh mục, watchlist) lưu trên Supabase có <b>RLS (row-level security)</b> — mỗi user chỉ thấy dữ liệu của mình. Khóa dịch vụ chỉ nằm ở server. Không bán dữ liệu cá nhân.</p></div>
+
+<div class="qa"><p class="q">Chi phí vận hành mỗi lượt phân tích?</p>
+<p class="a">Chủ yếu là <b>token LLM (~vài trăm đồng/lượt)</b>; trích PDF/tin bằng công cụ local miễn phí; hạ tầng VPS cố định. Nhờ deterministic-first, phần nặng (số liệu) do code làm, không tốn token.</p></div>
+
+<div class="qa"><p class="q">Người dùng tự tạo agent riêng như thế nào?</p>
+<p class="a">Trong Agent Studio: chọn mẫu → viết prompt → chọn mã quan tâm → đặt <b>điều kiện kích hoạt</b> (thủ công / theo lịch giờ riêng / theo sự kiện) → bật email nếu muốn. Agent tự chạy đúng giờ, lưu kết quả vào Inbox và gửi email.</p></div>
+
+<div class="qa"><p class="q">Chống lạm dụng / prompt injection thế nào?</p>
+<p class="a">Truy vấn dữ liệu chạy trong <b>whitelist (chỉ bảng/cột/toán tử cho phép)</b>, không cho AI truy vấn tự do; số liệu qua verifier; nội dung tài liệu người dùng kéo vào được giới hạn phạm vi. Quyền ghi dữ liệu tách khỏi lớp AI.</p></div>
+
+<div class="qa"><p class="q">Stack công nghệ cụ thể?</p>
+<p class="a">Frontend React/Vite (Vercel); bộ não Python/FastAPI (LLM Gemini + đồ thị nhân-quả in-code + công cụ vnstock/tin/báo cáo); dữ liệu Supabase (Postgres); pipeline Python thu thập dữ liệu; hạ tầng cloud VM.</p></div>
+
+<h2><span class="n">IV.</span>Câu hỏi Sản phẩm</h2>
+
+<div class="qa"><p class="q">Người dùng mục tiêu là ai?</p>
+<p class="a"><b>Nhà đầu tư cá nhân VN</b> (F0 đến trung cấp) muốn hiểu thị trường mà không có thời gian/kiến thức đọc BCTC, tin vĩ mô. Mở rộng sau: advisor, quỹ nhỏ, công ty CK (B2B).</p></div>
+
+<div class="qa"><p class="q">Vấn đề gì đang giải?</p>
+<p class="a">NĐT cá nhân <b>ngập trong dữ liệu nhưng thiếu diễn giải</b>: không biết tin này ảnh hưởng mã mình ra sao, số liệu BCTC nói gì. Công cụ hiện có chỉ "cho xem số"; Wealbee <b>"hiểu số thay bạn"</b> như một chuyên viên phân tích cá nhân.</p></div>
+
+<div class="qa"><p class="q">Tính năng cốt lõi?</p>
+<p class="a">(1) <b>ActionHub</b> — hỏi–đáp/phân tích grounded trên dữ liệu Wealbee, kéo–thả tin/báo cáo vào để AI đọc. (2) <b>Agent</b> — trợ lý tự chạy theo lịch/sự kiện, gửi bản tin riêng. (3) <b>Dashboard</b> — tin gán nhãn tác động, giá, báo cáo phân tích CTCK.</p></div>
+
+<div class="qa"><p class="q">Vì sao người dùng ở lại (retention)?</p>
+<p class="a">Agent cá nhân hóa <b>gửi giá trị đều đặn</b> (bản tin đúng danh mục mỗi sáng); đồ thị + dữ liệu <b>tốt lên theo thời gian</b>; càng dùng, Wealbee càng hiểu danh mục người dùng → chi phí chuyển đổi tăng.</p></div>
+
+<h2><span class="n">V.</span>Thị trường &amp; Gọi vốn</h2>
+<p class="note">Các số dưới đây cần bạn điền số THẬT của Wealbee (traction, doanh thu, đội ngũ). Đừng bịa trước giám khảo — nói "đang ở giai đoạn X" nếu chưa có.</p>
+
+<div class="qa"><p class="q">Quy mô thị trường (TAM/SAM/SOM)?</p>
+<p class="a">VN có <b>hơn 8–9 triệu tài khoản chứng khoán</b> (và đang tăng nhanh). TAM = toàn bộ NĐT cá nhân; SAM = nhóm chủ động, dùng smartphone, sẵn sàng trả phí công cụ; SOM = nhóm tiếp cận được năm đầu. <span class="note">Điền: số tài khoản mới nhất, % sẵn sàng trả phí, giá trung bình → quy ra doanh thu tiềm năng.</span></p></div>
+
+<div class="qa"><p class="q">Traction hiện tại?</p>
+<p class="a"><span class="note">Điền số thật: người dùng đăng ký/hoạt động, tỉ lệ giữ chân, số agent tạo, phản hồi định tính, LOI/hợp tác (Dawn of Finance), pilot B2B...</span></p></div>
+
+<div class="qa"><p class="q">Đối thủ và định vị?</p>
+<p class="a">Fireant / Simplize / SSI iBoard / TCInvest = <b>công cụ dữ liệu &amp; biểu đồ</b> (người dùng tự phân tích). Wealbee ở <b>lớp trên</b>: AI tự phân tích + suy luận thay người dùng, có bộ não nhân-quả. Định vị: từ "xem số" → "hiểu số".</p></div>
+
+<div class="qa"><p class="q">Go-to-market — tiếp cận người dùng thế nào?</p>
+<p class="a">Content tài chính (SEO/social) + cộng đồng NĐT + <b>hợp tác trung tâm đào tạo (Dawn of Finance)</b> → tệp học viên CFA; freemium để viral; affiliate môi giới. <span class="note">Điền kênh + chi phí CAC thực tế nếu có.</span></p></div>
+
+<div class="qa"><p class="q">Gọi bao nhiêu, dùng làm gì?</p>
+<p class="a"><span class="note">Điền: số tiền + phân bổ (đội ngũ kỹ thuật, đào sâu knowledge graph + dữ liệu, marketing/GTM, hạ tầng) + mục tiêu 12–18 tháng (số user, doanh thu).</span></p></div>
+
+<div class="qa"><p class="q">Roadmap sắp tới?</p>
+<p class="a">Ngắn hạn: đào sâu đồ thị tri thức cùng Dawn of Finance, hoàn thiện agent + gói trả phí. Trung hạn: mở rộng nguồn dữ liệu, B2B/white-label, API. Dài hạn: mô hình riêng + đa thị trường.</p></div>
+
+<h2><span class="n">VI.</span>Pháp lý &amp; Rủi ro</h2>
+
+<div class="qa"><p class="q">Đây có phải tư vấn đầu tư (cần giấy phép) không?</p>
+<p class="a"><b>Không.</b> Wealbee cung cấp <b>phân tích + giáo dục + tổng hợp thông tin</b>, <b>không đưa khuyến nghị mua/bán của hệ thống</b>, luôn kèm <b>disclaimer</b>. Định vị "trợ lý phân tích", tránh vùng cần giấy phép tư vấn đầu tư.</p></div>
+
+<div class="qa"><p class="q">Nếu AI phân tích sai, ai chịu trách nhiệm?</p>
+<p class="a">Sản phẩm là <b>công cụ hỗ trợ phân tích</b>, quyết định cuối cùng thuộc người dùng (có disclaimer). Về kỹ thuật, deterministic-first + verifier giảm tối đa sai số liệu; nguồn luôn được trích dẫn để người dùng kiểm chứng.</p></div>
+
+<div class="qa"><p class="q">Rủi ro lớn nhất của dự án?</p>
+<p class="a">(1) <b>Niềm tin</b> — một câu trả lời sai số có thể mất khách; đã xử bằng deterministic-first. (2) <b>Chi phí/quota LLM</b> khi scale — giải bằng đa nhà cung cấp + tối ưu. (3) <b>Giữ chân</b> — giải bằng agent cá nhân hóa + data moat. Bọn em nhận diện và có phương án cho từng cái.</p></div>
+
+<h2><span class="n">VII.</span>Đội ngũ &amp; Mẹo Pitch</h2>
+
+<div class="qa"><p class="q">Vì sao là các bạn?</p>
+<p class="a"><span class="note">Điền: chuyên môn tài chính (CFA/kinh nghiệm đầu tư) + kỹ thuật (AI/kỹ sư) + quan hệ (Dawn of Finance). Nhấn: bọn em vừa hiểu tài chính, vừa build được AI — hiếm đội có cả hai.</span></p></div>
+
+<div class="qa"><p class="q">3 mẹo khi trả lời</p>
+<p class="a"><b>(1) Demo sống</b> 1 lần (kéo báo cáo → hỏi → AI trả lời có bảng + nguồn) — thuyết phục gấp 10 lần lời nói. <b>(2)</b> Khi bị dồn về moat, luôn quay về <b>"tri thức chuyên gia + kiến trúc chống bịa số + dữ liệu tích lũy"</b>. <b>(3)</b> Đừng overclaim "bản quyền/độc quyền tuyệt đối"; nói "bí mật kinh doanh + tài sản dữ liệu + nhãn hiệu".</p></div>
+
+<div class="foot">Wealbee · Nền tảng phân tích đầu tư bằng AI · Tài liệu chuẩn bị pitch — trả lời sẵn theo kiến trúc thật của sản phẩm.</div>
+
+</body>
+</html>

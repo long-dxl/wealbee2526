@@ -507,8 +507,8 @@ def _count_bundle(b: dict) -> tuple[int, int, int]:
     return ns, nn, nf
 
 
-_NO_CREDIT_MSG = ("⚠️ **Bạn đã hết credit hôm nay.** Credit sẽ được nạp lại vào ngày mai, "
-                  "hoặc nâng cấp gói để có thêm credit và nhiều agent hơn.")
+_NO_CREDIT_MSG = ("⚠️ **Bạn đã hết Beeny hôm nay.** Beeny sẽ được nạp lại vào ngày mai, "
+                  "hoặc nâng cấp gói để có thêm Beeny và nhiều agent hơn.")
 
 
 def _charge(user_id: str | None, acc: dict, note: str) -> dict:

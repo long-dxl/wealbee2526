@@ -628,7 +628,7 @@ Deno.serve(async (req) => {
   const { ok: hasCr } = await hasCredits(sb, user.id);
   if (!hasCr) {
     return new Response(JSON.stringify({
-      error: "Bạn đã hết credit hôm nay. Credit sẽ được nạp lại vào ngày mai, hoặc nâng cấp gói để có thêm.",
+      error: "Bạn đã hết Beeny hôm nay. Beeny sẽ được nạp lại vào ngày mai, hoặc nâng cấp gói để có thêm.",
       code: "not_enough_credits",
     }), { status: 402, headers: { ...CORS, "Content-Type": "application/json" } });
   }

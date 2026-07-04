@@ -10,13 +10,12 @@ Ghi ví CHỈ bằng service role (brain). plan đọc từ user_profiles.plan (
 """
 from __future__ import annotations
 
-import math
 from datetime import datetime, timezone, timedelta
 
 VN_TZ = timezone(timedelta(hours=7))
 
-# ── Kinh tế ────────────────────────────────────────────────────────────────────
-VND_PER_CREDIT = 40.0
+# ── Kinh tế: Beeny = đơn vị tiền Wealbee. 1000đ = 25 Beeny → 1 Beeny = 40đ ───────
+VND_PER_BEENY = 40.0
 USD_VND = 26000.0
 # Giá gpt-5-mini (USD / 1 token)
 PRICE_IN = 0.25 / 1e6
@@ -45,11 +44,11 @@ def cost_vnd(tokens_in: int, tokens_out: int) -> float:
     return (tokens_in * PRICE_IN + tokens_out * PRICE_OUT) * USD_VND
 
 
-def credits_for(tokens_in: int, tokens_out: int) -> int:
-    """Số credit phải trừ cho 1 lượt — theo token thật, tối thiểu 1."""
+def beeny_for(tokens_in: int, tokens_out: int) -> float:
+    """Phí 1 lượt bằng Beeny — SỐ THỰC (làm tròn 4 chữ số, không làm tròn lên)."""
     if tokens_in <= 0 and tokens_out <= 0:
-        return 0
-    return max(1, math.ceil(cost_vnd(tokens_in, tokens_out) / VND_PER_CREDIT))
+        return 0.0
+    return round(cost_vnd(tokens_in, tokens_out) / VND_PER_BEENY, 4)
 
 
 def _today_vn():
@@ -97,22 +96,22 @@ def get_wallet(sb, user_id: str) -> dict:
 
 
 def has_credits(sb, user_id: str) -> tuple[bool, float]:
-    """(đủ để chạy ≥1 lượt?, balance hiện tại) — gọi TRƯỚC khi chạy."""
+    """(còn Beeny để chạy?, balance hiện tại) — gọi TRƯỚC khi chạy."""
     try:
         w = get_wallet(sb, user_id)
-        return float(w["balance"]) >= 1, float(w["balance"])
+        return float(w["balance"]) > 0, float(w["balance"])
     except Exception:
         return True, -1  # lỗi hạ tầng ví → không chặn người dùng
 
 
 def deduct(sb, user_id: str, tokens_in: int, tokens_out: int, note: str = "") -> dict:
-    """Trừ credit theo token thật SAU khi chạy xong. Cho phép âm nhẹ (lượt đang chạy dở)."""
-    n = credits_for(tokens_in, tokens_out)
+    """Trừ Beeny theo phí thật SAU khi chạy xong. Cho phép âm nhẹ (lượt đang chạy dở)."""
+    n = beeny_for(tokens_in, tokens_out)
     if n <= 0:
         return {"credits_used": 0, "balance": None}
     try:
         w = get_wallet(sb, user_id)
-        new_bal = float(w["balance"]) - n
+        new_bal = round(float(w["balance"]) - n, 4)
         sb.table("user_credits").update({
             "balance": new_bal,
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -121,7 +120,7 @@ def deduct(sb, user_id: str, tokens_in: int, tokens_out: int, note: str = "") ->
              round(cost_vnd(tokens_in, tokens_out), 2), note)
         return {"credits_used": n, "balance": new_bal}
     except Exception as e:
-        print(f"    [!] trừ credit lỗi: {str(e)[:120]}")
+        print(f"    [!] trừ Beeny lỗi: {str(e)[:120]}")
         return {"credits_used": n, "balance": None}
 
 

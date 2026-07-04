@@ -9,6 +9,7 @@ import { CreateAgentModal } from "./CreateAgentModal";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { ProtectedRoute } from "./protected-route";
 import { supabase } from "../lib/supabase/client";
+import { getPlanAndBeeny } from "../lib/plan-limits";
 import type { ContextCard } from "../types/cards";
 
 // ─── Route → page-id mapping ──────────────────────────────────────────────────
@@ -51,43 +52,35 @@ function NewLayoutInner() {
   const [actionHubOpen, setActionHubOpen] = useState(true);
   const [hubWidth, setHubWidth] = useState(380);
   const [hubContextCards, setHubContextCards] = useState<ContextCard[]>([]);
-  const [tokenUsed, setTokenUsed] = useState(0);
+  const [planLabel, setPlanLabel] = useState("Free");
+  const [beenyBalance, setBeenyBalance] = useState<number | null>(null);
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
-  const TOKEN_LIMIT = 500_000;
 
-  const fetchTokens = (userId: string) => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    supabase
-      .from("agent_runs")
-      .select("tokens_used")
-      .eq("user_id", userId)
-      .eq("status", "completed")
-      .gte("started_at", todayStart.toISOString())
-      .then(({ data }) => {
-        const total = (data ?? []).reduce((sum, r) => sum + (r.tokens_used ?? 0), 0);
-        setTokenUsed(total);
-      });
+  const fetchWallet = (userId: string) => {
+    getPlanAndBeeny(userId).then(({ label, balance }) => {
+      setPlanLabel(label);
+      setBeenyBalance(balance);
+    });
   };
 
   // Load ngay khi session sẵn sàng (getSession đọc localStorage, không cần network)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) fetchTokens(session.user.id);
+      if (session?.user) fetchWallet(session.user.id);
     });
 
     // Lắng nghe auth thay đổi (login/logout) để cập nhật
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) fetchTokens(session.user.id);
-      else setTokenUsed(0);
+      if (session?.user) fetchWallet(session.user.id);
+      else { setPlanLabel("Free"); setBeenyBalance(null); }
     });
     return () => subscription.unsubscribe();
   }, []);
 
-  // Refresh khi chuyển trang
+  // Refresh khi chuyển trang (số dư đổi sau khi chạy agent/ActionHub)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) fetchTokens(session.user.id);
+      if (session?.user) fetchWallet(session.user.id);
     });
   }, [location.pathname]);
 
@@ -142,8 +135,8 @@ function NewLayoutInner() {
         onToggleCollapse={() => setSidebarCollapsed(v => !v)}
         inboxCount={0}
         hasAgentRunning={false}
-        tokenUsed={tokenUsed}
-        tokenLimit={TOKEN_LIMIT}
+        planLabel={planLabel}
+        beenyBalance={beenyBalance}
         isDark={isDark}
         theme={theme}
       />

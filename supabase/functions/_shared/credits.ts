@@ -1,10 +1,11 @@
-// _shared/credits.ts — Ví credit (Deno/Edge), NHẤT QUÁN với kg-stock-vn/core/credits.py.
-// 1 credit = 40đ giá trị API (gpt-5-mini). Trừ theo token thật, tối thiểu 1 credit/lượt.
-// Refill LAZY: lần chạm ví đầu tiên mỗi ngày (giờ VN) cộng refill của gói, chặn ở trần.
+// _shared/credits.ts — Ví Beeny (Deno/Edge), NHẤT QUÁN với kg-stock-vn/core/credits.py.
+// Beeny = đơn vị tiền của Wealbee. Quy đổi: 1000đ = 25 Beeny  →  1 Beeny = 40đ.
+// Mỗi lượt gọi AI trả về token thật → tính phí USD → ×26.000 = VND → ÷40 = Beeny (SỐ THỰC,
+// trừ theo phí thật, KHÔNG làm tròn lên số nguyên). Refill LAZY theo ngày VN, chặn ở trần.
 
 // deno-lint-ignore-file no-explicit-any
 
-export const VND_PER_CREDIT = 40;
+export const VND_PER_BEENY = 40;   // 1000đ = 25 Beeny
 const USD_VND = 26000;
 const PRICE_IN = 0.25 / 1e6;   // gpt-5-mini USD/token input
 const PRICE_OUT = 2.00 / 1e6;  // gpt-5-mini USD/token output
@@ -27,9 +28,10 @@ export function costVnd(tokensIn: number, tokensOut: number): number {
   return (tokensIn * PRICE_IN + tokensOut * PRICE_OUT) * USD_VND;
 }
 
-export function creditsFor(tokensIn: number, tokensOut: number): number {
+/** Phí 1 lượt tính bằng Beeny — SỐ THỰC (làm tròn 4 chữ số thập phân, không ceil). */
+export function beenyFor(tokensIn: number, tokensOut: number): number {
   if (tokensIn <= 0 && tokensOut <= 0) return 0;
-  return Math.max(1, Math.ceil(costVnd(tokensIn, tokensOut) / VND_PER_CREDIT));
+  return Math.round((costVnd(tokensIn, tokensOut) / VND_PER_BEENY) * 10000) / 10000;
 }
 
 function todayVN(): string {
@@ -78,24 +80,24 @@ export async function getWallet(sb: any, userId: string): Promise<{ plan: string
   return { plan, balance };
 }
 
-/** Đủ chạy ≥1 lượt? (gọi TRƯỚC khi chạy). Lỗi hạ tầng ví → không chặn. */
+/** Còn Beeny để chạy? (gọi TRƯỚC khi chạy). Lỗi hạ tầng ví → không chặn. */
 export async function hasCredits(sb: any, userId: string): Promise<{ ok: boolean; balance: number }> {
   try {
     const w = await getWallet(sb, userId);
-    return { ok: w.balance >= 1, balance: w.balance };
+    return { ok: w.balance > 0, balance: w.balance };
   } catch (_e) {
     return { ok: true, balance: -1 };
   }
 }
 
-/** Trừ theo token thật SAU khi chạy (cho phép âm nhẹ với lượt đang dở). */
+/** Trừ Beeny theo phí thật SAU khi chạy (cho phép âm nhẹ với lượt đang dở). */
 export async function deduct(sb: any, userId: string, tokensIn: number, tokensOut: number,
                              note = ""): Promise<{ credits_used: number; balance: number | null }> {
-  const n = creditsFor(tokensIn, tokensOut);
+  const n = beenyFor(tokensIn, tokensOut);
   if (n <= 0) return { credits_used: 0, balance: null };
   try {
     const w = await getWallet(sb, userId);
-    const newBal = w.balance - n;
+    const newBal = Math.round((w.balance - n) * 10000) / 10000;
     await sb.from("user_credits").update({
       balance: newBal, updated_at: new Date().toISOString(),
     }).eq("user_id", userId);

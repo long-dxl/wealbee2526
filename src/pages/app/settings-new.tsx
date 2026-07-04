@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Link2, Unlink, Eye, EyeOff } from "lucide-react";
 import { useTheme } from "../../lib/theme-context";
 import { supabase } from "../../lib/supabase/client";
+import { getPlanAndBeeny, fmtBeeny, PLAN_LIMITS } from "../../lib/plan-limits";
 import { useBrokerConfig, type BrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { discoverAccounts } from "../../lib/services/dnse";
 
@@ -102,71 +103,59 @@ export function Settings() {
     agentAlert:   true,
   });
 
-  // ── Token usage (real from Supabase) ──────────────────────────────────────
-  interface UsageRow { day: string; tokens: number; }
-  interface UsageLog { created_at: string; tokens_used: number; label: string; source: "test" | "run"; }
+  // ── Ví Beeny (real from Supabase) ─────────────────────────────────────────
+  interface UsageRow { day: string; beeny: number; }
+  interface UsageLog { created_at: string; beeny: number; label: string }
   const [usageChart,   setUsageChart]   = useState<UsageRow[]>([]);
   const [usageLog,     setUsageLog]     = useState<UsageLog[]>([]);
-  const [totalTokens,  setTotalTokens]  = useState(0);
+  const [totalBeeny,   setTotalBeeny]   = useState(0);
+  const [balance,      setBalance]      = useState<number | null>(null);
+  const [plan,         setPlan]         = useState("free");
   const [loadingUsage, setLoadingUsage] = useState(true);
 
-  useEffect(() => { loadProfile(); loadTokenUsage(); }, []);
+  useEffect(() => { loadProfile(); loadBeenyUsage(); }, []);
 
-  const loadTokenUsage = async () => {
+  const loadBeenyUsage = async () => {
     setLoadingUsage(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const since = new Date(Date.now() - 30 * 86400000).toISOString();
 
-      // Load agent_test_sessions (chạy thử trong studio)
-      const { data: tests } = await supabase
-        .from("agent_test_sessions")
-        .select("created_at, tokens_used, config, status")
+      // Số dư + gói hiện tại
+      const { plan: p, balance: bal } = await getPlanAndBeeny(user.id);
+      setPlan(p); setBalance(bal);
+
+      // Lịch sử tiêu Beeny (mỗi lượt trừ = 1 giao dịch kind='deduct')
+      const { data: txs } = await supabase
+        .from("credit_transactions")
+        .select("created_at, delta, note, kind")
         .eq("user_id", user.id)
+        .eq("kind", "deduct")
         .gte("created_at", since)
         .order("created_at", { ascending: false })
-        .limit(200);
+        .limit(300);
 
-      // Load agent_runs (chạy thật)
-      const { data: runs } = await supabase
-        .from("agent_runs")
-        .select("started_at, tokens_used, agent_id, status")
-        .eq("user_id", user.id)
-        .gte("started_at", since)
-        .order("started_at", { ascending: false })
-        .limit(200);
-
-      // Aggregate by day for chart
       const dayMap: Record<string, number> = {};
       const logs: UsageLog[] = [];
-
-      for (const t of (tests ?? [])) {
-        if (!t.tokens_used) continue;
-        const day = t.created_at.substring(0, 10);
-        dayMap[day] = (dayMap[day] ?? 0) + t.tokens_used;
-        const agentName = t.config?.agentName ?? t.config?.templateId ?? "Chạy thử";
-        logs.push({ created_at: t.created_at, tokens_used: t.tokens_used, label: agentName, source: "test" });
-      }
-      for (const r of (runs ?? [])) {
-        if (!r.tokens_used) continue;
-        const day = r.started_at.substring(0, 10);
-        dayMap[day] = (dayMap[day] ?? 0) + r.tokens_used;
-        logs.push({ created_at: r.started_at, tokens_used: r.tokens_used, label: "Chạy agent", source: "run" });
+      for (const t of (txs ?? [])) {
+        const spent = Math.abs(Number(t.delta) || 0);
+        if (spent <= 0) continue;
+        const day = (t.created_at as string).substring(0, 10);
+        dayMap[day] = (dayMap[day] ?? 0) + spent;
+        logs.push({ created_at: t.created_at, beeny: spent, label: (t.note as string) || "Chạy AI" });
       }
 
-      // Build 30-day chart array (fill missing days with 0)
       const chart: UsageRow[] = [];
       for (let i = 29; i >= 0; i--) {
         const d = new Date(Date.now() - i * 86400000);
         const key = d.toISOString().substring(0, 10);
-        const label = `${d.getDate()}/${d.getMonth() + 1}`;
-        chart.push({ day: label, tokens: dayMap[key] ?? 0 });
+        chart.push({ day: `${d.getDate()}/${d.getMonth() + 1}`, beeny: Math.round((dayMap[key] ?? 0) * 100) / 100 });
       }
 
       setUsageChart(chart);
-      setUsageLog(logs.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 20));
-      setTotalTokens(Object.values(dayMap).reduce((s, v) => s + v, 0));
+      setUsageLog(logs.slice(0, 20));
+      setTotalBeeny(Math.round(Object.values(dayMap).reduce((s, v) => s + v, 0) * 100) / 100);
     } finally {
       setLoadingUsage(false);
     }
@@ -258,9 +247,9 @@ export function Settings() {
   const FONT         = "'Montserrat', system-ui, sans-serif";
 
   const plans = [
-    { id: "free",    name: "Free",  price: "0đ",       period: "/tháng", features: ["5 agents tối đa", "500k tokens/ngày", "Watchlist 10 mã", "Daily Digest + Portfolio Health"] },
-    { id: "pro",     name: "Pro",   price: "199,000đ", period: "/tháng", features: ["20 agents", "5M tokens/ngày", "Watchlist 50 mã", "Tất cả 6 templates", "Deep Research", "Email digest"], popular: true },
-    { id: "proplus", name: "Pro+",  price: "499,000đ", period: "/tháng", features: ["Không giới hạn agents", "20M tokens/ngày", "Watchlist 200 mã", "Priority support", "Custom tools", "API access"] },
+    { id: "free",    name: "Free",    price: "0đ",       period: "/tháng", features: ["Tối đa 2 Agent", "10 Beeny/ngày", "Báo cáo cơ bản", "Hỗ trợ cộng đồng"] },
+    { id: "pro",     name: "Pro",     price: "199.000đ", period: "/tháng", features: ["Tối đa 5 Agent", "100 Beeny/ngày", "Tất cả tính năng Free", "Deep Research", "Email digest", "Hỗ trợ ưu tiên"], popular: true },
+    { id: "premium", name: "Premium", price: "499.000đ", period: "/tháng", features: ["Tối đa 15 Agent", "250 Beeny/ngày", "Tất cả tính năng Pro", "Ưu tiên xử lý tức thì", "Truy cập sớm tính năng mới"] },
   ];
 
   return (
@@ -619,10 +608,10 @@ export function Settings() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <CreditCard size={16} color={theme.brand} strokeWidth={1.8} />
-                    <span style={{ fontSize: 15, fontWeight: 700, color: headingColor, fontFamily: FONT }}>Tokens đã dùng (30 ngày)</span>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.09)", color: theme.brand, fontFamily: FONT }}>Free</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: headingColor, fontFamily: FONT }}>Số dư & tiêu dùng Beeny</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.09)", color: theme.brand, fontFamily: FONT }}>{PLAN_LIMITS[plan]?.label ?? "Free"}</span>
                   </div>
-                  <button onClick={loadTokenUsage} title="Làm mới" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 8, border: "0.5px solid " + borderColor, background: "transparent", cursor: "pointer" }}>
+                  <button onClick={loadBeenyUsage} title="Làm mới" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 8, border: "0.5px solid " + borderColor, background: "transparent", cursor: "pointer" }}>
                     <RefreshCw size={14} color={subtleColor} strokeWidth={1.8} />
                   </button>
                 </div>
@@ -633,17 +622,22 @@ export function Settings() {
                   </div>
                 ) : (
                   <>
-                    {/* Tổng tokens */}
+                    {/* Số dư hiện tại + tiêu dùng */}
                     <div style={{ display: "flex", gap: 20, marginBottom: 18 }}>
+                      <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(245,197,24,0.09)" : "rgba(184,134,11,0.07)", border: "0.5px solid " + borderColor }}>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Số dư hiện tại</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: isDark ? "#F5C518" : "#B8860B", fontFamily: FONT }}>{balance == null ? "…" : fmtBeeny(balance)}</div>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>Beeny · nạp {PLAN_LIMITS[plan]?.refill ?? 10}/ngày</div>
+                      </div>
                       <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(77,143,232,0.07)" : "rgba(8,73,172,0.05)", border: "0.5px solid " + borderColor }}>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Tổng 30 ngày</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: theme.brand, fontFamily: FONT }}>{totalTokens.toLocaleString()}</div>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>tokens</div>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Đã tiêu 30 ngày</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: theme.brand, fontFamily: FONT }}>{fmtBeeny(totalBeeny)}</div>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>Beeny</div>
                       </div>
                       <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(52,199,89,0.07)" : "rgba(52,199,89,0.05)", border: "0.5px solid " + borderColor }}>
                         <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Trung bình / ngày</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: "#1a7a3a", fontFamily: FONT }}>{Math.round(totalTokens / 30).toLocaleString()}</div>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>tokens/ngày</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "#1a7a3a", fontFamily: FONT }}>{fmtBeeny(totalBeeny / 30)}</div>
+                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>Beeny/ngày</div>
                       </div>
                       <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(255,149,0,0.07)" : "rgba(255,149,0,0.05)", border: "0.5px solid " + borderColor }}>
                         <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Số lần chạy</div>
@@ -654,18 +648,18 @@ export function Settings() {
 
                     {/* Bar chart 30 ngày */}
                     <div style={{ marginBottom: 20 }}>
-                      <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 600, color: labelColor, fontFamily: FONT }}>Sử dụng theo ngày</p>
-                      {usageChart.every(d => d.tokens === 0) ? (
+                      <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 600, color: labelColor, fontFamily: FONT }}>Beeny tiêu theo ngày</p>
+                      {usageChart.every(d => d.beeny === 0) ? (
                         <div style={{ height: 64, display: "flex", alignItems: "center", justifyContent: "center", border: "0.5px dashed " + borderColor, borderRadius: 8 }}>
                           <span style={{ fontSize: 12, color: subtleColor, fontFamily: FONT }}>Chưa có dữ liệu trong 30 ngày</span>
                         </div>
                       ) : (
                         <div style={{ height: 72, display: "flex", alignItems: "flex-end", gap: 3 }}>
                           {(() => {
-                            const max = Math.max(...usageChart.map(d => d.tokens), 1);
+                            const max = Math.max(...usageChart.map(d => d.beeny), 1);
                             return usageChart.map((d, i) => (
-                              <div key={i} title={`${d.day}: ${d.tokens.toLocaleString()} tokens`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "default" }}>
-                                <div style={{ width: "100%", height: Math.max(3, Math.round((d.tokens / max) * 60)), borderRadius: "3px 3px 0 0", background: d.tokens > 0 ? theme.brand : (isDark ? "rgba(255,255,255,0.06)" : "rgba(8,73,172,0.06)"), transition: "height 300ms ease", opacity: d.tokens > 0 ? 0.85 : 1 }} />
+                              <div key={i} title={`${d.day}: ${fmtBeeny(d.beeny)} Beeny`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "default" }}>
+                                <div style={{ width: "100%", height: Math.max(3, Math.round((d.beeny / max) * 60)), borderRadius: "3px 3px 0 0", background: d.beeny > 0 ? theme.brand : (isDark ? "rgba(255,255,255,0.06)" : "rgba(8,73,172,0.06)"), transition: "height 300ms ease", opacity: d.beeny > 0 ? 0.85 : 1 }} />
                               </div>
                             ));
                           })()}
@@ -690,12 +684,9 @@ export function Settings() {
                               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: i % 2 === 0 ? "transparent" : (isDark ? "rgba(255,255,255,0.02)" : "rgba(8,73,172,0.015)") }}>
                                 <span style={{ fontSize: 10, color: subtleColor, fontFamily: FONT, minWidth: 36 }}>{dateStr}</span>
                                 <span style={{ fontSize: 10, color: subtleColor, fontFamily: FONT, minWidth: 36 }}>{timeStr}</span>
-                                <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: row.source === "test" ? (isDark ? "rgba(255,149,0,0.12)" : "rgba(255,149,0,0.10)") : (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)"), color: row.source === "test" ? "#CC7A00" : theme.brand, fontFamily: FONT, flexShrink: 0 }}>
-                                  {row.source === "test" ? "Thử" : "Chạy"}
-                                </span>
                                 <span style={{ fontSize: 12, color: labelColor, fontFamily: FONT, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.label}</span>
-                                <span style={{ fontSize: 12, fontWeight: 700, fontFamily: FONT, color: theme.brand, minWidth: 60, textAlign: "right" }}>
-                                  {row.tokens_used.toLocaleString()} tk
+                                <span style={{ fontSize: 12, fontWeight: 700, fontFamily: FONT, color: isDark ? "#F5C518" : "#B8860B", minWidth: 70, textAlign: "right" }}>
+                                  −{fmtBeeny(row.beeny)} Beeny
                                 </span>
                               </div>
                             );
@@ -709,38 +700,46 @@ export function Settings() {
 
               {/* ── Plan cards ── */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-                {plans.map(plan => (
+                {plans.map(pl => {
+                  const isCurrent = pl.id === plan;
+                  return (
                   <div
-                    key={plan.id}
+                    key={pl.id}
                     style={{
                       background: cardBg, borderRadius: 14, padding: 20, position: "relative",
-                      border: plan.popular ? "1.5px solid " + theme.brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)"),
+                      border: isCurrent ? "1.5px solid " + theme.brand : pl.popular ? "1.5px solid " + theme.brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)"),
                       boxShadow: cardShadow,
                     }}
                   >
-                    {plan.popular && (
+                    {pl.popular && !isCurrent && (
                       <span style={{ position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", background: theme.brand, color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>
                         PHỔ BIẾN NHẤT
                       </span>
                     )}
-                    <div style={{ fontSize: 18, fontWeight: 700, color: headingColor, marginBottom: 4 }}>{plan.name}</div>
+                    {isCurrent && (
+                      <span style={{ position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", background: "#1a7a3a", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>
+                        GÓI HIỆN TẠI
+                      </span>
+                    )}
+                    <div style={{ fontSize: 18, fontWeight: 700, color: headingColor, marginBottom: 4 }}>{pl.name}</div>
                     <div style={{ marginBottom: 16 }}>
-                      <span style={{ fontSize: 24, fontWeight: 700, color: theme.brand }}>{plan.price}</span>
-                      <span style={{ fontSize: 13, color: subtleColor }}>{plan.period}</span>
+                      <span style={{ fontSize: 24, fontWeight: 700, color: theme.brand }}>{pl.price}</span>
+                      <span style={{ fontSize: 13, color: subtleColor }}>{pl.period}</span>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-                      {plan.features.map(f => (
+                      {pl.features.map(f => (
                         <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                           <Check size={14} color="#34C759" strokeWidth={2} style={{ marginTop: 2, flexShrink: 0 }} />
                           <span style={{ fontSize: 12, color: labelColor }}>{f}</span>
                         </div>
                       ))}
                     </div>
-                    <button style={{ width: "100%", padding: "10px 0", borderRadius: 10, border: "none", background: plan.id === "free" ? theme.bgAccent : plan.popular ? theme.brand : theme.bgAccent, color: plan.id === "free" ? subtleColor : plan.popular ? "#fff" : theme.brand, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
-                      {plan.id === "free" ? "Gói hiện tại" : `Nâng cấp ${plan.name}`}
+                    <button disabled={isCurrent} style={{ width: "100%", padding: "10px 0", borderRadius: 10, border: "none", background: isCurrent ? theme.bgAccent : pl.popular ? theme.brand : theme.bgAccent, color: isCurrent ? subtleColor : pl.popular ? "#fff" : theme.brand, fontSize: 13, fontWeight: 700, cursor: isCurrent ? "default" : "pointer", fontFamily: FONT }}>
+                      {isCurrent ? "Gói hiện tại" : `Nâng cấp ${pl.name}`}
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

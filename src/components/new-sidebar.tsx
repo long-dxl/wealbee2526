@@ -14,8 +14,8 @@ interface SidebarProps {
   onToggleCollapse: () => void;
   inboxCount?: number;
   hasAgentRunning?: boolean;
-  tokenUsed?: number;
-  tokenLimit?: number;
+  planLabel?: string;
+  beenyBalance?: number | null;
   isDark?: boolean;
   theme?: Theme;
 }
@@ -47,13 +47,14 @@ export function Sidebar({
   onToggleCollapse,
   inboxCount = 0,
   hasAgentRunning = false,
-  tokenUsed = 47000,
-  tokenLimit = 500000,
+  planLabel = "Free",
+  beenyBalance = null,
   isDark = false,
   theme = lightTheme,
 }: SidebarProps) {
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
-  const tokenPct = Math.round((tokenUsed / tokenLimit) * 100);
+  const beenyStr = beenyBalance == null ? "…"
+    : (() => { const r = Math.round(Math.max(0, beenyBalance) * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); })();
 
   const FONT = "'Montserrat', system-ui, sans-serif";
   const inactiveText = isDark ? "rgba(240,242,255,0.82)" : "rgba(26,26,46,0.82)";
@@ -214,19 +215,33 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Token quota */}
+      {/* Gói + số dư Beeny (thay thanh token cũ) */}
       {!collapsed && (
-        <div style={{ padding: "10px 16px", borderTop: "1px solid " + (isDark ? "rgba(255,255,255,0.06)" : "rgba(26,26,46,0.07)") }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-            <span style={{ fontSize: 11, color: inactiveText, fontFamily: FONT }}>
-              {(tokenUsed / 1000).toFixed(0)}k / {(tokenLimit / 1000).toFixed(0)}k tokens
-            </span>
-            <span style={{ fontSize: 11, color: inactiveText, fontFamily: FONT }}>{tokenPct}%</span>
-          </div>
-          <div style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.08)", borderRadius: 99, height: 4, overflow: "hidden" }}>
-            <div style={{ width: `${tokenPct}%`, background: theme.brand, height: "100%", borderRadius: 99, transition: "width 500ms ease" }} />
-          </div>
-        </div>
+        <button
+          onClick={() => onNavigate("settings")}
+          title="Gói dịch vụ & số dư Beeny"
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+            width: "calc(100% - 16px)", margin: "8px 8px 0", padding: "9px 12px",
+            borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.12)"),
+            background: "transparent", cursor: "pointer", fontFamily: FONT,
+            transition: "background 100ms ease",
+          }}
+        >
+          <span style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: "0.02em",
+            padding: "2px 8px", borderRadius: 99, flexShrink: 0,
+            background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.08)", color: theme.brand,
+          }}>
+            {planLabel}
+          </span>
+          <span style={{ display: "flex", alignItems: "baseline", gap: 4, overflow: "hidden" }}>
+            <span style={{ fontSize: 14, fontWeight: 800, color: isDark ? "#F5C518" : "#B8860B", fontFamily: FONT }}>{beenyStr}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: inactiveText, fontFamily: FONT }}>Beeny</span>
+          </span>
+        </button>
       )}
 
       {/* Footer */}
