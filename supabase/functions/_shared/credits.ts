@@ -7,8 +7,9 @@
 
 export const VND_PER_BEENY = 40;   // 1000đ = 25 Beeny
 const USD_VND = 26000;
-const PRICE_IN = 0.25 / 1e6;   // gpt-5-mini USD/token input
-const PRICE_OUT = 2.00 / 1e6;  // gpt-5-mini USD/token output
+const PRICE_IN = 0.25 / 1e6;    // gpt-5-mini USD/token input (chưa cache)
+const PRICE_CACHED = 0.025 / 1e6; // input ĐÃ CACHE = 10% giá (OpenAI prompt caching)
+const PRICE_OUT = 2.00 / 1e6;   // gpt-5-mini USD/token output
 
 export const PLANS: Record<string, { agents: number; refill: number; cap: number }> = {
   free:    { agents: 2,  refill: 10,  cap: 20 },
@@ -24,14 +25,16 @@ export function normPlan(p?: string | null): string {
   return "free";
 }
 
-export function costVnd(tokensIn: number, tokensOut: number): number {
-  return (tokensIn * PRICE_IN + tokensOut * PRICE_OUT) * USD_VND;
+/** Phí VND. cachedIn = số token input được OpenAI phục vụ từ cache (tính 10% giá). */
+export function costVnd(tokensIn: number, tokensOut: number, cachedIn = 0): number {
+  const fresh = Math.max(0, tokensIn - cachedIn);
+  return (fresh * PRICE_IN + cachedIn * PRICE_CACHED + tokensOut * PRICE_OUT) * USD_VND;
 }
 
 /** Phí 1 lượt tính bằng Beeny — SỐ THỰC (làm tròn 4 chữ số thập phân, không ceil). */
-export function beenyFor(tokensIn: number, tokensOut: number): number {
+export function beenyFor(tokensIn: number, tokensOut: number, cachedIn = 0): number {
   if (tokensIn <= 0 && tokensOut <= 0) return 0;
-  return Math.round((costVnd(tokensIn, tokensOut) / VND_PER_BEENY) * 10000) / 10000;
+  return Math.round((costVnd(tokensIn, tokensOut, cachedIn) / VND_PER_BEENY) * 10000) / 10000;
 }
 
 function todayVN(): string {
@@ -90,10 +93,11 @@ export async function hasCredits(sb: any, userId: string): Promise<{ ok: boolean
   }
 }
 
-/** Trừ Beeny theo phí thật SAU khi chạy (cho phép âm nhẹ với lượt đang dở). */
+/** Trừ Beeny theo phí thật SAU khi chạy (cho phép âm nhẹ với lượt đang dở).
+ *  cachedIn = token input phục vụ từ cache (tính 10% giá). */
 export async function deduct(sb: any, userId: string, tokensIn: number, tokensOut: number,
-                             note = ""): Promise<{ credits_used: number; balance: number | null }> {
-  const n = beenyFor(tokensIn, tokensOut);
+                             note = "", cachedIn = 0): Promise<{ credits_used: number; balance: number | null }> {
+  const n = beenyFor(tokensIn, tokensOut, cachedIn);
   if (n <= 0) return { credits_used: 0, balance: null };
   try {
     const w = await getWallet(sb, userId);
@@ -102,7 +106,7 @@ export async function deduct(sb: any, userId: string, tokensIn: number, tokensOu
       balance: newBal, updated_at: new Date().toISOString(),
     }).eq("user_id", userId);
     await log(sb, userId, -n, newBal, "deduct", tokensIn, tokensOut,
-              Math.round(costVnd(tokensIn, tokensOut) * 100) / 100, note);
+              Math.round(costVnd(tokensIn, tokensOut, cachedIn) * 100) / 100, note);
     return { credits_used: n, balance: newBal };
   } catch (_e) {
     return { credits_used: n, balance: null };

@@ -291,7 +291,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
   const decoder = new TextDecoder();
   let accumulated = "";
   let tokensUsed = 0;
-  let tokensIn = 0, tokensOut = 0;
+  let tokensIn = 0, tokensOut = 0, cachedIn = 0;
   let leftover = "";
 
   while (true) {
@@ -312,12 +312,13 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
           tokensUsed = parsed.usage.total_tokens;
           tokensIn = parsed.usage.prompt_tokens ?? 0;
           tokensOut = parsed.usage.completion_tokens ?? 0;
+          cachedIn = parsed.usage.prompt_tokens_details?.cached_tokens ?? 0;
         }
       } catch { /* skip */ }
     }
   }
 
-  return { output: accumulated, tokensUsed, tokensIn, tokensOut, refs: registry.toArray() };
+  return { output: accumulated, tokensUsed, tokensIn, tokensOut, cachedIn, refs: registry.toArray() };
 }
 
 // ── Deep research dry-run (with real DB data) ─────────────────────────────────
@@ -376,7 +377,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
   const decoder = new TextDecoder();
   let accumulated = "";
   let tokensUsed = 0;
-  let tokensIn = 0, tokensOut = 0;
+  let tokensIn = 0, tokensOut = 0, cachedIn = 0;
   let leftover = "";
 
   while (true) {
@@ -397,12 +398,13 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
           tokensUsed = parsed.usage.total_tokens;
           tokensIn = parsed.usage.prompt_tokens ?? 0;
           tokensOut = parsed.usage.completion_tokens ?? 0;
+          cachedIn = parsed.usage.prompt_tokens_details?.cached_tokens ?? 0;
         }
       } catch { /* skip */ }
     }
   }
 
-  return { output: accumulated, tokensUsed, tokensIn, tokensOut, refs: registry.toArray() };
+  return { output: accumulated, tokensUsed, tokensIn, tokensOut, cachedIn, refs: registry.toArray() };
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -485,9 +487,9 @@ Deno.serve(async (req) => {
     const prompt = systemPrompt ?? "Bạn là chuyên gia phân tích chứng khoán Việt Nam. Phân tích mã __TARGET_SYMBOL__.";
     const t0 = Date.now();
     try {
-      const { output, tokensUsed, tokensIn, tokensOut, refs } = await runDeepResearchDry(prompt, targetSymbol, gptModel);
+      const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDeepResearchDry(prompt, targetSymbol, gptModel);
       await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
-      const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử deep_research");
+      const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử deep_research", cachedIn);
       return new Response(JSON.stringify({ output, tokensUsed, targetSymbol, refs, ...charge }), {
         headers: { ...CORS, "Content-Type": "application/json" },
       });
@@ -506,9 +508,9 @@ Deno.serve(async (req) => {
 
   const t0 = Date.now();
   try {
-    const { output, tokensUsed, tokensIn, tokensOut, refs } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, gptModel);
+    const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, gptModel);
     await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
-    const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử daily_digest");
+    const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử daily_digest", cachedIn);
     return new Response(JSON.stringify({ output, tokensUsed, refs, ...charge }), {
       headers: { ...CORS, "Content-Type": "application/json" },
     });

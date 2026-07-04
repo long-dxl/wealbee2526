@@ -57,16 +57,17 @@ _usage_acc: contextvars.ContextVar = contextvars.ContextVar("usage_acc", default
 
 
 def _usage_begin() -> dict:
-    acc = {"in": 0, "out": 0, "calls": 0}
+    acc = {"in": 0, "out": 0, "cached": 0, "calls": 0}
     _usage_acc.set(acc)
     return acc
 
 
-def _usage_track(tin: int, tout: int):
+def _usage_track(tin: int, tout: int, cached: int = 0):
     acc = _usage_acc.get()
     if acc is not None:
         acc["in"] += int(tin or 0)
         acc["out"] += int(tout or 0)
+        acc["cached"] += int(cached or 0)
         acc["calls"] += 1
 
 
@@ -83,7 +84,9 @@ def _oa_gen(prompt: str, system: str, json_mode: bool = False,
     )
     u = getattr(r, "usage", None)
     if u:
-        _usage_track(getattr(u, "prompt_tokens", 0), getattr(u, "completion_tokens", 0))
+        det = getattr(u, "prompt_tokens_details", None)
+        cached = getattr(det, "cached_tokens", 0) if det else 0
+        _usage_track(getattr(u, "prompt_tokens", 0), getattr(u, "completion_tokens", 0), cached)
     return (r.choices[0].message.content or "").strip()
 
 app = FastAPI(title="KG-Stock-VN brain (Wealbee ActionHub)")
@@ -519,7 +522,7 @@ def _charge(user_id: str | None, acc: dict, note: str) -> dict:
     sb = wb._wb()
     if sb is None:
         return {}
-    return cr.deduct(sb, user_id, acc["in"], acc["out"], note)
+    return cr.deduct(sb, user_id, acc["in"], acc["out"], note, acc.get("cached", 0))
 
 
 @app.post("/analyze")

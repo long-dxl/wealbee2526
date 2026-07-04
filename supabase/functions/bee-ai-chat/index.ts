@@ -682,6 +682,7 @@ Deno.serve(async (req) => {
       let totalToks = 0;
       let inputTok  = 0;
       let outputTok = 0;
+      let cachedTok = 0;
 
       try {
         // ── Framework step 1: Observe ─────────────────────────────────────
@@ -723,6 +724,7 @@ Deno.serve(async (req) => {
           totalToks += callJson.usage?.total_tokens ?? 0;
           inputTok  += callJson.usage?.prompt_tokens ?? 0;
           outputTok += callJson.usage?.completion_tokens ?? 0;
+          cachedTok += callJson.usage?.prompt_tokens_details?.cached_tokens ?? 0;
           const assistantMsg = callJson.choices?.[0]?.message;
 
           if (!assistantMsg?.tool_calls?.length) {
@@ -874,6 +876,7 @@ Deno.serve(async (req) => {
                     totalToks += p.usage.total_tokens;
                     inputTok  += p.usage.prompt_tokens ?? 0;
                     outputTok += p.usage.completion_tokens ?? 0;
+                    cachedTok += p.usage.prompt_tokens_details?.cached_tokens ?? 0;
                   }
                 } catch { /* skip */ }
               }
@@ -899,7 +902,7 @@ Deno.serve(async (req) => {
         }
 
         // ── Trừ credit theo token thật (1 credit = 40đ giá trị API) ──
-        const charge = await deduct(sb, user.id, inputTok, outputTok, "actionhub bee-ai-chat");
+        const charge = await deduct(sb, user.id, inputTok, outputTok, "actionhub bee-ai-chat", cachedTok);
 
         ctrl.enqueue(sse({
           type: "done",

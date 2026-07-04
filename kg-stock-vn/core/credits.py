@@ -19,6 +19,7 @@ VND_PER_BEENY = 40.0
 USD_VND = 26000.0
 # Giá gpt-5-mini (USD / 1 token)
 PRICE_IN = 0.25 / 1e6
+PRICE_CACHED = 0.025 / 1e6   # input đã cache = 10% giá
 PRICE_OUT = 2.00 / 1e6
 
 # Gói: agent tối đa · refill/ngày · trần balance
@@ -40,15 +41,16 @@ def norm_plan(p) -> str:
     return "free"
 
 
-def cost_vnd(tokens_in: int, tokens_out: int) -> float:
-    return (tokens_in * PRICE_IN + tokens_out * PRICE_OUT) * USD_VND
+def cost_vnd(tokens_in: int, tokens_out: int, cached_in: int = 0) -> float:
+    fresh = max(0, tokens_in - cached_in)
+    return (fresh * PRICE_IN + cached_in * PRICE_CACHED + tokens_out * PRICE_OUT) * USD_VND
 
 
-def beeny_for(tokens_in: int, tokens_out: int) -> float:
+def beeny_for(tokens_in: int, tokens_out: int, cached_in: int = 0) -> float:
     """Phí 1 lượt bằng Beeny — SỐ THỰC (làm tròn 4 chữ số, không làm tròn lên)."""
     if tokens_in <= 0 and tokens_out <= 0:
         return 0.0
-    return round(cost_vnd(tokens_in, tokens_out) / VND_PER_BEENY, 4)
+    return round(cost_vnd(tokens_in, tokens_out, cached_in) / VND_PER_BEENY, 4)
 
 
 def _today_vn():
@@ -104,9 +106,10 @@ def has_credits(sb, user_id: str) -> tuple[bool, float]:
         return True, -1  # lỗi hạ tầng ví → không chặn người dùng
 
 
-def deduct(sb, user_id: str, tokens_in: int, tokens_out: int, note: str = "") -> dict:
-    """Trừ Beeny theo phí thật SAU khi chạy xong. Cho phép âm nhẹ (lượt đang chạy dở)."""
-    n = beeny_for(tokens_in, tokens_out)
+def deduct(sb, user_id: str, tokens_in: int, tokens_out: int, note: str = "", cached_in: int = 0) -> dict:
+    """Trừ Beeny theo phí thật SAU khi chạy xong. Cho phép âm nhẹ (lượt đang chạy dở).
+    cached_in = token input phục vụ từ cache (tính 10% giá)."""
+    n = beeny_for(tokens_in, tokens_out, cached_in)
     if n <= 0:
         return {"credits_used": 0, "balance": None}
     try:
@@ -117,7 +120,7 @@ def deduct(sb, user_id: str, tokens_in: int, tokens_out: int, note: str = "") ->
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }).eq("user_id", user_id).execute()
         _log(sb, user_id, -n, new_bal, "deduct", tokens_in, tokens_out,
-             round(cost_vnd(tokens_in, tokens_out), 2), note)
+             round(cost_vnd(tokens_in, tokens_out, cached_in), 2), note)
         return {"credits_used": n, "balance": new_bal}
     except Exception as e:
         print(f"    [!] trừ Beeny lỗi: {str(e)[:120]}")

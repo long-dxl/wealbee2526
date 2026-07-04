@@ -1049,7 +1049,7 @@ ${toolDefs.length > 0
 
         let fullOutput = "";
         let tokens = 0;
-        let tokensIn = 0, tokensOut = 0;
+        let tokensIn = 0, tokensOut = 0, cachedIn = 0;
         const MAX_TOOL_ITERS = 8; // max tool-call rounds before forcing final answer
 
         for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
@@ -1080,6 +1080,7 @@ ${toolDefs.length > 0
             tokens += json.usage?.total_tokens ?? 0;
             tokensIn  += json.usage?.prompt_tokens ?? 0;
             tokensOut += json.usage?.completion_tokens ?? 0;
+            cachedIn  += json.usage?.prompt_tokens_details?.cached_tokens ?? 0;
             const assistantMsg = json.choices?.[0]?.message;
 
             if (!assistantMsg?.tool_calls?.length) {
@@ -1251,6 +1252,7 @@ QUY TẮC:
             tokens    += valJson.usage?.total_tokens ?? 0;
             tokensIn  += valJson.usage?.prompt_tokens ?? 0;
             tokensOut += valJson.usage?.completion_tokens ?? 0;
+            cachedIn  += valJson.usage?.prompt_tokens_details?.cached_tokens ?? 0;
             let validated = valJson.choices?.[0]?.message?.content?.trim() ?? "";
             // Restore [ref:N] tokens from placeholders
             for (const [ph, ref] of Object.entries(refPlaceholders)) {
@@ -1367,7 +1369,7 @@ QUY TẮC:
         }
 
         // Trừ credit theo token thật (1 credit = 40đ giá trị API)
-        const charge = await deduct(sb, user.id, tokensIn, tokensOut, `run-agent:${agent.name ?? ""}`.slice(0, 80));
+        const charge = await deduct(sb, user.id, tokensIn, tokensOut, `run-agent:${agent.name ?? ""}`.slice(0, 80), cachedIn);
 
         emit({ type: "done", title, brief_id: brief?.id, run_id: run.id, tokens, duration_ms: durationMs, credits_used: charge.credits_used, balance: charge.balance });
 
