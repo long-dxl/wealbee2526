@@ -797,6 +797,36 @@ async function executeToolCall(
   return `Tool không được hỗ trợ: ${name}`;
 }
 
+// Nạp sẵn TOÀN BỘ tool đang bật (song song) → 1 khối ngữ cảnh, để gọi LLM đúng 1 lần
+// thay cho tool-loop. Output không đổi vì câu trả lời cuối vẫn thấy đúng ngần ấy dữ liệu.
+async function prefetchToolContext(
+  toolNames: string[], syms: string[], registry: SourceRegistry, sources: Source[],
+  userId: string, kbDocIds: string[], newsFilter?: string[], kbQuery?: string,
+): Promise<string> {
+  const want = new Set(toolNames);
+  const jobs: Promise<string>[] = [];
+  const add = (title: string, p: Promise<string>) =>
+    jobs.push(p.then(r => `### ${title}\n${r}`).catch(e => `### ${title}\n(lỗi: ${String(e).slice(0, 80)})`));
+
+  if (want.has("price_feed"))
+    add("GIÁ & CHỈ SỐ THỊ TRƯỜNG", executeToolCall("price_feed", {}, registry, sources, userId, kbDocIds, newsFilter));
+  if (want.has("news_feed"))
+    add("TIN TỨC (48H)", executeToolCall("news_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
+  if (want.has("portfolio_read"))
+    add("DANH MỤC ĐẦU TƯ", executeToolCall("portfolio_read", {}, registry, sources, userId, kbDocIds, newsFilter));
+  for (const sym of syms) {
+    if (want.has("financials"))
+      add(`BÁO CÁO TÀI CHÍNH ${sym}`, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
+    if (want.has("value_chain"))
+      add(`CHUỖI GIÁ TRỊ ${sym}`, executeToolCall("value_chain", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
+  }
+  if (want.has("kb_search") && kbQuery)
+    add("KNOWLEDGE BASE", executeToolCall("kb_search", { query: kbQuery }, registry, sources, userId, kbDocIds, newsFilter));
+
+  const results = await Promise.all(jobs);
+  return results.join("\n\n");
+}
+
 function toolStepLabel(name: string, args: Record<string, any>): string {
   switch (name) {
     case "price_feed":     return "Giá cổ phiếu & chỉ số thị trường";
@@ -943,18 +973,31 @@ Deno.serve(async (req: Request) => {
           toolDefs.push(OPENAI_TOOL_DEFS.portfolio_read);
         }
 
-        // daily_digest: NẠP SẴN tin danh mục rồi gọi LLM ĐÚNG 1 LẦN (không tool-loop).
-        // Tool-loop gửi lại toàn bộ ngữ cảnh mỗi vòng → 80-130k token/lần; gọi-1-lần chỉ ~15-20k.
-        // Giống hệt cách "Chạy thử" (agent-dry-run) đang làm → output nhất quán.
-        let digestContext = "";
+        // daily_digest: đảm bảo luôn có news_feed + price_feed
         if (agent.template_id === "daily_digest") {
-          digestContext = await buildNewsContext(
-            sources, registry,
-            syms.length ? syms : undefined,
-            (agent as any).news_sources ?? undefined,
-          );
-          toolDefs.length = 0;  // xoá hết tool → loop chạy đúng 1 vòng (single call)
+          if (!enabledTools.includes("news_feed")) toolDefs.push(OPENAI_TOOL_DEFS.news_feed);
+          if (!enabledTools.includes("price_feed")) toolDefs.push(OPENAI_TOOL_DEFS.price_feed);
         }
+
+        // ── TỐI ƯU CHI PHÍ (giữ nguyên output) ──────────────────────────────────
+        // Thay tool-loop (LLM gọi tool từng vòng, mỗi vòng gửi lại TOÀN BỘ ngữ cảnh →
+        // độn token 80-130k) bằng: NẠP SẴN đúng bộ tool đang bật (song song, 1 lượt)
+        // rồi gọi LLM ĐÚNG 1 LẦN. Câu trả lời cuối vẫn dựa trên đúng ngần ấy dữ liệu
+        // → OUTPUT KHÔNG ĐỔI; chỉ bỏ các vòng "chọn tool" vốn chỉ tốn token, không tạo chữ.
+        const fetchToolNames: string[] = (toolDefs as any[])
+          .map(t => t.function?.name).filter(Boolean);
+        let prefetchedContext = "";
+        if (fetchToolNames.length > 0) {
+          emit({ type: "step", step: "prefetch", status: "loading", label: "Đang lấy dữ liệu (giá, tin tức, tài chính)..." });
+          prefetchedContext = await prefetchToolContext(
+            fetchToolNames, syms, registry, sources, user.id, kbDocIds,
+            (agent as any).news_sources ?? undefined,
+            syms.length ? syms.join(" ") : cleanPrompt.slice(0, 200),
+          );
+          emit({ type: "step", step: "prefetch", status: "done", label: "Đã lấy đủ dữ liệu" });
+        }
+        const hasData = prefetchedContext.length > 0;
+        toolDefs.length = 0;  // đã nạp sẵn → LLM gọi đúng 1 lần
 
         // ── Build system prompt (no pre-fetched data — data comes from tools) ─
 
@@ -995,17 +1038,14 @@ Nguyên tắc:
 
 ## ══ QUY TẮC BẮT BUỘC TUYỆT ĐỐI ══
 ${GROUNDING_RULES_FORMAT}
-**SỬ DỤNG TOOL — BẮT BUỘC${toolDefs.length === 0 ? " (không có tool nào được bật)" : ""}**
-${toolDefs.length > 0
-  ? `- Bắt buộc gọi tool để lấy dữ liệu TRƯỚC KHI viết phân tích
-- Gọi đủ tool cần thiết: price_feed cho giá/chỉ số, news_feed cho tin tức, financials cho BCTC
-- Chỉ sử dụng dữ liệu từ kết quả tool — KHÔNG dùng kiến thức nền hay số liệu từ training data`
-  : isDailyDigest
-    ? `- Tin tức đã được cung cấp SẴN ở mục NGUỒN DỮ LIỆU bên dưới — CHỈ dùng dữ liệu đó, KHÔNG cần (và không có) tool để gọi`
-    : `- Không có tool nào được bật — hãy thông báo người dùng bật tool trong Agent Studio để lấy dữ liệu thực tế`}
+**NGUỒN DỮ LIỆU**
+${hasData
+  ? `- Toàn bộ dữ liệu (giá, tin tức, tài chính...) đã được cung cấp SẴN ở mục NGUỒN DỮ LIỆU bên dưới
+- CHỈ dùng dữ liệu đó — KHÔNG dùng kiến thức nền hay số liệu từ training data`
+  : `- Chưa có dữ liệu — hãy thông báo người dùng bật tool trong Agent Studio để lấy dữ liệu thực tế`}
 
 **CHỈ VIẾT NHỮNG GÌ CÓ TRONG DỮ LIỆU**
-- Chỉ được đề cập thông tin, số liệu XUẤT HIỆN TRỰC TIẾP trong kết quả tool
+- Chỉ được đề cập thông tin, số liệu XUẤT HIỆN TRỰC TIẾP trong dữ liệu cung cấp
 - Nếu chủ đề KHÔNG có trong dữ liệu → bỏ qua hoàn toàn, không nhắc đến
 - KHÔNG ước tính, KHÔNG nội suy từ training data
 
@@ -1025,30 +1065,30 @@ ${toolDefs.length > 0
 - KHÔNG khuyến nghị mua/bán bất kỳ cổ phiếu nào
 - Cuối output PHẢI có: *"Thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019"*`;
 
-        // Nạp sẵn tin vào system prompt cho daily_digest (gọi-1-lần, không tool)
-        const digestBlock = digestContext
+        // Nạp sẵn toàn bộ dữ liệu tool vào system prompt (gọi-1-lần, không tool-loop)
+        const dataBlock = hasData
           ? `
 
 ═══════════════════════════════════════
 NGUỒN DỮ LIỆU XÁC NHẬN — CHỈ DÙNG CÁC TIN/SỐ LIỆU NÀY
 Ngày phân tích: ${new Date().toLocaleDateString("vi-VN", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Ho_Chi_Minh" })}
 ═══════════════════════════════════════
-${digestContext}
+${prefetchedContext}
 ═══════════════════════════════════════
 HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PHẦN TRÊN
 ═══════════════════════════════════════`
           : "";
 
-        const systemPrompt = basePrompt + GROUNDING_RULES + digestBlock;
+        const systemPrompt = basePrompt + GROUNDING_RULES + dataBlock;
 
         const symList = syms.length > 0 ? syms.join(", ") : null;
 
-        // daily_digest without specific symbols → market overview prompt
+        // Dữ liệu đã nạp sẵn ở system prompt → chỉ ra lệnh viết, không nhắc "gọi tool"
         const userMessage = symList
-          ? `Phân tích ${syms.length > 1 ? `các cổ phiếu **${symList}**` : `cổ phiếu **${symList}**`}.${toolDefs.length > 0 ? ` Hãy gọi tool để lấy dữ liệu giá, tin tức, tài chính cần thiết TRƯỚC KHI viết phân tích.${syms.length > 1 ? ` Gọi financials riêng cho từng mã: ${symList}.` : ""}` : ""} Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`
+          ? `Phân tích ${syms.length > 1 ? `các cổ phiếu **${symList}**` : `cổ phiếu **${symList}**`} dựa trên NGUỒN DỮ LIỆU đã cung cấp. Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`
           : isDailyDigest
-          ? `Tạo bản tin hàng ngày theo đúng yêu cầu đã cấu hình.${toolDefs.length > 0 ? " Gọi news_feed để lấy tin tức mới nhất, price_feed để lấy giá và chỉ số thị trường." : ""} Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`
-          : `Thực hiện nhiệm vụ.${toolDefs.length > 0 ? " Hãy gọi tool để lấy dữ liệu cần thiết." : ""} Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`;
+          ? `Tạo bản tin hàng ngày theo đúng yêu cầu đã cấu hình, dựa trên NGUỒN DỮ LIỆU đã cung cấp. Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`
+          : `Thực hiện nhiệm vụ dựa trên NGUỒN DỮ LIỆU đã cung cấp. Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`;
 
         // ── Model selection ───────────────────────────────────────────────────
 
