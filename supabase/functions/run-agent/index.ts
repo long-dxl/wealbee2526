@@ -943,10 +943,17 @@ Deno.serve(async (req: Request) => {
           toolDefs.push(OPENAI_TOOL_DEFS.portfolio_read);
         }
 
-        // For daily_digest: ensure news_feed and price_feed are always available
+        // daily_digest: NẠP SẴN tin danh mục rồi gọi LLM ĐÚNG 1 LẦN (không tool-loop).
+        // Tool-loop gửi lại toàn bộ ngữ cảnh mỗi vòng → 80-130k token/lần; gọi-1-lần chỉ ~15-20k.
+        // Giống hệt cách "Chạy thử" (agent-dry-run) đang làm → output nhất quán.
+        let digestContext = "";
         if (agent.template_id === "daily_digest") {
-          if (!enabledTools.includes("news_feed")) toolDefs.push(OPENAI_TOOL_DEFS.news_feed);
-          if (!enabledTools.includes("price_feed")) toolDefs.push(OPENAI_TOOL_DEFS.price_feed);
+          digestContext = await buildNewsContext(
+            sources, registry,
+            syms.length ? syms : undefined,
+            (agent as any).news_sources ?? undefined,
+          );
+          toolDefs.length = 0;  // xoá hết tool → loop chạy đúng 1 vòng (single call)
         }
 
         // ── Build system prompt (no pre-fetched data — data comes from tools) ─
@@ -993,7 +1000,9 @@ ${toolDefs.length > 0
   ? `- Bắt buộc gọi tool để lấy dữ liệu TRƯỚC KHI viết phân tích
 - Gọi đủ tool cần thiết: price_feed cho giá/chỉ số, news_feed cho tin tức, financials cho BCTC
 - Chỉ sử dụng dữ liệu từ kết quả tool — KHÔNG dùng kiến thức nền hay số liệu từ training data`
-  : `- Không có tool nào được bật — hãy thông báo người dùng bật tool trong Agent Studio để lấy dữ liệu thực tế`}
+  : isDailyDigest
+    ? `- Tin tức đã được cung cấp SẴN ở mục NGUỒN DỮ LIỆU bên dưới — CHỈ dùng dữ liệu đó, KHÔNG cần (và không có) tool để gọi`
+    : `- Không có tool nào được bật — hãy thông báo người dùng bật tool trong Agent Studio để lấy dữ liệu thực tế`}
 
 **CHỈ VIẾT NHỮNG GÌ CÓ TRONG DỮ LIỆU**
 - Chỉ được đề cập thông tin, số liệu XUẤT HIỆN TRỰC TIẾP trong kết quả tool
@@ -1016,7 +1025,21 @@ ${toolDefs.length > 0
 - KHÔNG khuyến nghị mua/bán bất kỳ cổ phiếu nào
 - Cuối output PHẢI có: *"Thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019"*`;
 
-        const systemPrompt = basePrompt + GROUNDING_RULES;
+        // Nạp sẵn tin vào system prompt cho daily_digest (gọi-1-lần, không tool)
+        const digestBlock = digestContext
+          ? `
+
+═══════════════════════════════════════
+NGUỒN DỮ LIỆU XÁC NHẬN — CHỈ DÙNG CÁC TIN/SỐ LIỆU NÀY
+Ngày phân tích: ${new Date().toLocaleDateString("vi-VN", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Ho_Chi_Minh" })}
+═══════════════════════════════════════
+${digestContext}
+═══════════════════════════════════════
+HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PHẦN TRÊN
+═══════════════════════════════════════`
+          : "";
+
+        const systemPrompt = basePrompt + GROUNDING_RULES + digestBlock;
 
         const symList = syms.length > 0 ? syms.join(", ") : null;
 
