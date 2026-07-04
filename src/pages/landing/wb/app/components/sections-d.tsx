@@ -59,8 +59,8 @@ const PLANS: Plan[] = [
     yearly:  { amount: "424.000", currency: "đ", sub: "mỗi tháng · tiết kiệm 15%" },
     features: [
       "Tất cả tính năng Pro",
-      "1.000 credits/ngày",
-      "Unlimited Agent",
+      "250 credits/ngày",
+      "Tối đa 15 Agent",
       "Ưu tiên xử lý tức thì",
       "Truy cập sớm tính năng mới",
     ],
@@ -290,7 +290,7 @@ const FAQS = [
   },
   {
     q: "Credit là gì? Tôi có dễ bị dùng hết không?",
-    a: "Credit là đơn vị tính cho mỗi lần Agent chạy hoặc phân tích. Gói Free có 10 credits/ngày (đủ để theo dõi vài mã), Pro 100 credits/ngày, Premium 1.000 credits/ngày. Credit được làm mới mỗi ngày nên bạn khó 'cháy' gói; cần nhiều hơn thì nâng cấp bất cứ lúc nào.",
+    a: "Credit là đơn vị tính cho mỗi lần Agent chạy hoặc phân tích — trừ theo lượng xử lý thật của từng lượt. Gói Free có 10 credits/ngày (đủ để theo dõi vài mã), Pro 100 credits/ngày, Premium 250 credits/ngày. Credit được nạp lại mỗi ngày nên bạn khó 'cháy' gói; cần nhiều hơn thì nâng cấp bất cứ lúc nào.",
   },
 ];
 

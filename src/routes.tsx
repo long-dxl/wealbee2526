@@ -7,7 +7,6 @@ import { DemoResultPage } from "./pages/landing/wb/app/pages/DemoResultPage";
 import { RequireAuth } from "./components/require-auth";
 
 // Landing sub-pages (giữ nguyên)
-import PricingPage from "./pages/landing/PricingPage";
 import FeedbackPage from "./pages/landing/FeedbackPage";
 import BlogListPage from "./pages/landing/blog/BlogListPage";
 import BlogPostPage from "./pages/landing/blog/BlogPostPage";
@@ -45,7 +44,8 @@ export const router = createBrowserRouter([
   // /start và /unsubscribe thuộc tính năng "bản tin qua digest_subscribers" đã ngừng —
   // chuyển hướng về trang chủ để không hiện link chết.
   { path: "/start",         element: <Navigate to="/" replace /> },
-  { path: "/pricing",       Component: PricingPage    },
+  // Trang pricing cũ (giá 50k lỗi thời) → landing đã có section pricing chuẩn
+  { path: "/pricing",       element: <Navigate to="/" replace /> },
   { path: "/feedback",      Component: FeedbackPage   },
   { path: "/unsubscribe",   element: <Navigate to="/" replace /> },
   { path: "/blog",          Component: BlogListPage   },
