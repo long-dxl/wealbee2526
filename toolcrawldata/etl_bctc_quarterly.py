@@ -298,24 +298,33 @@ def process_symbol(path: str, sym: str, ctype: str, dry_run: bool):
     add_derived(values, window)
     ratios = compute_ratios(values, window, ctype)
 
-    # Map lại item_code -> statement (cần cho fs_rows); dựng từ LABEL_MAPS + derived cố định
-    code_to_stmt = {"BS_EQUITY": "BS", "CF_FCF": "CF", "IS_OPERATING_PROFIT": "IS"}
+    # Map lại item_code -> (statement, nhãn VN gốc); dựng từ LABEL_MAPS + derived cố định.
+    # Nhãn derived khớp đúng chữ đã lưu ở tầng FY (buildStatementTable() bóc tiền tố "(derived)").
+    DERIVED_LABELS = {
+        "BS_EQUITY": ("BS", "(derived) TTS - Nợ PT"),
+        "CF_FCF": ("CF", "(derived) OCF + capex"),
+        "IS_OPERATING_PROFIT": ("IS", "(derived) LNTT - LN khác"),
+    }
+    code_to_info: dict[str, tuple[str, str]] = {c: (s, s) for c, s in DERIVED_LABELS.items()}
+    for c, (s, lbl) in DERIVED_LABELS.items():
+        code_to_info[c] = (s, lbl)
     for stmt, sheet_name in SHEET_NAMES.items():
-        for code in LABEL_MAPS.get((ctype, stmt), {}).values():
-            code_to_stmt[code] = stmt
+        for label, code in LABEL_MAPS.get((ctype, stmt), {}).items():
+            code_to_info[code] = (stmt, label)
 
     fs_rows = []
     for code, per_period in values.items():
-        stmt = code_to_stmt.get(code)
-        if not stmt:
+        info = code_to_info.get(code)
+        if not info:
             continue
+        stmt, label = info
         for p in window:
             if p in per_period:
                 fs_rows.append({
                     "symbol": sym, "company_type": ctype, "statement": stmt,
                     "period": p, "period_type": "QUARTER", "item_code": code,
-                    "item_label_vi": code, "value": per_period[p],
-                    "is_derived": code in ("BS_EQUITY", "CF_FCF", "IS_OPERATING_PROFIT"),
+                    "item_label_vi": label, "value": per_period[p],
+                    "is_derived": code in DERIVED_LABELS,
                 })
 
     ratio_rows = []
