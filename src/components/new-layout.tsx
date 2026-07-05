@@ -12,6 +12,7 @@ import { supabase } from "../lib/supabase/client";
 import { getPlanAndBeeny } from "../lib/plan-limits";
 import { claimTrial } from "../lib/trial";
 import { TrialGrantedModal } from "./TrialGrantedModal";
+import { WALLET_REFRESH } from "../lib/wallet-events";
 import type { ContextCard } from "../types/cards";
 
 // ─── Route → page-id mapping ──────────────────────────────────────────────────
@@ -92,6 +93,15 @@ function NewLayoutInner() {
       if (session?.user) fetchWallet(session.user.id);
     });
   }, [location.pathname]);
+
+  // Refresh NGAY khi có sự kiện "ví đổi" (sau mỗi lần chạy AI)
+  useEffect(() => {
+    const h = () => supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) fetchWallet(session.user.id);
+    });
+    window.addEventListener(WALLET_REFRESH, h);
+    return () => window.removeEventListener(WALLET_REFRESH, h);
+  }, []);
 
   // Derive currentPage from URL
   // For /app/ticker/:symbol — no direct sidebar item, highlight nothing special

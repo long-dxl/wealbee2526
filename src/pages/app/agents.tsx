@@ -11,6 +11,7 @@ import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer"
 import { activateAgentTemplate, READY_TEMPLATE_IDS, type UserAgent } from "../../lib/services/agent-templates";
 import { NeedPortfolioModal } from "../../components/NeedPortfolioModal";
 import { canCreateAgent } from "../../lib/plan-limits";
+import { notifyWalletChanged } from "../../lib/wallet-events";
 import type { AppOutletContext } from "./page-wrappers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -803,6 +804,7 @@ export function AgentsPage() {
             setAgents(prev => prev.map(a =>
               a.id === agent.id ? { ...a, last_run_at: new Date().toISOString(), run_count: (a.run_count ?? 0) + 1 } : a
             ));
+            notifyWalletChanged();  // Beeny vừa bị trừ → refresh sidebar
           } else if (ev.type === "error") {
             updatePanel(prev => ({ ...prev, done: true, error: ev.error }));
           }

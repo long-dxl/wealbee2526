@@ -10,6 +10,7 @@ import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer"
 import { MdContent, RichContent } from "../../components/MdContent";
 import { supabase } from "../../lib/supabase/client";
 import { canCreateAgent } from "../../lib/plan-limits";
+import { notifyWalletChanged } from "../../lib/wallet-events";
 import { projectId } from "../../utils/supabase/info";
 import wealbeeLogo from "../../assets/Logo.svg";
 
@@ -564,6 +565,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       setRunTime(Math.round((Date.now() - start) / 100) / 10);
       setIsRunning(false);
       loadSessions();
+      notifyWalletChanged();  // Beeny vừa bị trừ → refresh sidebar
     }
   };
 

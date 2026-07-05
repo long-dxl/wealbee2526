@@ -8,6 +8,7 @@ import { lightTheme, type Theme } from "../lib/theme-context";
 import { sendChatMessage, type ToolStep } from "../lib/supabase/bee-ai";
 import { supabase } from "../lib/supabase/client";
 import { getBeenyBalance, fmtBeeny } from "../lib/plan-limits";
+import { notifyWalletChanged } from "../lib/wallet-events";
 import { MdContent } from "./MdContent";
 
 // Render inline markdown + wealbee-platform XML tags
@@ -323,6 +324,7 @@ export function ActionHub({
           if (newId) setSessionId(newId);
           setIsTyping(false);
           cancelRef.current = null;
+          notifyWalletChanged();  // Beeny vừa bị trừ → refresh sidebar + badge
         },
         onError: (err) => {
           setMessages((prev) => {
