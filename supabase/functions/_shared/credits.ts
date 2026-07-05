@@ -12,10 +12,11 @@ const PRICE_IN = 0.40 / 1e6;    // input (chưa cache)
 const PRICE_CACHED = 0.10 / 1e6; // input ĐÃ CACHE = 25% giá (OpenAI prompt caching)
 const PRICE_OUT = 1.60 / 1e6;   // output
 
-export const PLANS: Record<string, { agents: number; refill: number; cap: number }> = {
-  free:    { agents: 2,  refill: 10,  cap: 20 },
-  pro:     { agents: 5,  refill: 100, cap: 150 },
-  premium: { agents: 15, refill: 250, cap: 500 },
+// Model RESET mỗi ngày: balance về đúng `daily` (không cộng dồn/cap).
+export const PLANS: Record<string, { agents: number; daily: number }> = {
+  free:    { agents: 2,  daily: 10 },
+  pro:     { agents: 5,  daily: 100 },
+  premium: { agents: 15, daily: 250 },
 };
 
 export function normPlan(p?: string | null): string {
@@ -78,21 +79,19 @@ export async function getWallet(sb: any, userId: string): Promise<{ plan: string
 
   const { data: rows } = await sb.from("user_credits").select("*").eq("user_id", userId).limit(1);
   if (!rows?.length) {
-    await sb.from("user_credits").insert({ user_id: userId, plan, balance: cfg.cap, last_refill_date: today });
-    await log(sb, userId, cfg.cap, cfg.cap, "signup", undefined, undefined, undefined, `tặng khi tạo ví (${plan})`);
-    return { plan, balance: cfg.cap };
+    await sb.from("user_credits").insert({ user_id: userId, plan, balance: cfg.daily, last_refill_date: today });
+    await log(sb, userId, cfg.daily, cfg.daily, "signup", undefined, undefined, undefined, `tạo ví (${plan})`);
+    return { plan, balance: cfg.daily };
   }
   const w = rows[0];
   let balance = Number(w.balance);
   if (w.last_refill_date !== today) {
-    let newBal = Math.min(balance + cfg.refill, cfg.cap);
-    newBal = Math.max(newBal, Math.min(balance, cfg.cap)); // không tịch thu phần tích trên trần
-    const delta = newBal - balance;
+    // Sang ngày mới → RESET về daily quota (không cộng dồn)
+    balance = cfg.daily;
     await sb.from("user_credits").update({
-      balance: newBal, last_refill_date: today, plan, updated_at: new Date().toISOString(),
+      balance, last_refill_date: today, plan, updated_at: new Date().toISOString(),
     }).eq("user_id", userId);
-    if (delta > 0) await log(sb, userId, delta, newBal, "refill", undefined, undefined, undefined, `refill ngày (${plan})`);
-    balance = newBal;
+    await log(sb, userId, balance - Number(w.balance), balance, "refill", undefined, undefined, undefined, `reset ngày (${plan})`);
   }
   return { plan, balance };
 }

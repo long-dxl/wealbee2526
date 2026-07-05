@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router";
 import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Link2, Unlink, Eye, EyeOff } from "lucide-react";
 import { useTheme } from "../../lib/theme-context";
 import { supabase } from "../../lib/supabase/client";
 import { getPlanAndBeeny, fmtBeeny, PLAN_LIMITS } from "../../lib/plan-limits";
 import { startCheckout } from "../../lib/payment";
+import { logout, deleteAccount } from "../../lib/account";
 import { useBrokerConfig, type BrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { discoverAccounts } from "../../lib/services/dnse";
 
@@ -39,7 +41,10 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 export function Settings() {
   const { isDark, setDark, theme } = useTheme();
-  const [section,  setSection]  = useState<SettingsSection>("profile");
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab");
+  const [section,  setSection]  = useState<SettingsSection>(
+    (["profile","notifications","appearance","privacy","billing","api"].includes(initialTab ?? "") ? initialTab : "profile") as SettingsSection);
   const [language, setLanguage] = useState("vi");
 
   // ── Broker / API connection ────────────────────────────────────────────────
@@ -114,6 +119,15 @@ export function Settings() {
   const [plan,         setPlan]         = useState("free");
   const [daysLeft,     setDaysLeft]     = useState<number | null>(null);
   const [upgrading,    setUpgrading]    = useState<string | null>(null);
+  const [billingYear,  setBillingYear]  = useState(false);  // false=tháng, true=năm
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting,     setDeleting]     = useState(false);
+
+  const doDeleteAccount = async () => {
+    setDeleting(true);
+    try { await deleteAccount(); }
+    catch (e) { alert(e instanceof Error ? e.message : String(e)); setDeleting(false); }
+  };
 
   // Quay lại từ SePay: ?payment=success → làm mới gói + báo thành công
   useEffect(() => {
@@ -274,10 +288,11 @@ export function Settings() {
   const inputBorder  = isDark ? "rgba(255,255,255,0.10)" : "rgba(8,73,172,0.20)";
   const FONT         = "'Montserrat', system-ui, sans-serif";
 
+  // Giá năm = 10 tháng (tặng 2 tháng ~ tiết kiệm 17%)
   const plans = [
-    { id: "free",    name: "Free",    price: "0đ",       period: "/tháng", features: ["Tối đa 2 Agent", "10 Beeny/ngày", "Báo cáo cơ bản", "Hỗ trợ cộng đồng"] },
-    { id: "pro",     name: "Pro",     price: "199.000đ", period: "/tháng", features: ["Tối đa 5 Agent", "100 Beeny/ngày", "Tất cả tính năng Free", "Deep Research", "Email digest", "Hỗ trợ ưu tiên"], popular: true },
-    { id: "premium", name: "Premium", price: "499.000đ", period: "/tháng", features: ["Tối đa 15 Agent", "250 Beeny/ngày", "Tất cả tính năng Pro", "Ưu tiên xử lý tức thì", "Truy cập sớm tính năng mới"] },
+    { id: "free",    name: "Free",    priceM: "0đ",       priceY: "0đ",         features: ["Tối đa 2 Agent", "10 Beeny/ngày", "Báo cáo cơ bản", "Hỗ trợ cộng đồng"] },
+    { id: "pro",     name: "Pro",     priceM: "199.000đ", priceY: "1.990.000đ", features: ["Tối đa 5 Agent", "100 Beeny/ngày", "Tất cả tính năng Free", "Deep Research", "Email digest", "Hỗ trợ ưu tiên"], popular: true },
+    { id: "premium", name: "Premium", priceM: "499.000đ", priceY: "4.990.000đ", features: ["Tối đa 15 Agent", "250 Beeny/ngày", "Tất cả tính năng Pro", "Ưu tiên xử lý tức thì", "Truy cập sớm tính năng mới"] },
   ];
 
   return (
@@ -458,26 +473,41 @@ export function Settings() {
 
           {/* ── Privacy ──────────────────────────────────────────────────────── */}
           {section === "privacy" && (
-            <div style={{ background: cardBg, borderRadius: 14, padding: 24, boxShadow: cardShadow }}>
-              <h2 style={{ margin: "0 0 16px", fontSize: 17, fontWeight: 700, color: headingColor }}>Quyền riêng tư & Tuân thủ</h2>
-              <div style={{ background: isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.04)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
-                <p style={{ margin: 0, fontSize: 13, color: labelColor, lineHeight: 1.7 }}>
-                  Wealbee hoạt động theo khung pháp lý: <strong>Luật Chứng khoán 2019</strong>, <strong>NĐ 155/2020/NĐ-CP</strong>, <strong>NĐ 13/2023/NĐ-CP</strong> về bảo vệ dữ liệu cá nhân.
-                </p>
-              </div>
-              {[
-                { label: "Xem dữ liệu của tôi",      desc: "Tải xuống toàn bộ dữ liệu theo NĐ 13/2023" },
-                { label: "Xóa tài khoản",             desc: "Xóa vĩnh viễn tài khoản và dữ liệu",         danger: true },
-                { label: "Lịch sử hoạt động AI",      desc: "Xem log phân tích AI trong 30 ngày" },
-              ].map((item, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "0.5px solid " + borderColor, cursor: "pointer" }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: (item as any).danger ? "#FF3B30" : headingColor }}>{item.label}</div>
-                    <div style={{ fontSize: 13, color: subtleColor }}>{item.desc}</div>
-                  </div>
-                  <ChevronRight size={18} color={theme.fgDisabled} strokeWidth={1.5} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ background: cardBg, borderRadius: 14, padding: 24, boxShadow: cardShadow }}>
+                <h2 style={{ margin: "0 0 16px", fontSize: 17, fontWeight: 700, color: headingColor }}>Quyền riêng tư & Tuân thủ</h2>
+                <div style={{ background: isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.04)", borderRadius: 10, padding: 16 }}>
+                  <p style={{ margin: 0, fontSize: 13, color: labelColor, lineHeight: 1.7 }}>
+                    Wealbee hoạt động theo khung pháp lý: <strong>Luật Chứng khoán 2019</strong>, <strong>NĐ 155/2020/NĐ-CP</strong>, <strong>NĐ 13/2023/NĐ-CP</strong> về bảo vệ dữ liệu cá nhân.
+                  </p>
                 </div>
-              ))}
+              </div>
+
+              {/* Tài khoản: đăng xuất + xóa */}
+              <div style={{ background: cardBg, borderRadius: 14, padding: 24, boxShadow: cardShadow }}>
+                <h2 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 700, color: headingColor }}>Tài khoản</h2>
+                <p style={{ margin: "0 0 18px", fontSize: 13, color: subtleColor }}>Quản lý phiên đăng nhập và tài khoản của bạn.</p>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderTop: "0.5px solid " + borderColor }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: headingColor }}>Đăng xuất</div>
+                    <div style={{ fontSize: 13, color: subtleColor }}>Thoát khỏi tài khoản trên thiết bị này</div>
+                  </div>
+                  <button onClick={() => logout()} style={{ padding: "8px 18px", borderRadius: 10, border: "1px solid " + borderColor, background: "transparent", color: headingColor, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
+                    Đăng xuất
+                  </button>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderTop: "0.5px solid " + borderColor }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#c0392b" }}>Xóa tài khoản</div>
+                    <div style={{ fontSize: 13, color: subtleColor }}>Xóa vĩnh viễn tài khoản và toàn bộ dữ liệu. Không thể hoàn tác.</div>
+                  </div>
+                  <button onClick={() => setConfirmDelete(true)} style={{ padding: "8px 18px", borderRadius: 10, border: "1px solid rgba(192,57,43,0.4)", background: "transparent", color: "#c0392b", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT, flexShrink: 0 }}>
+                    Xóa tài khoản
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -655,28 +685,20 @@ export function Settings() {
                   </div>
                 ) : (
                   <>
-                    {/* Số dư hiện tại + tiêu dùng */}
-                    <div style={{ display: "flex", gap: 20, marginBottom: 18 }}>
-                      <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(245,197,24,0.09)" : "rgba(184,134,11,0.07)", border: "0.5px solid " + borderColor }}>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Số dư hiện tại</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: isDark ? "#F5C518" : "#B8860B", fontFamily: FONT }}>{balance == null ? "…" : fmtBeeny(balance)}</div>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>Beeny · nạp {PLAN_LIMITS[plan]?.refill ?? 10}/ngày</div>
-                      </div>
-                      <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(77,143,232,0.07)" : "rgba(8,73,172,0.05)", border: "0.5px solid " + borderColor }}>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Đã tiêu 30 ngày</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: theme.brand, fontFamily: FONT }}>{fmtBeeny(totalBeeny)}</div>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>Beeny</div>
-                      </div>
-                      <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(52,199,89,0.07)" : "rgba(52,199,89,0.05)", border: "0.5px solid " + borderColor }}>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Trung bình / ngày</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: "#1a7a3a", fontFamily: FONT }}>{fmtBeeny(totalBeeny / 30)}</div>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>Beeny/ngày</div>
-                      </div>
-                      <div style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(255,149,0,0.07)" : "rgba(255,149,0,0.05)", border: "0.5px solid " + borderColor }}>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>Số lần chạy</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: "#CC7A00", fontFamily: FONT }}>{usageLog.length}</div>
-                        <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>lần (30 ngày)</div>
-                      </div>
+                    {/* Số dư + tiêu dùng — nền neutral, chỉ số dư nhấn màu brand */}
+                    <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
+                      {[
+                        { label: "Số dư hiện tại", value: balance == null ? "…" : fmtBeeny(balance), sub: `Beeny · reset ${PLAN_LIMITS[plan]?.daily ?? 10}/ngày`, accent: true },
+                        { label: "Đã tiêu 30 ngày", value: fmtBeeny(totalBeeny), sub: "Beeny" },
+                        { label: "Trung bình / ngày", value: fmtBeeny(totalBeeny / 30), sub: "Beeny/ngày" },
+                        { label: "Số lần chạy", value: String(usageLog.length), sub: "lần (30 ngày)" },
+                      ].map((c, i) => (
+                        <div key={i} style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(255,255,255,0.03)" : "rgba(8,73,172,0.025)", border: "0.5px solid " + borderColor }}>
+                          <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>{c.label}</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: c.accent ? theme.brand : headingColor, fontFamily: FONT }}>{c.value}</div>
+                          <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>{c.sub}</div>
+                        </div>
+                      ))}
                     </div>
 
                     {/* Bar chart 30 ngày */}
@@ -731,46 +753,60 @@ export function Settings() {
                 )}
               </div>
 
-              {/* ── Plan cards ── */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              {/* ── Toggle Tháng / Năm ── */}
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+                <div style={{ display: "inline-flex", background: isDark ? "rgba(255,255,255,0.05)" : "rgba(8,73,172,0.05)", borderRadius: 10, padding: 3, gap: 2 }}>
+                  {[{ k: false, l: "Hàng tháng" }, { k: true, l: "Hàng năm" }].map(o => (
+                    <button key={String(o.k)} onClick={() => setBillingYear(o.k)}
+                      style={{ padding: "7px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: FONT, fontSize: 13, fontWeight: 700,
+                        background: billingYear === o.k ? cardBg : "transparent", color: billingYear === o.k ? headingColor : subtleColor,
+                        boxShadow: billingYear === o.k ? cardShadow : "none" }}>
+                      {o.l}{o.k && <span style={{ fontSize: 10, marginLeft: 6, color: "#1a7a3a", fontWeight: 700 }}>−17%</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Plan cards — cùng độ rộng, tối giản màu ── */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14, alignItems: "stretch" }}>
                 {plans.map(pl => {
                   const isCurrent = pl.id === plan;
+                  const price = billingYear ? pl.priceY : pl.priceM;
                   return (
-                  <div
-                    key={pl.id}
-                    style={{
-                      background: cardBg, borderRadius: 14, padding: 20, position: "relative",
-                      border: isCurrent ? "1.5px solid " + theme.brand : pl.popular ? "1.5px solid " + theme.brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)"),
-                      boxShadow: cardShadow,
-                    }}
-                  >
-                    {pl.popular && !isCurrent && (
-                      <span style={{ position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", background: theme.brand, color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>
-                        PHỔ BIẾN NHẤT
+                  <div key={pl.id} style={{
+                    background: cardBg, borderRadius: 14, padding: "22px 20px", position: "relative",
+                    display: "flex", flexDirection: "column", minWidth: 0,
+                    border: (isCurrent || pl.popular) ? "1.5px solid " + theme.brand : "0.5px solid " + borderColor,
+                    boxShadow: cardShadow,
+                  }}>
+                    {(pl.popular || isCurrent) && (
+                      <span style={{ position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap",
+                        background: isCurrent ? headingColor : theme.brand, color: cardBg, fontSize: 10, fontWeight: 800, letterSpacing: "0.04em",
+                        padding: "3px 12px", borderRadius: 99, fontFamily: FONT }}>
+                        {isCurrent ? "GÓI HIỆN TẠI" : "PHỔ BIẾN"}
                       </span>
                     )}
-                    {isCurrent && (
-                      <span style={{ position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", background: "#1a7a3a", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>
-                        GÓI HIỆN TẠI
-                      </span>
-                    )}
-                    <div style={{ fontSize: 18, fontWeight: 700, color: headingColor, marginBottom: 4 }}>{pl.name}</div>
-                    <div style={{ marginBottom: 16 }}>
-                      <span style={{ fontSize: 24, fontWeight: 700, color: theme.brand }}>{pl.price}</span>
-                      <span style={{ fontSize: 13, color: subtleColor }}>{pl.period}</span>
+                    <div style={{ fontSize: 17, fontWeight: 800, color: headingColor, marginBottom: 6, fontFamily: FONT }}>{pl.name}</div>
+                    <div style={{ marginBottom: 18, display: "flex", alignItems: "baseline", gap: 5, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 24, fontWeight: 800, color: headingColor, fontFamily: FONT }}>{price}</span>
+                      {pl.id !== "free" && <span style={{ fontSize: 13, color: subtleColor }}>/{billingYear ? "năm" : "tháng"}</span>}
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 9, marginBottom: 20, flex: 1 }}>
                       {pl.features.map(f => (
                         <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                          <Check size={14} color="#34C759" strokeWidth={2} style={{ marginTop: 2, flexShrink: 0 }} />
-                          <span style={{ fontSize: 12, color: labelColor }}>{f}</span>
+                          <Check size={14} color={theme.brand} strokeWidth={2.5} style={{ marginTop: 2, flexShrink: 0 }} />
+                          <span style={{ fontSize: 12.5, color: labelColor, fontFamily: FONT }}>{f}</span>
                         </div>
                       ))}
                     </div>
                     <button disabled={isCurrent || pl.id === "free" || upgrading === pl.id}
                       onClick={() => handleUpgrade(pl.id)}
-                      style={{ width: "100%", padding: "10px 0", borderRadius: 10, border: "none", background: isCurrent ? theme.bgAccent : pl.popular ? theme.brand : theme.bgAccent, color: isCurrent ? subtleColor : pl.popular ? "#fff" : theme.brand, fontSize: 13, fontWeight: 700, cursor: (isCurrent || pl.id === "free") ? "default" : "pointer", fontFamily: FONT, opacity: upgrading === pl.id ? 0.6 : 1 }}>
-                      {isCurrent ? "Gói hiện tại" : pl.id === "free" ? "Miễn phí" : upgrading === pl.id ? "Đang chuyển…" : `Nâng cấp ${pl.name}`}
+                      style={{ width: "100%", padding: "11px 0", borderRadius: 10, fontSize: 13, fontWeight: 700, fontFamily: FONT, marginTop: "auto",
+                        cursor: (isCurrent || pl.id === "free") ? "default" : "pointer", opacity: upgrading === pl.id ? 0.6 : 1,
+                        border: pl.popular && !isCurrent ? "none" : "1px solid " + borderColor,
+                        background: pl.popular && !isCurrent ? theme.brand : "transparent",
+                        color: pl.popular && !isCurrent ? "#fff" : isCurrent ? subtleColor : headingColor }}>
+                      {isCurrent ? "Đang dùng" : pl.id === "free" ? "Miễn phí" : upgrading === pl.id ? "Đang chuyển…" : "Nâng cấp"}
                     </button>
                   </div>
                   );
@@ -781,6 +817,21 @@ export function Settings() {
 
         </div>
       </div>
+
+      {confirmDelete && (
+        <div onClick={() => !deleting && setConfirmDelete(false)} style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, fontFamily: FONT }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: cardBg, borderRadius: 16, width: "100%", maxWidth: 380, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }}>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: "#c0392b", margin: "0 0 8px" }}>Xóa tài khoản?</h3>
+            <p style={{ fontSize: 14, color: labelColor, lineHeight: 1.6, margin: "0 0 20px" }}>
+              Toàn bộ agent, danh mục, lịch sử và số dư Beeny sẽ bị <b>xóa vĩnh viễn</b>. Hành động này <b>không thể hoàn tác</b>.
+            </p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setConfirmDelete(false)} disabled={deleting} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "1px solid " + borderColor, background: "transparent", color: headingColor, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>Hủy</button>
+              <button onClick={doDeleteAccount} disabled={deleting} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none", background: "#c0392b", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT, opacity: deleting ? 0.6 : 1 }}>{deleting ? "Đang xóa…" : "Xóa vĩnh viễn"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

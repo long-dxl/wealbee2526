@@ -218,7 +218,7 @@ export function Sidebar({
       {/* Gói + số dư Beeny (thay thanh token cũ) */}
       {!collapsed && (
         <button
-          onClick={() => onNavigate("settings")}
+          onClick={() => onNavigate("settings-billing")}
           title="Gói dịch vụ & số dư Beeny"
           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}

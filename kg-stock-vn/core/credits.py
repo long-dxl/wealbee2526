@@ -22,11 +22,11 @@ PRICE_IN = 0.40 / 1e6
 PRICE_CACHED = 0.10 / 1e6   # input đã cache = 25% giá
 PRICE_OUT = 1.60 / 1e6
 
-# Gói: agent tối đa · refill/ngày · trần balance
+# Gói: agent tối đa · Beeny/ngày (RESET mỗi ngày, không cộng dồn)
 PLANS = {
-    "free":    {"agents": 2,  "refill": 10,  "cap": 20},
-    "pro":     {"agents": 5,  "refill": 100, "cap": 150},
-    "premium": {"agents": 15, "refill": 250, "cap": 500},
+    "free":    {"agents": 2,  "daily": 10},
+    "pro":     {"agents": 5,  "daily": 100},
+    "premium": {"agents": 15, "daily": 250},
 }
 
 
@@ -91,29 +91,27 @@ def get_wallet(sb, user_id: str) -> dict:
     cfg = PLANS[plan]
     today = _today_vn()
 
+    daily = cfg["daily"]
     row = (sb.table("user_credits").select("*").eq("user_id", user_id)
            .limit(1).execute().data)
     if not row:
-        w = {"user_id": user_id, "plan": plan, "balance": cfg["cap"],
+        w = {"user_id": user_id, "plan": plan, "balance": daily,
              "last_refill_date": today}
         sb.table("user_credits").insert(w).execute()
-        _log(sb, user_id, cfg["cap"], cfg["cap"], "signup", note=f"tặng khi tạo ví ({plan})")
+        _log(sb, user_id, daily, daily, "signup", note=f"tạo ví ({plan})")
         return w
 
     w = row[0]
     w["plan"] = plan  # plan từ profiles là nguồn chân lý
     if w.get("last_refill_date") != today:
-        new_bal = min(float(w["balance"]) + cfg["refill"], float(cfg["cap"]))
-        # user đã tích trên trần (vd vừa nâng cấp/tặng thêm) thì không tịch thu
-        new_bal = max(new_bal, min(float(w["balance"]), float(cfg["cap"])))
-        delta = new_bal - float(w["balance"])
+        # Sang ngày mới → RESET về daily quota (không cộng dồn)
+        delta = daily - float(w["balance"])
         sb.table("user_credits").update({
-            "balance": new_bal, "last_refill_date": today, "plan": plan,
+            "balance": daily, "last_refill_date": today, "plan": plan,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }).eq("user_id", user_id).execute()
-        if delta > 0:
-            _log(sb, user_id, delta, new_bal, "refill", note=f"refill ngày ({plan})")
-        w["balance"] = new_bal
+        _log(sb, user_id, delta, daily, "refill", note=f"reset ngày ({plan})")
+        w["balance"] = daily
         w["last_refill_date"] = today
     return w
 

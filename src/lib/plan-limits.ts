@@ -1,17 +1,17 @@
 /**
  * Gói dịch vụ + ví Beeny (khớp backend: kg-stock-vn/core/credits.py & _shared/credits.ts).
- * Beeny = đơn vị tiền Wealbee. 1000đ = 25 Beeny → 1 Beeny = 40đ. Balance là SỐ THỰC,
- * trừ theo phí thật mỗi lượt gọi AI. Refill mỗi ngày (giờ VN), chặn ở trần.
- *   free    : 2 agent · 10 Beeny/ngày  (trần 20)
- *   pro 199k: 5 agent · 100 Beeny/ngày (trần 150)
- *   premium : 15 agent · 250 Beeny/ngày (trần 500)
+ * Beeny = đơn vị tiền Wealbee. 1000đ = 25 Beeny → 1 Beeny = 40đ. Trừ theo phí thật mỗi lượt.
+ * Ví RESET mỗi ngày (0h VN) về đúng daily quota — KHÔNG cộng dồn.
+ *   free   : 2 agent · 10 Beeny/ngày
+ *   pro    : 5 agent · 100 Beeny/ngày
+ *   premium: 15 agent · 250 Beeny/ngày
  */
 import { supabase } from "./supabase/client";
 
-export const PLAN_LIMITS: Record<string, { agents: number; refill: number; cap: number; label: string; price: string }> = {
-  free:    { agents: 2,  refill: 10,  cap: 20,  label: "Free",    price: "0đ" },
-  pro:     { agents: 5,  refill: 100, cap: 150, label: "Pro",     price: "199.000đ" },
-  premium: { agents: 15, refill: 250, cap: 500, label: "Premium", price: "499.000đ" },
+export const PLAN_LIMITS: Record<string, { agents: number; daily: number; label: string; price: string; priceYear: string }> = {
+  free:    { agents: 2,  daily: 10,  label: "Free",    price: "0đ",       priceYear: "0đ" },
+  pro:     { agents: 5,  daily: 100, label: "Pro",     price: "199.000đ", priceYear: "1.990.000đ" },
+  premium: { agents: 15, daily: 250, label: "Premium", price: "499.000đ", priceYear: "4.990.000đ" },
 };
 
 export function normPlan(p?: string | null): string {
@@ -64,19 +64,26 @@ export async function getBeenyBalance(userId: string): Promise<number | null> {
   return Number(data[0].balance);
 }
 
-/** Gói + số dư Beeny + số ngày còn lại (đã tính hết hạn). Dùng cho sidebar & settings. */
-export async function getPlanAndBeeny(userId: string): Promise<{ plan: string; label: string; balance: number | null; daysLeft: number | null }> {
+/** Gói + số dư + ngày còn lại. Gọi RPC sync_wallet → RESET ví nếu sang ngày mới + hạ gói
+ *  hết hạn, nên số dư luôn tươi ngay khi mở app (không cần chạy agent trước). */
+export async function getPlanAndBeeny(_userId: string): Promise<{ plan: string; label: string; balance: number | null; daysLeft: number | null }> {
+  const { data, error } = await supabase.rpc("sync_wallet");
+  if (!error && data) {
+    const r = data as { plan: string; balance: number; days_left: number | null };
+    const plan = normPlan(r.plan);
+    return { plan, label: PLAN_LIMITS[plan].label, balance: Number(r.balance), daysLeft: r.days_left ?? null };
+  }
+  // fallback: đọc trực tiếp nếu RPC lỗi
   const [profRes, balance] = await Promise.all([
-    supabase.from("user_profiles").select("plan, plan_expires_at").eq("user_id", userId).limit(1),
-    getBeenyBalance(userId),
+    supabase.from("user_profiles").select("plan, plan_expires_at").eq("user_id", _userId).limit(1),
+    getBeenyBalance(_userId),
   ]);
   const row = profRes.data?.[0];
   let plan = normPlan(row?.plan);
   let daysLeft: number | null = null;
   if (plan !== "free" && row?.plan_expires_at) {
     const ms = Date.parse(row.plan_expires_at) - Date.now();
-    if (ms < 0) plan = "free";
-    else daysLeft = Math.ceil(ms / 86400000);
+    if (ms < 0) plan = "free"; else daysLeft = Math.ceil(ms / 86400000);
   }
   return { plan, label: PLAN_LIMITS[plan].label, balance, daysLeft };
 }

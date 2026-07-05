@@ -35,6 +35,7 @@ const PAGE_ROUTE: Record<string, string> = {
 tickers:         "/app/tickers",
   inbox:           "/app/inbox",
   reports:         "/app/reports",
+  "settings-billing": "/app/settings?tab=billing",
   agents:          "/app/agents",
   "agent-studio":  "/app/agent-studio",
   "create-agent":  "/app/agent-studio",
