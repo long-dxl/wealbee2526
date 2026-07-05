@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import {
   Sparkles, Clock, ChevronRight, BookOpen,
   RefreshCw, GripVertical, ArrowLeft, Download, Mail, Check,
+  Trash2, X, AlertTriangle,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
@@ -23,6 +24,7 @@ function makeDragHandlers(card: ContextCard) {
 interface Brief {
   id: string;
   agentName: string;
+  agentDeleted: boolean;
   briefType: string;
   title: string;
   summary: string;
@@ -226,10 +228,20 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [loadingBriefs, setLoadingBriefs] = useState(true);
   const [selected, setSelected] = useState<Brief | null>(null);
-  const [filter, setFilter] = useState<"all" | "brief" | "alert">("all");
+  const [filter, setFilter] = useState<"all" | "deleted_agent">("all");
   const [emailSent, setEmailSent] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; brief: Brief } | null>(null);
+
+  // ── Chọn nhiều để xoá hàng loạt ──────────────────────────────────────────
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()); };
+  const toggleSelected = (id: string) =>
+    setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   const fetchBriefs = async () => {
     setLoadingBriefs(true);
@@ -247,9 +259,11 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
         const rawContent = row.content ?? "";
         const parsedBrief = parseBriefContent(rawContent);
         const createdAt = new Date(row.created_at);
+        const agentInfo = row.agents as { name?: string } | null;
         return {
           id: row.id,
-          agentName: (row.agents as { name?: string } | null)?.name ?? "Agent đã xoá",
+          agentName: agentInfo?.name ?? "Agent đã xoá",
+          agentDeleted: !agentInfo,
           briefType: row.type ?? "system",
           title: row.title ?? "Untitled",
           summary: row.summary ?? "",
@@ -277,7 +291,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
     return () => { supabase.removeChannel(ch); };
   }, []);
 
-  const filtered    = filter === "all" ? briefs : briefs.filter(b => b.briefType === filter);
+  const filtered    = filter === "all" ? briefs : briefs.filter(b => b.agentDeleted);
   const unreadCount = briefs.filter(b => !b.read).length;
 
   const handleDeleteBrief = async (brief: Brief) => {
@@ -288,6 +302,26 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
     if (user) {
       await supabase.from("briefs").delete().eq("id", brief.id).eq("user_id", user.id);
     }
+  };
+
+  const deleteSelectedBriefs = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    // Chỉ xoá những mục ĐANG hiển thị ở tab hiện tại (giao giữa selectedIds và filtered) —
+    // phòng hờ selection còn sót lại từ tab khác, tránh xoá nhầm mục không thuộc tab đang xem.
+    const visibleIds = new Set(filtered.map(b => b.id));
+    const ids = Array.from(selectedIds).filter(id => visibleIds.has(id));
+    if (ids.length === 0) { setBulkDeleting(false); setConfirmBulkDelete(false); exitSelectMode(); return; }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from("briefs").delete().in("id", ids).eq("user_id", user.id);
+    }
+    const deletedIds = new Set(ids);
+    setBriefs(prev => prev.filter(b => !deletedIds.has(b.id)));
+    if (selected && deletedIds.has(selected.id)) setSelected(null);
+    setBulkDeleting(false);
+    setConfirmBulkDelete(false);
+    exitSelectMode();
   };
 
   const open = async (brief: Brief) => {
@@ -450,29 +484,76 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
           )}
         </div>
 
-        {/* Filter tabs */}
-        <div style={{ display: "flex", gap: 2 }}>
-          {(["all", "daily_digest"] as const).map((f) => {
-            const active = filter === f;
-            return (
-              <button key={f} onClick={() => setFilter(f as any)} style={{
-                padding: "7px 16px", borderRadius: 22, border: "none", cursor: "pointer",
-                fontSize: 13, fontWeight: active ? 700 : 400,
-                color: active ? brand : fgMuted,
-                background: active ? (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)") : "transparent",
-                fontFamily: "'Montserrat', system-ui, sans-serif",
-                transition: "all 120ms",
-              }}>
-                {f === "all" ? "Tất cả" : "Daily Digest"}
-              </button>
-            );
-          })}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Filter tabs */}
+          <div style={{ display: "flex", gap: 2 }}>
+            {(["all", "deleted_agent"] as const).map((f) => {
+              const active = filter === f;
+              return (
+                <button key={f} onClick={() => { setFilter(f); setSelectedIds(new Set()); }} style={{
+                  padding: "7px 16px", borderRadius: 22, border: "none", cursor: "pointer",
+                  fontSize: 13, fontWeight: active ? 700 : 400,
+                  color: active ? brand : fgMuted,
+                  background: active ? (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)") : "transparent",
+                  fontFamily: "'Montserrat', system-ui, sans-serif",
+                  transition: "all 120ms",
+                }}>
+                  {f === "all" ? "Tất cả" : "Agent đã xoá"}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Chọn nhiều / Hủy */}
+          <button
+            onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+            style={{
+              padding: "7px 14px", borderRadius: 22, cursor: "pointer",
+              fontSize: 13, fontWeight: 600, fontFamily: "'Montserrat', system-ui, sans-serif",
+              border: `1px solid ${selectMode ? brand : divider}`,
+              color: selectMode ? brand : fgMuted,
+              background: selectMode ? (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)") : "transparent",
+              transition: "all 120ms",
+            }}
+          >
+            {selectMode ? "Hủy" : "Chọn"}
+          </button>
         </div>
       </div>
 
-      <p style={{ margin: "0 0 20px", fontSize: 13, color: fgSubtle }}>
-        {filtered.length} mục{unreadCount > 0 ? ` · ${unreadCount} chưa đọc` : ""}
-      </p>
+      {selectMode ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 0 20px" }}>
+          <button
+            onClick={() => setSelectedIds(selectedIds.size === filtered.length ? new Set() : new Set(filtered.map(b => b.id)))}
+            style={{ background: "none", border: "none", padding: 0, cursor: filtered.length ? "pointer" : "default", fontSize: 13, fontWeight: 600, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}
+          >
+            {selectedIds.size > 0 && selectedIds.size === filtered.length ? "Bỏ chọn tất cả" : `Chọn tất cả (${filtered.length})`}
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 13, color: fgSubtle }}>
+              {selectedIds.size > 0 ? `Đã chọn ${selectedIds.size}` : "Chưa chọn mục nào"}
+            </span>
+            <button
+              onClick={() => selectedIds.size > 0 && setConfirmBulkDelete(true)}
+              disabled={selectedIds.size === 0}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 10,
+                border: `1px solid ${selectedIds.size > 0 ? "rgba(255,59,48,0.30)" : divider}`,
+                background: "transparent",
+                color: selectedIds.size > 0 ? "#FF3B30" : fgSubtle,
+                cursor: selectedIds.size > 0 ? "pointer" : "not-allowed",
+                fontSize: 13, fontWeight: 600, fontFamily: "'Montserrat', system-ui, sans-serif",
+              }}
+            >
+              <Trash2 size={14} strokeWidth={1.5} /> Xóa
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p style={{ margin: "0 0 20px", fontSize: 13, color: fgSubtle }}>
+          {filtered.length} mục{unreadCount > 0 ? ` · ${unreadCount} chưa đọc` : ""}
+        </p>
+      )}
 
       {/* List */}
       <div style={{
@@ -508,7 +589,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
             <div
               key={brief.id}
               {...makeDragHandlers(dragCard)}
-              onClick={() => { setCtxMenu(null); open(brief); }}
+              onClick={() => { setCtxMenu(null); selectMode ? toggleSelected(brief.id) : open(brief); }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setCtxMenu({ x: e.clientX, y: e.clientY, brief });
@@ -517,25 +598,42 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                 display: "flex", alignItems: "stretch",
                 borderBottom: idx < filtered.length - 1 ? `1px solid ${divider}` : "none",
                 cursor: "pointer", position: "relative",
+                background: selectMode && selectedIds.has(brief.id) ? (isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.05)") : "transparent",
                 transition: "background 120ms",
               }}
               onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(77,143,232,0.05)" : "rgba(8,73,172,0.03)";
+                if (!(selectMode && selectedIds.has(brief.id))) {
+                  (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(77,143,232,0.05)" : "rgba(8,73,172,0.03)";
+                }
                 const hint = (e.currentTarget as HTMLElement).querySelector<HTMLElement>(".drag-hint");
                 if (hint) hint.style.opacity = "1";
               }}
               onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.background = "transparent";
+                (e.currentTarget as HTMLElement).style.background = selectMode && selectedIds.has(brief.id) ? (isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.05)") : "transparent";
                 const hint = (e.currentTarget as HTMLElement).querySelector<HTMLElement>(".drag-hint");
                 if (hint) hint.style.opacity = "0";
               }}
             >
-              {/* Unread accent bar */}
-              <div style={{
-                width: 3, flexShrink: 0,
-                background: brief.read ? "transparent" : brand,
-                borderRadius: idx === 0 ? "16px 0 0 0" : idx === filtered.length - 1 ? "0 0 0 16px" : 0,
-              }} />
+              {/* Unread accent bar / checkbox chọn */}
+              {selectMode ? (
+                <div style={{ display: "flex", alignItems: "center", paddingLeft: 16, flexShrink: 0 }}>
+                  <div style={{
+                    width: 18, height: 18, borderRadius: 5, flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    border: selectedIds.has(brief.id) ? "none" : `1.5px solid ${divider}`,
+                    background: selectedIds.has(brief.id) ? brand : "transparent",
+                    transition: "all 120ms",
+                  }}>
+                    {selectedIds.has(brief.id) && <Check size={12} strokeWidth={3} color="#fff" />}
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  width: 3, flexShrink: 0,
+                  background: brief.read ? "transparent" : brand,
+                  borderRadius: idx === 0 ? "16px 0 0 0" : idx === filtered.length - 1 ? "0 0 0 16px" : 0,
+                }} />
+              )}
 
               {/* Content */}
               <div style={{ flex: 1, padding: "16px", minWidth: 0 }}>
@@ -651,6 +749,36 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
             </button>
           </div>
         </>
+      )}
+
+      {/* Xác nhận xoá hàng loạt */}
+      {confirmBulkDelete && (
+        <div onClick={() => !bulkDeleting && setConfirmBulkDelete(false)} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 400, maxWidth: "100%", borderRadius: 16, overflow: "hidden", background: cardBg, boxShadow: "0 24px 80px rgba(0,0,0,0.22), 0 0 0 0.5px " + divider }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 22px", borderBottom: `0.5px solid ${divider}` }}>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(255,59,48,0.10)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <AlertTriangle style={{ width: 16, height: 16, color: "#FF3B30" }} />
+              </div>
+              <span style={{ fontSize: 16, fontWeight: 700, color: fg, flex: 1 }}>Xoá mục đã chọn</span>
+              <button onClick={() => !bulkDeleting && setConfirmBulkDelete(false)} aria-label="Đóng" style={{ background: "none", border: "none", cursor: "pointer", color: fgMuted, display: "flex", padding: 2 }}>
+                <X style={{ width: 18, height: 18 }} />
+              </button>
+            </div>
+            <div style={{ padding: 22, fontSize: 13.5, color: fgMuted, lineHeight: 1.6 }}>
+              Xoá <strong style={{ color: fg }}>{selectedIds.size}</strong> mục đã chọn?
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 22px", borderTop: `0.5px solid ${divider}` }}>
+              <button onClick={() => setConfirmBulkDelete(false)} disabled={bulkDeleting}
+                style={{ padding: "9px 18px", borderRadius: 9, border: `1px solid ${divider}`, background: "transparent", color: fgMuted, fontSize: 13, fontWeight: 600, cursor: bulkDeleting ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+                Hủy
+              </button>
+              <button onClick={deleteSelectedBriefs} disabled={bulkDeleting}
+                style={{ padding: "9px 22px", borderRadius: 9, border: "none", background: "#FF3B30", color: "#fff", fontSize: 13, fontWeight: 700, cursor: bulkDeleting ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: bulkDeleting ? 0.6 : 1 }}>
+                {bulkDeleting ? "Đang xoá…" : "Xoá"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

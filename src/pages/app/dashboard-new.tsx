@@ -8,12 +8,14 @@
  * (sẽ thay bằng AI-generated khi có pipeline).
  */
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUpRight, TrendingUp, TrendingDown,
   RefreshCw, Eye, FileText, Sparkles, ChevronDown,
   AlertTriangle, Lightbulb, ExternalLink, X, BookOpen,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
+import { useCurrentUser } from "../../lib/hooks/useCurrentUser";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { MdContent } from "../../components/MdContent";
@@ -238,6 +240,231 @@ const tagColors: Record<string, { bg: string; text: string }> = {
   "Cảnh báo": { bg: "rgba(255,59,48,0.10)", text: "#FF3B30" },
 };
 
+// ── Data fetchers (thuần, dùng làm queryFn cho React Query — xem component bên dưới) ────
+// Tách riêng khỏi component để mỗi hàm chỉ trả về data, không tự setState — nhờ vậy
+// React Query có thể cache/dedupe/chia sẻ kết quả giữa các lần mount thay vì luôn
+// tải lại từ đầu mỗi khi user rời trang rồi quay lại.
+
+async function fetchMarketData(): Promise<{
+  vn30Set: Set<string>;
+  allMovers: (MoverRow & { sector: string; exchange: string })[];
+  gainers: MoverRow[];
+  losers: MoverRow[];
+  sectors: SectorRow[];
+  marketIndices: IndexState[];
+}> {
+  // Vũ trụ TOÀN BỘ sàn (HOSE + HNX + UPCoM) + sector, để có thể lọc theo từng sàn
+  // khi user bấm vào card chỉ số (VN30/HNX) — xem scopeMovers trong component.
+  // ~1576 mã toàn bộ 3 sàn — vượt giới hạn CỨNG 1000 dòng/request của PostgREST
+  // (client .limit() không vượt qua được giới hạn server), nên phải phân trang bằng .range().
+  async function fetchAllStocks(): Promise<any[]> {
+    const rows: any[] = [];
+    for (let from = 0; from < 4000; from += 1000) {
+      const { data } = await supabase.from("stocks").select("symbol,sector_name,exchange").range(from, from + 999);
+      if (!data?.length) break;
+      rows.push(...data);
+      if (data.length < 1000) break;
+    }
+    return rows;
+  }
+
+  const [stocksRows, indicesRes, vn30Res] = await Promise.all([
+    fetchAllStocks(),
+    supabase.from("market_indices")
+      .select("index_code,close,change_pct,date")
+      .in("index_code", ["VNINDEX", "HNX", "VN30", "UPCOM"])
+      .order("date", { ascending: false })
+      .limit(60),
+    supabase.from("tickers").select("symbol").eq("in_vn30", true),
+  ]);
+
+  const vn30Set = new Set<string>((vn30Res.data ?? []).map((t: any) => t.symbol));
+  const sectorMap: Record<string, string> = {};
+  const exchangeMap: Record<string, string> = {};
+  const universeSet = new Set<string>();
+  stocksRows.forEach((s: any) => {
+    sectorMap[s.symbol] = s.sector_name || "";
+    exchangeMap[s.symbol] = s.exchange || "";
+    universeSet.add(s.symbol);
+  });
+
+  // 2 phiên giao dịch gần nhất
+  const { data: d0r } = await supabase.from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
+  const d0 = d0r?.date;
+  const dates: string[] = [];
+  if (d0) {
+    dates.push(d0);
+    const { data: d1r } = await supabase.from("prices_daily").select("date").lt("date", d0).order("date", { ascending: false }).limit(1);
+    const d1 = d1r?.[0]?.date;
+    if (d1) dates.push(d1);
+  }
+
+  // Giá cho 2 phiên, phân trang để vượt giới hạn 1000 dòng của PostgREST
+  const prc: any[] = [];
+  if (dates.length) {
+    for (let from = 0; from < 8000; from += 1000) {
+      const { data } = await supabase.from("prices_daily").select("symbol,date,close,volume")
+        .in("date", dates).order("date", { ascending: false }).range(from, from + 999);
+      if (!data?.length) break;
+      prc.push(...data);
+      if (data.length < 1000) break;
+    }
+  }
+
+  // gom theo mã (mọi sàn), date desc: [0]=phiên cuối, [1]=phiên trước
+  const bySym: Record<string, any[]> = {};
+  prc.forEach((p: any) => { if (universeSet.has(p.symbol)) (bySym[p.symbol] ??= []).push(p); });
+  const withPct = Object.keys(bySym).map((sym: string) => {
+    const rows = bySym[sym];
+    const latest = rows[0], prev = rows[1];
+    const pct = prev && prev.close > 0 ? ((Number(latest.close) - Number(prev.close)) / Number(prev.close)) * 100 : 0;
+    return { symbol: sym, price: Number(latest.close), pct, vol: fmtVol(latest.volume), sector: toIcb1(sectorMap[sym]), exchange: exchangeMap[sym] || "" };
+  });
+
+  // allMovers: TOÀN BỘ sàn — dùng khi user lọc theo VN30/HNX (scopeMovers).
+  const sortedAll = [...withPct].sort((a, b) => b.pct - a.pct);
+  const allMovers = sortedAll.map((s) => ({
+    symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, sector: s.sector, exchange: s.exchange,
+    isCeil: s.pct >= 6.9, isFloor: s.pct <= -6.9,
+  }));
+
+  // gainers/losers mặc định (chưa lọc gì) VÀ heatmap ngành: giữ nguyên như trước, chỉ tính trên HOSE
+  // — tránh đổi hành vi mặc định khi chưa bấm chọn sàn nào.
+  const withPctHose = withPct.filter((p) => p.exchange === "HOSE");
+  const sortedHose = [...withPctHose].sort((a, b) => b.pct - a.pct);
+  const gainers = sortedHose.slice(0, 5).map((s) => ({
+    symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol,
+    isCeil: s.pct >= 6.9, isFloor: false,
+  }));
+  const losers = sortedHose.slice(-5).reverse().map((s) => ({
+    symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol,
+    isCeil: false, isFloor: s.pct <= -6.9,
+  }));
+
+  const groups: Record<string, number[]> = {};
+  withPctHose.forEach((p) => {
+    if (!groups[p.sector]) groups[p.sector] = [];
+    groups[p.sector].push(p.pct);
+  });
+  const sectors: SectorRow[] = Object.entries(groups)
+    .filter(([name]) => name !== "Khác")   // chỉ 11 ngành ICB tier 1, bỏ nhóm chưa phân loại
+    .map(([name, pcts]) => ({ name, pct: pcts.reduce((a, b) => a + b, 0) / pcts.length }))
+    .sort((a, b) => b.pct - a.pct).slice(0, 12);
+
+  // — Market Indices —
+  const indexGroups: Record<string, { close: number; date: string; change_pct: number | null }[]> = {};
+  indicesRes.data?.forEach((row: any) => {
+    if (!indexGroups[row.index_code]) indexGroups[row.index_code] = [];
+    indexGroups[row.index_code].push(row);
+  });
+  const NAMES: Record<string, string> = { VNINDEX: "VN-INDEX", HNX: "HNX-INDEX", VN30: "VN30", UPCOM: "UPCOM" };
+  const marketIndices: IndexState[] = ["VNINDEX", "VN30", "HNX", "UPCOM"].map(code => {
+    const rows = (indexGroups[code] ?? []).sort((a: any, b: any) => a.date.localeCompare(b.date));
+    if (!rows.length) return { code, name: NAMES[code], value: 0, change: 0, pct: 0, sparkline: [], vol: "—" };
+    const latest = rows[rows.length - 1];
+    const prev   = rows[rows.length - 2];
+    const spark  = rows.slice(-7).map((r: any) => r.close);
+    const change = prev ? latest.close - prev.close : 0;
+    const pct    = latest.change_pct ?? (prev && prev.close ? (change / prev.close) * 100 : 0);
+    return { code, name: NAMES[code], value: latest.close, change, pct, sparkline: spark, vol: "—" };
+  });
+
+  return { vn30Set, allMovers, gainers, losers, sectors, marketIndices };
+}
+
+async function fetchDashboardNews(): Promise<NewsItem[]> {
+  const { data } = await supabase
+    .from("market_news")
+    .select("title,published_at,label,article_url")
+    .neq("label", "trash")
+    .not("label", "is", null)
+    .order("published_at", { ascending: false })
+    .limit(4);
+  return (data ?? []).map((n: any) => ({
+    title: n.title,
+    tag: normLabel(n.label),
+    source: (() => { try { return new URL(n.article_url).hostname.replace("www.", ""); } catch { return "Wealbee"; } })(),
+    time: newsTime(n.published_at),
+    url: n.article_url,
+  }));
+}
+
+async function fetchWatchlist(userId: string): Promise<WatchRow[]> {
+  const { data: rows } = await supabase
+    .from("portfolio_holdings")
+    .select("symbol, quantity, avg_cost")
+    .eq("user_id", userId)
+    .limit(8);
+  if (!rows?.length) return [];
+
+  const symbols = rows.map((r: any) => r.symbol);
+  const latestPrices: Record<string, number> = {};
+  const latestChanges: Record<string, number> = {};
+  const tickerNames: Record<string, string> = {};
+
+  // Giá mới nhất THEO TỪNG MÃ (mỗi mã có phiên cuối khác nhau → không dùng 1 ngày global)
+  const [pricesRes, tickersRes] = await Promise.all([
+    supabase.from("prices_daily").select("symbol,date,open,close")
+      .in("symbol", symbols).order("date", { ascending: false }).limit(symbols.length * 4),
+    supabase.from("tickers").select("symbol,name").in("symbol", symbols),
+  ]);
+  const seen = new Set<string>();
+  pricesRes.data?.forEach((p: any) => {
+    if (seen.has(p.symbol) || p.close == null) return;
+    seen.add(p.symbol);
+    latestPrices[p.symbol] = Number(p.close);
+    latestChanges[p.symbol] = p.open > 0 ? ((p.close - p.open) / p.open) * 100 : 0;
+  });
+  tickersRes.data?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
+
+  return rows.map((r: any) => ({
+    symbol: r.symbol,
+    name: tickerNames[r.symbol] || r.symbol,
+    quantity: Number(r.quantity),
+    price: latestPrices[r.symbol] ?? 0,
+    change: latestChanges[r.symbol] ?? 0,
+  }));
+}
+
+async function fetchDashboardBriefs(userId: string): Promise<BriefRow[]> {
+  const { data } = await supabase
+    .from("briefs")
+    .select("id,title,summary,type,tickers,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(5);
+  return (data ?? []) as BriefRow[];
+}
+
+async function fetchAnalystReports(): Promise<AnalystReport[]> {
+  const { data } = await supabase
+    .from("analyst_reports")
+    .select("id,ticker,title,source_firm,recommendation,target_price,report_date,pdf_url")
+    .order("id", { ascending: false })
+    .limit(12);
+  return (data ?? []) as AnalystReport[];
+}
+
+async function fetchHighlight(market: { gainers: MoverRow[]; losers: MoverRow[]; marketIndices: IndexState[] }): Promise<HighlightResult | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) return null;
+  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/dashboard-highlight`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ market: { gainers: market.gainers, losers: market.losers, indices: market.marketIndices } }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json() as HighlightResult;
+  // Filter out company profile headlines (server-side filter may miss edge cases)
+  if (data.headlines) {
+    data.headlines = data.headlines.filter(h =>
+      h.text && !/^[-–—]\s/.test(h.text) && !h.text.includes("Hoạt động KD")
+    );
+  }
+  return data;
+}
+
 // ── Dashboard component ─────────────────────────────────────────────────────
 export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: DashboardProps) {
   const cardBg      = isDark ? "#131824" : "#fff";
@@ -277,13 +504,14 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
     setDrawerLoading(false);
   }
 
-  // ── Real data state ──────────────────────────────────────────────────────
+  // ── Real data state (đồng bộ từ React Query bên dưới — xem useEffect sync) ───
   const [gainers,       setGainers]       = useState<MoverRow[]>([]);
   const [losers,        setLosers]        = useState<MoverRow[]>([]);
-  const [allMovers,     setAllMovers]     = useState<(MoverRow & { sector: string })[]>([]);
+  const [allMovers,     setAllMovers]     = useState<(MoverRow & { sector: string; exchange: string })[]>([]);
   const [sectors,       setSectors]       = useState<SectorRow[]>([]);
   const [selectedSector, setSelectedSector] = useState<string | null>(null);
   const [vn30Active,    setVn30Active]    = useState(false);
+  const [hnxActive,     setHnxActive]     = useState(false);
   const [vn30Set,       setVn30Set]       = useState<Set<string>>(new Set());
   const [dashNews,      setDashNews]      = useState<NewsItem[]>([]);
   const [watchHoldings, setWatchHoldings] = useState<WatchRow[]>([]);
@@ -291,282 +519,79 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   const [briefs,        setBriefs]        = useState<BriefRow[]>([]);
   const [reports,       setReports]       = useState<AnalystReport[]>([]);
   const [highlight,     setHighlight]     = useState<HighlightResult | null>(null);
-  const [highlightLoading, setHighlightLoading] = useState(true);
-  const [moversLoading, setMoversLoading] = useState(true);
-  const [newsLoading,   setNewsLoading]   = useState(true);
-  const [watchLoading,  setWatchLoading]  = useState(true);
-  const [briefsLoading, setBriefsLoading] = useState(true);
-  const [reportsLoading, setReportsLoading] = useState(true);
 
   const now = new Date();
   const timeStr = now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
   const dateStr = now.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit" });
 
-  // ── Data fetch ───────────────────────────────────────────────────────────
+  // ── Data fetch, có cache (React Query) ────────────────────────────────────
+  // Chuyển trang đi rồi quay lại trong thời gian "stale" sẽ không tải lại từ đầu —
+  // chỉ khi hết hạn (staleTime) mới âm thầm làm mới nền. 5 nguồn dưới đây ĐỘC LẬP
+  // với nhau nên React Query tự chạy song song, không còn cảnh Tin tức/Watchlist/
+  // Briefs/Báo cáo phải xếp hàng chờ dữ liệu thị trường tải xong như code cũ.
+  const userQuery = useCurrentUser();
+  const userId = userQuery.data?.id;
+
+  const marketQuery = useQuery({ queryKey: ["dashboard", "market"], queryFn: fetchMarketData, staleTime: 60_000 });
+  const newsQuery = useQuery({ queryKey: ["dashboard", "news"], queryFn: fetchDashboardNews, staleTime: 5 * 60_000 });
+  const watchlistQuery = useQuery({
+    queryKey: ["dashboard", "watchlist", userId],
+    queryFn: () => fetchWatchlist(userId!),
+    enabled: !!userId,
+    staleTime: 60_000,
+  });
+  const briefsQuery = useQuery({
+    queryKey: ["dashboard", "briefs", userId],
+    queryFn: () => fetchDashboardBriefs(userId!),
+    enabled: !!userId,
+    staleTime: 60_000,
+  });
+  const reportsQuery = useQuery({ queryKey: ["dashboard", "reports"], queryFn: fetchAnalystReports, staleTime: 5 * 60_000 });
+  // Highlight THẬT SỰ cần kết quả market nên chờ marketQuery — nhưng chỉ mình nó chờ,
+  // không kéo theo 4 query độc lập kia.
+  const highlightQuery = useQuery({
+    queryKey: ["dashboard", "highlight"],
+    queryFn: () => fetchHighlight(marketQuery.data!),
+    enabled: !!marketQuery.data,
+    staleTime: 60_000,
+  });
+
+  // Đồng bộ kết quả query vào state hiện có, để phần JSX phía dưới không phải sửa lại
   useEffect(() => {
-    let cancelled = false;
+    if (!marketQuery.data) return;
+    const m = marketQuery.data;
+    setVn30Set(m.vn30Set);
+    setAllMovers(m.allMovers);
+    setGainers(m.gainers);
+    setLosers(m.losers);
+    setSectors(m.sectors);
+    setMarketIndices(m.marketIndices);
+  }, [marketQuery.data]);
+  useEffect(() => { if (newsQuery.data) setDashNews(newsQuery.data); }, [newsQuery.data]);
+  useEffect(() => { if (watchlistQuery.data) setWatchHoldings(watchlistQuery.data); }, [watchlistQuery.data]);
+  useEffect(() => { if (briefsQuery.data) setBriefs(briefsQuery.data); }, [briefsQuery.data]);
+  useEffect(() => { if (reportsQuery.data) setReports(reportsQuery.data); }, [reportsQuery.data]);
+  useEffect(() => { if (highlightQuery.data) setHighlight(highlightQuery.data); }, [highlightQuery.data]);
 
-    // ── Movers + Indices + Sectors ──────────────────────────────────────────
-    async function loadMarketReturn(): Promise<{ gainers: MoverRow[]; losers: MoverRow[]; indices: IndexState[] } | null> {
-      return loadMarket();
-    }
-    async function loadMarket(): Promise<{ gainers: MoverRow[]; losers: MoverRow[]; indices: IndexState[] } | null> {
-      setMoversLoading(true);
-      try {
-        // Vũ trụ HOSE + sector (1 query, ~427 mã < 1000)
-        const [stocksRes, indicesRes, vn30Res] = await Promise.all([
-          supabase.from("stocks").select("symbol,sector_name").eq("exchange", "HOSE"),
-          supabase.from("market_indices")
-            .select("index_code,close,change_pct,date")
-            .in("index_code", ["VNINDEX", "HNX", "VN30", "UPCOM"])
-            .order("date", { ascending: false })
-            .limit(60),
-          supabase.from("tickers").select("symbol").eq("in_vn30", true),
-        ]);
-        if (cancelled) return;
-        setVn30Set(new Set((vn30Res.data ?? []).map((t: any) => t.symbol)));
-        const sectorMap: Record<string, string> = {};
-        const hoseSet = new Set<string>();
-        stocksRes.data?.forEach((s: any) => { sectorMap[s.symbol] = s.sector_name || ""; hoseSet.add(s.symbol); });
-
-        // 2 phiên giao dịch gần nhất
-        const { data: d0r } = await supabase.from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
-        const d0 = d0r?.date;
-        if (!d0 || cancelled) return;
-        const { data: d1r } = await supabase.from("prices_daily").select("date").lt("date", d0).order("date", { ascending: false }).limit(1);
-        const d1 = d1r?.[0]?.date;
-        // Giá cho 2 phiên — PHÂN TRANG để vượt giới hạn 1000 dòng của PostgREST
-        const dates = [d0, d1].filter(Boolean) as string[];
-        const prc: any[] = [];
-        for (let from = 0; from < 8000; from += 1000) {
-          const { data } = await supabase.from("prices_daily").select("symbol,date,close,volume")
-            .in("date", dates).order("date", { ascending: false }).range(from, from + 999);
-          if (!data?.length) break;
-          prc.push(...data);
-          if (data.length < 1000) break;
-        }
-        if (cancelled) return;
-
-        // gom theo mã (chỉ HOSE), date desc: [0]=phiên cuối, [1]=phiên trước
-        const bySym: Record<string, any[]> = {};
-        prc.forEach((p: any) => { if (hoseSet.has(p.symbol)) (bySym[p.symbol] ??= []).push(p); });
-        const withPct = Object.keys(bySym).map((sym: string) => {
-          const rows = bySym[sym];
-          const latest = rows[0], prev = rows[1];
-          const pct = prev && prev.close > 0 ? ((Number(latest.close) - Number(prev.close)) / Number(prev.close)) * 100 : 0;
-          return { symbol: sym, price: Number(latest.close), pct, vol: fmtVol(latest.volume), sector: toIcb1(sectorMap[sym]) };
-        });
-
-        const sorted = [...withPct].sort((a: any, b: any) => b.pct - a.pct);
-        setAllMovers(sorted.map((s: any) => ({
-          symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, sector: s.sector,
-          isCeil: s.pct >= 6.9, isFloor: s.pct <= -6.9,
-        })));
-        setGainers(sorted.slice(0, 5).map((s: any) => ({
-          symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol,
-          isCeil: s.pct >= 6.9, isFloor: false,
-        })));
-        setLosers(sorted.slice(-5).reverse().map((s: any) => ({
-          symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol,
-          isCeil: false, isFloor: s.pct <= -6.9,
-        })));
-
-        const groups: Record<string, number[]> = {};
-        withPct.forEach((p: any) => {
-          if (!groups[p.sector]) groups[p.sector] = [];
-          groups[p.sector].push(p.pct);
-        });
-        const sRows: SectorRow[] = Object.entries(groups)
-          .filter(([name]) => name !== "Khác")   // chỉ 11 ngành ICB tier 1, bỏ nhóm chưa phân loại
-          .map(([name, pcts]) => ({ name, pct: pcts.reduce((a: number, b: number) => a + b, 0) / pcts.length }))
-          .sort((a, b) => b.pct - a.pct).slice(0, 12);
-        setSectors(sRows);
-
-        // — Market Indices —
-        const indexGroups: Record<string, { close: number; date: string; change_pct: number | null }[]> = {};
-        indicesRes.data?.forEach((row: any) => {
-          if (!indexGroups[row.index_code]) indexGroups[row.index_code] = [];
-          indexGroups[row.index_code].push(row);
-        });
-
-        const NAMES: Record<string, string> = { VNINDEX: "VN-INDEX", HNX: "HNX-INDEX", VN30: "VN30", UPCOM: "UPCOM" };
-        const idxResult: IndexState[] = ["VNINDEX", "VN30", "HNX", "UPCOM"].map(code => {
-          const rows = (indexGroups[code] ?? []).sort((a: any, b: any) => a.date.localeCompare(b.date));
-          if (!rows.length) return { code, name: NAMES[code], value: 0, change: 0, pct: 0, sparkline: [], vol: "—" };
-          const latest = rows[rows.length - 1];
-          const prev   = rows[rows.length - 2];
-          const spark  = rows.slice(-7).map((r: any) => r.close);
-          const change = prev ? latest.close - prev.close : 0;
-          const pct    = latest.change_pct ?? (prev && prev.close ? (change / prev.close) * 100 : 0);
-          return { code, name: NAMES[code], value: latest.close, change, pct, sparkline: spark, vol: "—" };
-        });
-        if (!cancelled) setMarketIndices(idxResult);
-
-        const g = sorted.slice(0, 5).map((s: any) => ({ symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, isCeil: s.pct >= 6.9, isFloor: false }));
-        const l = sorted.slice(-5).reverse().map((s: any) => ({ symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, isCeil: false, isFloor: s.pct <= -6.9 }));
-        return { gainers: g, losers: l, indices: idxResult };
-      } finally {
-        if (!cancelled) setMoversLoading(false);
-      }
-      return null;
-    }
-
-    // ── News ─────────────────────────────────────────────────────────────────
-    async function loadNews() {
-      setNewsLoading(true);
-      try {
-        const { data } = await supabase
-          .from("market_news")
-          .select("title,published_at,label,article_url")
-          .neq("label", "trash")
-          .not("label", "is", null)
-          .order("published_at", { ascending: false })
-          .limit(4);
-        if (!data || cancelled) return;
-        setDashNews(data.map((n: any) => ({
-          title: n.title,
-          tag: normLabel(n.label),
-          source: (() => { try { return new URL(n.article_url).hostname.replace("www.", ""); } catch { return "Wealbee"; } })(),
-          time: newsTime(n.published_at),
-          url: n.article_url,
-        })));
-      } finally {
-        if (!cancelled) setNewsLoading(false);
-      }
-    }
-
-    // ── Portfolio watchlist — dùng portfolio_holdings ─────────────────────────
-    async function loadWatchlist() {
-      setWatchLoading(true);
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || cancelled) return;
-
-        const { data: rows } = await supabase
-          .from("portfolio_holdings")
-          .select("symbol, quantity, avg_cost")
-          .eq("user_id", user.id)
-          .limit(8);
-        if (!rows?.length || cancelled) return;
-
-        const symbols = rows.map((r: any) => r.symbol);
-        const latestPrices: Record<string, number> = {};
-        const latestChanges: Record<string, number> = {};
-        const tickerNames: Record<string, string> = {};
-
-        // Giá mới nhất THEO TỪNG MÃ (mỗi mã có phiên cuối khác nhau → không dùng 1 ngày global)
-        const [pricesRes, tickersRes] = await Promise.all([
-          supabase.from("prices_daily").select("symbol,date,open,close")
-            .in("symbol", symbols).order("date", { ascending: false }).limit(symbols.length * 4),
-          supabase.from("tickers").select("symbol,name").in("symbol", symbols),
-        ]);
-        const seen = new Set<string>();
-        pricesRes.data?.forEach((p: any) => {
-          if (seen.has(p.symbol) || p.close == null) return;
-          seen.add(p.symbol);
-          latestPrices[p.symbol] = Number(p.close);
-          latestChanges[p.symbol] = p.open > 0 ? ((p.close - p.open) / p.open) * 100 : 0;
-        });
-        tickersRes.data?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
-
-        if (!cancelled) {
-          setWatchHoldings(rows.map((r: any) => ({
-            symbol: r.symbol,
-            name: tickerNames[r.symbol] || r.symbol,
-            quantity: Number(r.quantity),
-            price: latestPrices[r.symbol] ?? 0,
-            change: latestChanges[r.symbol] ?? 0,
-          })));
-        }
-      } finally {
-        if (!cancelled) setWatchLoading(false);
-      }
-    }
-
-    // ── Briefs (AI analysis reports) ─────────────────────────────────────────
-    async function loadBriefs() {
-      setBriefsLoading(true);
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || cancelled) return;
-        const { data } = await supabase
-          .from("briefs")
-          .select("id,title,summary,type,tickers,created_at")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(5);
-        if (!cancelled) setBriefs((data ?? []) as BriefRow[]);
-      } finally {
-        if (!cancelled) setBriefsLoading(false);
-      }
-    }
-
-    // ── Báo cáo phân tích doanh nghiệp (Vietstock) ───────────────────────────
-    async function loadReports() {
-      setReportsLoading(true);
-      try {
-        const { data } = await supabase
-          .from("analyst_reports")
-          .select("id,ticker,title,source_firm,recommendation,target_price,report_date,pdf_url")
-          .order("id", { ascending: false })
-          .limit(12);
-        if (!cancelled) setReports((data ?? []) as AnalystReport[]);
-      } finally {
-        if (!cancelled) setReportsLoading(false);
-      }
-    }
-
-    // ── AI Highlight card (calls dashboard-highlight edge function) ────────────
-    async function loadHighlight(marketData: { gainers: MoverRow[]; losers: MoverRow[]; indices: IndexState[] }) {
-      setHighlightLoading(true);
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token || cancelled) return;
-        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-        const res = await fetch(`${SUPABASE_URL}/functions/v1/dashboard-highlight`, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${session.access_token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ market: marketData }),
-        });
-        if (res.ok && !cancelled) {
-          const data = await res.json() as HighlightResult;
-          // Filter out company profile headlines (server-side filter may miss edge cases)
-          if (data.headlines) {
-            data.headlines = data.headlines.filter(h =>
-              h.text && !/^[-–—]\s/.test(h.text) && !h.text.includes("Hoạt động KD")
-            );
-          }
-          setHighlight(data);
-        }
-      } catch { /* ignore, fallback to market bullets */ }
-      finally { if (!cancelled) setHighlightLoading(false); }
-    }
-
-    async function loadAll() {
-      // Load market first, then use it for highlight context
-      const marketData = await loadMarketReturn();
-      if (!cancelled && marketData) {
-        loadHighlight(marketData);
-      }
-      loadNews();
-      loadWatchlist();
-      loadBriefs();
-      loadReports();
-    }
-
-    loadAll();
-
-    return () => { cancelled = true; };
-  }, []);
+  const moversLoading    = marketQuery.isLoading;
+  const newsLoading      = newsQuery.isLoading;
+  const watchLoading     = userQuery.isLoading || watchlistQuery.isLoading;
+  const briefsLoading    = userQuery.isLoading || briefsQuery.isLoading;
+  const reportsLoading   = reportsQuery.isLoading;
+  const highlightLoading = marketQuery.isLoading || highlightQuery.isLoading;
 
   // ── Computed portfolio summary ────────────────────────────────────────────
   const portfolioTotal = watchHoldings.reduce((s, h) => s + h.price * h.quantity, 0);
 
-  // Lọc movers: VN30 ∩ ngành (kết hợp được); null = toàn bộ HOSE
-  const scopeMovers = (vn30Active || selectedSector)
-    ? allMovers.filter(m => (!vn30Active || vn30Set.has(m.symbol)) && (!selectedSector || m.sector === selectedSector))
+  // Lọc movers: VN30/HNX ∩ ngành (kết hợp được); null = toàn bộ HOSE (mặc định)
+  const scopeMovers = (vn30Active || hnxActive || selectedSector)
+    ? allMovers.filter(m =>
+        (!vn30Active || vn30Set.has(m.symbol)) &&
+        (!hnxActive || m.exchange === "HNX") &&
+        (!selectedSector || m.sector === selectedSector)
+      )
     : null;
-  const scopeLabel = [vn30Active ? "VN30" : null, selectedSector].filter(Boolean).join(" · ") || null;
+  const scopeLabel = [vn30Active ? "VN30" : null, hnxActive ? "HNX" : null, selectedSector].filter(Boolean).join(" · ") || null;
   // Chuẩn CTCK: TĂNG = chỉ mã tăng (xanh), GIẢM = chỉ mã giảm (đỏ). Card giữ size nhờ minHeight.
   const displayGainers = scopeMovers
     ? scopeMovers.filter(m => m.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 5).map(m => ({ ...m, isFloor: false }))
@@ -768,8 +793,12 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
             [0, 1, 2, 3].map(i => <div key={i} style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, height: 130, opacity: 0.5 }} />)
           ) : (
             marketIndices.map(idx => <IndexCard key={idx.name} idx={idx} isDark={isDark}
-              onClick={idx.code === "VN30" ? () => { setVn30Active(a => !a); setSelectedSector(null); } : undefined}
-              active={idx.code === "VN30" && vn30Active} />)
+              onClick={
+                idx.code === "VN30" ? () => { setVn30Active(a => !a); setHnxActive(false); setSelectedSector(null); }
+                : idx.code === "HNX" ? () => { setHnxActive(a => !a); setVn30Active(false); setSelectedSector(null); }
+                : undefined
+              }
+              active={(idx.code === "VN30" && vn30Active) || (idx.code === "HNX" && hnxActive)} />)
           )}
         </div>
 

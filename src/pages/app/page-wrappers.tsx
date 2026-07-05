@@ -65,7 +65,9 @@ export function AgentStudioRoute() {
   const agentId = searchParams.get("agent_id") ?? undefined;
   // Tên/mô tả đã được nhập ở modal "Tạo Agent mới" (trang Agent của tôi / Mẫu Agent / sidebar)
   // được chuyển qua router state để Studio bỏ qua bước hỏi lại tên.
-  const state = location.state as { agentName?: string; agentDesc?: string } | null;
+  // presetToolId: đến từ trang chi tiết công cụ (Thư viện công cụ) khi user bấm
+  // "Tạo Agent dùng công cụ này" — Studio sẽ tự bật sẵn tool đó.
+  const state = location.state as { agentName?: string; agentDesc?: string; presetToolId?: string } | null;
   void onNavigate;
   return (
     <AgentStudio
@@ -73,6 +75,7 @@ export function AgentStudioRoute() {
       agentId={agentId}
       initialName={state?.agentName}
       initialDescription={state?.agentDesc}
+      initialToolId={state?.presetToolId}
       isDark={isDark}
     />
   );

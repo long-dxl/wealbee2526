@@ -1,149 +1,150 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import {
-  TrendingUp, BarChart2, Zap, Eye, FileText,
-  Calculator, Percent, Newspaper, Rss, Globe,
-  Activity, GitBranch, Search, Check,
+  TrendingUp, FileText, Calculator, Newspaper, Globe,
+  Activity, GitBranch, Search, Check, ChevronRight,
 } from "lucide-react";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 
-type Category = "Tất cả" | "Thị trường" | "Tài chính" | "Định giá" | "Kỹ thuật" | "Tin tức" | "Vĩ mô" | "Nội bộ";
+export type Category = "Tất cả" | "Thị trường" | "Tài chính" | "Định giá" | "Kỹ thuật" | "Tin tức" | "Vĩ mô";
 
-interface Tool {
+export interface Tool {
   id: string;
   name: string;
   oneliner: string;
+  longDescription: string;
   category: Exclude<Category, "Tất cả">;
   icon: React.ElementType;
-  iconBg: string;
-  iconColor: string;
   available?: boolean;
+  /** id công cụ thật mà agent dùng (khớp ALL_TOOLS trong agent-studio-new.tsx), undefined nếu chưa có backend */
+  backendToolId?: string;
+  /** Các mảng nhỏ cấu thành tool này (vd tool Tin tức gồm nhiều nguồn báo). Dùng cho cả tag trên card và mục chi tiết. */
+  breakdown?: { title: string; desc: string }[];
 }
 
-const tools: Tool[] = [
+// Mỗi tool ở đây khớp 1:1 với 1 tool thật mà Agent Studio cho phép chọn (xem ALL_TOOLS,
+// agent-studio-new.tsx) và tool backend thực thi (xem OPENAI_TOOL_DEFS, supabase/functions/run-agent/index.ts).
+// KHÔNG tách nhiều card cho cùng 1 tool backend (vd "Giá cổ phiếu", "Chỉ số", "Top tăng/giảm" trước đây
+// là 3 card riêng dù cùng dùng price_feed) — thay vào đó gộp thành 1 card, phần "breakdown" cho biết
+// bên trong tool đó thực sự gồm những gì.
+export const tools: Tool[] = [
   {
-    id: "realtime-price",
-    name: "Giá cổ phiếu cuối phiên",
-    oneliner: "Giá đóng cửa, khối lượng & biến động theo phiên HOSE/HNX",
+    id: "price-feed",
+    name: "Giá & Chỉ số",
+    oneliner: "Giá cổ phiếu, chỉ số thị trường và top tăng/giảm theo từng phiên giao dịch",
+    longDescription: "Giá đóng cửa, khối lượng khớp lệnh, các chỉ số thị trường chính và top tăng/giảm mạnh theo từng phiên HOSE/HNX/UPCoM, dữ liệu nền để Agent nắm diễn biến giá mới nhất trước khi phân tích sâu hơn.",
     category: "Thị trường",
     icon: TrendingUp,
-    iconBg: "linear-gradient(135deg,#34C759,#22c55e)",
-    iconColor: "#fff",
+    backendToolId: "price_feed",
+    breakdown: [
+      { title: "Giá cổ phiếu cuối phiên", desc: "Giá đóng cửa, khối lượng khớp lệnh và biến động % theo phiên HOSE/HNX/UPCoM." },
+      { title: "Chỉ số thị trường", desc: "VN-Index, HNX-Index, UPCoM-Index theo từng phiên giao dịch." },
+      { title: "Top tăng/giảm mạnh", desc: "Các mã biến động mạnh nhất phiên, xếp hạng theo % thay đổi." },
+    ],
   },
   {
-    id: "market-indices",
-    name: "Chỉ số thị trường",
-    oneliner: "VN-Index, HNX-Index, UPCoM theo phiên giao dịch",
-    category: "Thị trường",
-    icon: BarChart2,
-    iconBg: "linear-gradient(135deg,#0849AC,#4D8FE8)",
-    iconColor: "#fff",
-  },
-  {
-    id: "top-movers",
-    name: "Top tăng/giảm mạnh",
-    oneliner: "Điểm nóng trong phiên — nơi dòng tiền đang chảy",
-    category: "Thị trường",
-    icon: Zap,
-    iconBg: "linear-gradient(135deg,#FF9500,#FF3B30)",
-    iconColor: "#fff",
-  },
-  {
-    id: "insider-trades",
-    name: "Giao dịch nội bộ",
-    oneliner: "Lãnh đạo & cổ đông lớn đang mua hay bán?",
-    category: "Nội bộ",
-    icon: Eye,
-    iconBg: "linear-gradient(135deg,#7c3aed,#a855f7)",
-    iconColor: "#fff",
-  },
-  {
-    id: "financial-statements",
-    name: "Báo cáo tài chính",
-    oneliner: "BCKQKD, BCĐKT, LCTTT từ FiinPro theo quý/năm",
+    id: "financials",
+    name: "BCTC & Nội bộ",
+    oneliner: "Báo cáo tài chính, giao dịch nội bộ và lịch sử cổ tức theo quý/năm",
+    longDescription: "Báo cáo kết quả kinh doanh, bảng cân đối kế toán, lưu chuyển tiền tệ 5 năm gần nhất theo đúng 4 loại hình doanh nghiệp, cùng giao dịch nội bộ và lịch sử cổ tức.",
     category: "Tài chính",
     icon: FileText,
-    iconBg: "linear-gradient(135deg,#6366F1,#818CF8)",
-    iconColor: "#fff",
+    backendToolId: "financials",
+    breakdown: [
+      { title: "Báo cáo tài chính", desc: "BCKQKD, BCĐKT, LCTTT theo quý/năm, chỉ số riêng theo 4 loại hình doanh nghiệp (ngân hàng, chứng khoán, bảo hiểm, doanh nghiệp thường)." },
+      { title: "Giao dịch nội bộ", desc: "Theo dõi giao dịch mua/bán của ban lãnh đạo, người nội bộ và cổ đông lớn." },
+      { title: "Lịch sử cổ tức", desc: "Lịch sử chi trả cổ tức và tỷ suất cổ tức theo giá hiện tại." },
+    ],
   },
   {
-    id: "pe-pb-valuation",
-    name: "Định giá P/E & P/B",
-    oneliner: "Cổ phiếu đang rẻ hay đắt? So sánh trailing/forward",
-    category: "Định giá",
-    icon: Calculator,
-    iconBg: "linear-gradient(135deg,#b36200,#FF9500)",
-    iconColor: "#fff",
+    id: "value-chain",
+    name: "Chuỗi cung ứng & yếu tố tác động",
+    oneliner: "Nguyên liệu đầu vào, sản phẩm đầu ra và yếu tố vĩ mô tác động biên lợi nhuận theo ngành",
+    longDescription: "Nguyên liệu đầu vào và sản phẩm đầu ra theo từng ngành (thép: quặng, than cốc đến HRC; cảng, hàng không: dầu, nhiên liệu; phân bón: khí đến ure...), cùng giá cước và yếu tố vĩ mô tác động biên lợi nhuận.",
+    category: "Tài chính",
+    icon: Activity,
+    backendToolId: "value_chain",
+    breakdown: [
+      { title: "Nguyên liệu đầu vào", desc: "Chi phí đầu vào chính theo từng ngành." },
+      { title: "Sản phẩm đầu ra", desc: "Nguồn doanh thu chính theo từng ngành." },
+      { title: "Yếu tố vĩ mô tác động", desc: "Giá cước, tỷ giá và các yếu tố ảnh hưởng biên lợi nhuận." },
+    ],
   },
   {
-    id: "dividend-yield",
-    name: "Tỷ suất cổ tức",
-    oneliner: "Thu nhập thụ động từ danh mục — vs lãi suất ngân hàng",
-    category: "Định giá",
-    icon: Percent,
-    iconBg: "linear-gradient(135deg,#34C759,#22c55e)",
-    iconColor: "#fff",
-  },
-  {
-    id: "cafef-news",
-    name: "Tin tức CafeF",
-    oneliner: "Nguồn tài chính hàng đầu Việt Nam — cập nhật liên tục",
+    id: "news-feed",
+    name: "Tin tức thị trường",
+    oneliner: "Tin 48 giờ từ 12 trang báo tài chính, lọc theo mã trong danh mục",
+    longDescription: "Tổng hợp tin tức tài chính trong 48 giờ gần nhất từ 12 trang báo, lọc theo mã trong watchlist và xếp hạng theo mức độ ảnh hưởng đến danh mục.",
     category: "Tin tức",
     icon: Newspaper,
-    iconBg: "linear-gradient(135deg,#0849AC,#2563eb)",
-    iconColor: "#fff",
+    backendToolId: "news_feed",
+    breakdown: [
+      { title: "Market Times", desc: "Tin tức thị trường tài chính và chứng khoán cập nhật liên tục." },
+      { title: "Vietstock", desc: "Phân tích chuyên gia và nhận định thị trường chuyên sâu." },
+      { title: "Stockbiz", desc: "Tin tức và dữ liệu thị trường chứng khoán." },
+      { title: "Báo Đầu tư", desc: "Tin tức đầu tư, doanh nghiệp và chính sách kinh tế." },
+      { title: "Thời báo Tài chính Việt Nam", desc: "Tin tức tài chính, ngân sách và chính sách nhà nước." },
+      { title: "Vietnam Finance", desc: "Tin tức tài chính, ngân hàng và doanh nghiệp." },
+      { title: "Thời báo Ngân hàng", desc: "Tin tức ngành ngân hàng và chính sách tiền tệ." },
+      { title: "CafeF", desc: "Nguồn tài chính hàng đầu Việt Nam, cập nhật liên tục." },
+      { title: "VnEconomy", desc: "Tin tức kinh tế vĩ mô và thị trường." },
+      { title: "Tin nhanh Chứng khoán", desc: "Tin tức nhanh về thị trường chứng khoán." },
+      { title: "The Saigon Times", desc: "Tin tức kinh tế, tài chính bằng tiếng Anh." },
+      { title: "VnExpress", desc: "Tin tức kinh tế, tài chính từ báo điện tử VnExpress." },
+    ],
   },
   {
-    id: "vietstock-news",
-    name: "Tin tức Vietstock",
-    oneliner: "Phân tích chuyên gia & nhận định thị trường chuyên sâu",
-    category: "Tin tức",
-    icon: Rss,
-    iconBg: "linear-gradient(135deg,#0849AC,#6366F1)",
-    iconColor: "#fff",
+    id: "pe-ratio",
+    name: "P/E & Định giá",
+    oneliner: "Cổ phiếu đang rẻ hay đắt? So sánh trailing/forward",
+    longDescription: "So sánh định giá P/E, P/B, EV/EBITDA của cổ phiếu với trung bình ngành và lịch sử. Đang được phát triển, chưa thể dùng trong Agent.",
+    category: "Định giá",
+    icon: Calculator,
+    backendToolId: "pe_ratio",
+    available: false,
   },
   {
-    id: "macro-data",
-    name: "Dữ liệu kinh tế vĩ mô",
+    id: "macro",
+    name: "Vĩ mô",
     oneliner: "CPI, lãi suất điều hành & tỷ giá USD/VND từ NHNN",
+    longDescription: "CPI, lãi suất điều hành và tỷ giá USD/VND từ Ngân hàng Nhà nước. Đang được phát triển, chưa thể dùng trong Agent.",
     category: "Vĩ mô",
     icon: Globe,
-    iconBg: "linear-gradient(135deg,#FF3B30,#ef4444)",
-    iconColor: "#fff",
+    backendToolId: "macro",
     available: false,
   },
   {
     id: "rsi",
-    name: "RSI — Quá mua / Quá bán",
+    name: "RSI - Quá mua / Quá bán",
     oneliner: "RSI 14 ngày: vùng >70 quá mua, <30 quá bán",
+    longDescription: "Chỉ báo RSI 14 ngày để phát hiện vùng quá mua/quá bán. Đang được phát triển, chưa thể dùng trong Agent.",
     category: "Kỹ thuật",
     icon: Activity,
-    iconBg: "linear-gradient(135deg,#4b5563,#6b7280)",
-    iconColor: "#fff",
+    backendToolId: "rsi",
     available: false,
   },
   {
     id: "macd",
-    name: "MACD — Xu hướng & Động lực",
+    name: "MACD - Xu hướng & Động lực",
     oneliner: "MACD(12,26,9): phát hiện đảo chiều & sức mạnh xu hướng",
+    longDescription: "Chỉ báo MACD(12,26,9) phát hiện đảo chiều và sức mạnh xu hướng. Đang được phát triển, chưa thể dùng trong Agent.",
     category: "Kỹ thuật",
     icon: GitBranch,
-    iconBg: "linear-gradient(135deg,#1A1A2E,#374151)",
-    iconColor: "#fff",
+    backendToolId: "macd",
     available: false,
   },
 ];
 
-const catStyle: Record<Exclude<Category, "Tất cả">, { bg: string; text: string }> = {
+export const catStyle: Record<Exclude<Category, "Tất cả">, { bg: string; text: string }> = {
   "Thị trường": { bg: "rgba(52,199,89,0.12)", text: "#1a7a3a" },
   "Tài chính": { bg: "rgba(255,149,0,0.12)", text: "#b36200" },
   "Định giá": { bg: "rgba(109,40,217,0.10)", text: "#6d28d9" },
   "Kỹ thuật": { bg: "rgba(26,26,46,0.08)", text: "rgba(26,26,46,0.65)" },
   "Tin tức": { bg: "rgba(99,102,241,0.12)", text: "#4338ca" },
   "Vĩ mô": { bg: "rgba(255,59,48,0.10)", text: "#c41a1a" },
-  "Nội bộ": { bg: "rgba(8,73,172,0.10)", text: "#0849AC" },
 };
 
-const CATS: Category[] = ["Tất cả", "Thị trường", "Tài chính", "Định giá", "Kỹ thuật", "Tin tức", "Vĩ mô", "Nội bộ"];
+const CATS: Category[] = ["Tất cả", "Thị trường", "Tài chính", "Định giá", "Kỹ thuật", "Tin tức", "Vĩ mô"];
 
 export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
   const cardBg = isDark ? "#131824" : "#fff";
@@ -156,15 +157,19 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
   const inputBorder = isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.15)";
   const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.08)";
 
+  const navigate = useNavigate();
   const [active, setActive] = useState<Category>("Tất cả");
   const [search, setSearch] = useState("");
   const [hoverId, setHoverId] = useState<string | null>(null);
 
-  const filtered = tools.filter((t) => {
-    const matchCat = active === "Tất cả" || t.category === active;
-    const q = search.toLowerCase();
-    return matchCat && (!q || t.name.toLowerCase().includes(q) || t.oneliner.toLowerCase().includes(q));
-  });
+  const filtered = tools
+    .filter((t) => {
+      const matchCat = active === "Tất cả" || t.category === active;
+      const q = search.toLowerCase();
+      return matchCat && (!q || t.name.toLowerCase().includes(q) || t.oneliner.toLowerCase().includes(q));
+    })
+    // Tool dùng được đẩy lên trên, "Sắp ra mắt" xuống dưới (giữ nguyên thứ tự trong từng nhóm)
+    .sort((a, b) => Number(b.available !== false) - Number(a.available !== false));
 
   const handleDragStart = (e: React.DragEvent, tool: Tool) => {
     const card: ContextCard = {
@@ -185,7 +190,7 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: fg, margin: "0 0 4px" }}>Công cụ phân tích</h1>
         <p style={{ margin: 0, fontSize: 13, color: fgSubtle }}>
-          {tools.length} công cụ tích hợp sẵn · Kéo vào Action Hub để hỏi sâu hơn
+          {tools.length} công cụ tích hợp sẵn · Bấm để xem chi tiết · Kéo vào Action Hub để hỏi sâu hơn
         </p>
       </div>
 
@@ -237,7 +242,8 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
               draggable={!unavail}
               onDragStart={(e) => !unavail && handleDragStart(e, tool)}
               onDragEnd={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-              onMouseEnter={() => !unavail && setHoverId(tool.id)}
+              onClick={() => navigate(`/app/tools/${tool.id}`)}
+              onMouseEnter={() => setHoverId(tool.id)}
               onMouseLeave={() => setHoverId(null)}
               style={{
                 background: cardBg,
@@ -245,14 +251,13 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
                 padding: "16px 16px 14px",
                 opacity: unavail ? 0.45 : 1,
                 filter: unavail ? "grayscale(0.6)" : "none",
-                cursor: unavail ? "default" : "grab",
+                cursor: unavail ? "pointer" : "grab",
                 border: hovered
                   ? "1px solid " + (isDark ? "rgba(77,143,232,0.35)" : "rgba(8,73,172,0.20)")
                   : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.09)"),
                 boxShadow: hovered
                   ? isDark ? "0 8px 24px rgba(0,0,0,0.40)" : "0 8px 24px rgba(8,73,172,0.10)"
                   : isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.06)",
-                cursor: "grab",
                 userSelect: "none",
                 transition: "box-shadow 150ms ease, border 150ms ease, transform 120ms ease",
                 transform: hovered ? "translateY(-2px)" : "none",
@@ -262,19 +267,18 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
                 gap: 10,
               }}
             >
-              {/* Top row: icon + drag hint */}
+              {/* Top row: icon + hint */}
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-                {/* Icon */}
+                {/* Icon — nền tint theo màu category, đồng bộ design system (không dùng gradient tuỳ tiện) */}
                 <div style={{
                   width: 44, height: 44, borderRadius: 12, flexShrink: 0,
-                  background: tool.iconBg,
+                  background: cs.bg,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.14)",
                 }}>
-                  <Icon size={22} color={tool.iconColor} strokeWidth={1.5} />
+                  <Icon size={22} color={cs.text} strokeWidth={1.5} />
                 </div>
 
-                {/* Drag badge */}
+                {/* Hint: kéo vào AI (nếu dùng được) hoặc mở chi tiết */}
                 <div style={{
                   opacity: hovered ? 1 : 0,
                   transition: "opacity 150ms ease",
@@ -285,7 +289,7 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
                   display: "flex", alignItems: "center", gap: 3,
                   pointerEvents: "none",
                 }}>
-                  ⠿ Kéo vào AI
+                  {unavail ? <>Xem chi tiết <ChevronRight size={11} strokeWidth={2.5} /></> : "⠿ Kéo vào AI"}
                 </div>
               </div>
 
@@ -317,14 +321,17 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
                 {tool.oneliner}
               </p>
 
-              {/* Bottom: category tag */}
-              <span style={{
-                fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 99,
-                background: cs.bg, color: cs.text,
-                letterSpacing: "0.02em", alignSelf: "flex-start",
-              }}>
-                {tool.category}
-              </span>
+              {/* Bottom: category tag + xem chi tiết */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 99,
+                  background: cs.bg, color: cs.text,
+                  letterSpacing: "0.02em",
+                }}>
+                  {tool.category}
+                </span>
+                <ChevronRight size={14} strokeWidth={2} color={fgDisabled} />
+              </div>
             </div>
           );
         })}

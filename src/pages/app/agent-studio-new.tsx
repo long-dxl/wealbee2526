@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useBlocker } from "react-router";
 import {
   ChevronLeft, Bot, Save, Play, Sparkles, ChevronDown, ChevronUp,
   Check, X, Plus, FileText, Wrench, BookOpen, TrendingUp,
@@ -17,6 +18,8 @@ interface StudioProps {
   agentId?: string;
   initialName?: string;
   initialDescription?: string;
+  /** Tool cần bật sẵn khi tạo agent mới (đến từ trang chi tiết công cụ) */
+  initialToolId?: string;
   isDark?: boolean;
 }
 
@@ -174,13 +177,13 @@ const TOOL_GROUPS = [
     id: "market", category: "Dữ liệu thị trường",
     tools: [
       {
-        id: "price_feed", name: "Giá & Chỉ số", Icon: TrendingUp, color: "#34C759",
-        desc: "Giá VN30, VN-Index, HNX-Index và top tăng/giảm phiên — đọc từ prices_daily + market_indices",
+        id: "price_feed", name: "Giá & Chỉ số", Icon: TrendingUp,
+        desc: "Giá VN30, VN-Index, HNX-Index và top tăng/giảm phiên, đọc từ prices_daily + market_indices",
         available: true,
         includes: ["Giá cổ phiếu realtime", "VN-Index / HNX-Index", "Top tăng / Top giảm"],
       },
       {
-        id: "macro", name: "Vĩ mô", Icon: Globe, color: "#6366F1",
+        id: "macro", name: "Vĩ mô", Icon: Globe,
         desc: "Lãi suất, tỷ giá, CPI, FDI và chính sách tiền tệ của NHNN",
         available: false,
         includes: [],
@@ -191,19 +194,19 @@ const TOOL_GROUPS = [
     id: "fundamental", category: "Phân tích cơ bản",
     tools: [
       {
-        id: "financials", name: "BCTC & Nội bộ", Icon: FileText, color: "#6366F1",
+        id: "financials", name: "BCTC & Nội bộ", Icon: FileText,
         desc: "Phân tích sâu như Analyst: IS/BS/CF 5 năm + chỉ số RIÊNG theo 4 loại hình (NH: NIM/CIR/NPL; CTCK: margin/VCSH; BH: combined ratio) + KQKD quý gần nhất, cổ tức, giao dịch nội bộ",
         available: true,
         includes: ["BCTC theo năm (doanh thu, LNST, EPS, ROE…)", "Lịch sử cổ tức", "Giao dịch nội bộ (MUA/BÁN)"],
       },
       {
-        id: "value_chain", name: "Chuỗi cung ứng & yếu tố tác động", Icon: Activity, color: "#0EA5A0",
+        id: "value_chain", name: "Chuỗi cung ứng & yếu tố tác động", Icon: Activity,
         desc: "Nguyên liệu đầu vào & sản phẩm đầu ra theo ngành (thép: quặng/than cốc → HRC; cảng/hàng không: dầu/nhiên liệu; phân bón: khí → urea…) + giá cước & yếu tố vĩ mô tác động biên lợi nhuận",
         available: true,
         includes: ["Nguyên liệu đầu vào (chi phí)", "Sản phẩm đầu ra (doanh thu)", "Yếu tố vĩ mô tác động"],
       },
       {
-        id: "pe_ratio", name: "P/E & Định giá", Icon: Calculator, color: "#7c3aed",
+        id: "pe_ratio", name: "P/E & Định giá", Icon: Calculator,
         desc: "Định giá tương đối P/E, P/B, EV/EBITDA so với ngành và lịch sử",
         available: false,
         includes: [],
@@ -213,16 +216,16 @@ const TOOL_GROUPS = [
   {
     id: "technical", category: "Phân tích kỹ thuật",
     tools: [
-      { id: "rsi",  name: "RSI",  Icon: Activity,   color: "#0849AC", desc: "Relative Strength Index - vùng quá mua (>70), quá bán (<30)", available: false, includes: [] },
-      { id: "macd", name: "MACD", Icon: TrendingUp, color: "#34C759", desc: "Xu hướng & động lượng - tín hiệu cắt lên/xuống đường signal line", available: false, includes: [] },
+      { id: "rsi",  name: "RSI",  Icon: Activity,   desc: "Relative Strength Index, vùng quá mua (>70), quá bán (<30)", available: false, includes: [] },
+      { id: "macd", name: "MACD", Icon: TrendingUp, desc: "Xu hướng & động lượng, tín hiệu cắt lên/xuống đường signal line", available: false, includes: [] },
     ],
   },
   {
     id: "news-macro", category: "Tin tức",
     tools: [
       {
-        id: "news_feed", name: "Tin tức thị trường", Icon: BookOpen, color: "#FF9500",
-        desc: "Tin 48h từ CafeF, Vietstock, HOSE Filing — lọc theo mã trong watchlist, xếp hạng impact score",
+        id: "news_feed", name: "Tin tức thị trường", Icon: BookOpen,
+        desc: "Tin 48h từ CafeF, Vietstock, HOSE Filing, lọc theo mã trong watchlist, xếp hạng impact score",
         available: true,
         includes: ["Tin theo mã watchlist", "Tin thị trường chung", "Impact score & tóm tắt"],
       },
@@ -246,7 +249,7 @@ const DEFAULT_PROMPT = `Tôi muốn xem bản tin hàng ngày về danh mục c�
 const POPULAR_STOCKS = ["VCB", "HPG", "FPT", "VIC", "TCB", "ACB", "MWG", "VNM", "MSN", "STB"];
 
 // ══════════════════════════════════════════════════════════════════════════════
-export function AgentStudio({ onBack, agentId, initialName, initialDescription, isDark = false }: StudioProps) {
+export function AgentStudio({ onBack, agentId, initialName, initialDescription, initialToolId, isDark = false }: StudioProps) {
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
   const fgMuted = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.55)";
   const fgSubtle = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
@@ -275,8 +278,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   const [promptLoading, setPromptLoading] = useState(!!agentId);
   const [selectedModel, setSelectedModel] = useState("default");
   const [selectedKB, setSelectedKB] = useState<Set<string>>(new Set());
-  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set(["price_feed", "news_feed", "financials"]));
-  const [usePortfolio, setUsePortfolio] = useState(false);
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(
+    new Set(initialToolId ? ["price_feed", "news_feed", "financials", initialToolId] : ["price_feed", "news_feed", "financials"])
+  );
   const [portfolioSymbols, setPortfolioSymbols] = useState<string[]>([]);
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [stockInput, setStockInput] = useState("");
@@ -297,6 +301,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   const [kbSearch, setKbSearch] = useState("");
   const [showToolsPicker, setShowToolsPicker] = useState(false);
   const [toolsSearch, setToolsSearch] = useState("");
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [showWatchlistPicker, setShowWatchlistPicker] = useState(false);
 
   // ── Accordion ─────────────────────────────────────────────────────────────
@@ -376,6 +381,15 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   const [userEmail, setUserEmail] = useState("");
   const [notifyZalo, setNotifyZalo] = useState(false);
 
+  // ── Cảnh báo rời trang khi có thay đổi chưa lưu ─────────────────────────────
+  // agentLoaded: true khi agent (nếu có agentId) đã nạp xong dữ liệu thật, hoặc luôn true
+  // với agent mới tạo (không cần chờ nạp). initialSnapshotRef chụp lại đúng 1 lần trạng thái
+  // "vừa nạp xong" để so sánh — nhờ vậy phát hiện đúng thay đổi thật của user, không bị race.
+  const [agentLoaded, setAgentLoaded] = useState(!agentId);
+  const initialSnapshotRef = useRef<string | null>(null);
+  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+  const leaveActionRef = useRef<() => void>(() => {});
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const toggleDay = (d: number) => {
@@ -405,6 +419,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
         thoibaonganhang: "Thời báo Ngân hàng", stockbiz: "Stockbiz",
         vnexpress: "VnExpress", thoibaotaichinhvietnam: "TB Tài chính VN",
         baodautu: "Báo Đầu tư", vneconomy: "VnEconomy", vietnamfinance: "Vietnam Finance",
+        tinnhanhchungkhoan: "Tin nhanh Chứng khoán", thesaigontimes: "The Saigon Times",
       };
       const list = Object.entries(counts)
         .sort((a, b) => b[1] - a[1])
@@ -421,9 +436,10 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       supabase.from("portfolio_holdings").select("symbol").eq("user_id", user.id).then(({ data }) => {
         if (data?.length) {
           const syms = data.map((h: { symbol: string }) => h.symbol);
+          // Chỉ lưu danh sách mã trong danh mục; KHÔNG động vào watchlist ở đây — trạng thái
+          // "Kết nối danh mục" được suy ra (derived) từ so sánh watchlist với portfolioSymbols
+          // lúc render (xem isPortfolioConnected), nên không cần/không nên strip watchlist khi mount.
           setPortfolioSymbols(syms);
-          // Remove portfolio symbols from watchlist — they'll show as locked chips when usePortfolio is on
-          setWatchlist(prev => prev.filter(s => !syms.includes(s)));
         }
       });
     });
@@ -432,8 +448,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
     setSelectedTools(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const addStock = (sym: string) => {
     const s = sym.trim().toUpperCase();
-    const locked = usePortfolio ? portfolioSymbols : [];
-    if (s && !locked.includes(s) && !watchlist.includes(s)) setWatchlist(p => [...p, s]);
+    // Không cần chặn theo "locked" nữa — nếu đang kết nối danh mục (watchlist == portfolioSymbols),
+    // thêm mã mới ngoài danh mục sẽ tự động phá vỡ sự trùng khớp và tắt "Kết nối danh mục" (xem isPortfolioConnected).
+    if (s && !watchlist.includes(s)) setWatchlist(p => [...p, s]);
     setStockInput("");
   };
 
@@ -503,9 +520,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
         setSelectedModel(available ? data.model : "default");
       }
       if (data.tools?.length) setSelectedTools(new Set(data.tools));
-      if (data.use_portfolio) setUsePortfolio(true);
       if (data.news_sources?.length) setNewsSources(data.news_sources);
-      // target_symbols includes both portfolio (locked) and extra; portfolio load will filter them apart
+      // Nạp đúng mã đã lưu. "Kết nối danh mục" KHÔNG đọc từ cột use_portfolio (có thể đã lỗi thời) —
+      // nó được suy ra (derived) bằng cách so sánh watchlist với portfolioSymbols hiện tại, xem isPortfolioConnected.
       if (data.target_symbols?.length) setWatchlist(data.target_symbols);
       if (data.email_notify != null) setNotifyEmail(data.email_notify);
       if (data.schedule && data.schedule.startsWith("daily:")) setScheduleTime(data.schedule.split(":").slice(1).join(":"));
@@ -519,6 +536,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
         if (tc.days) setEventDays(Number(tc.days));
         if (tc.min_impact) setEventMinImpact(Number(tc.min_impact));
       }
+      setAgentLoaded(true);
     });
   }, [agentId]);
 
@@ -581,7 +599,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       : null;
     const payload = {
       name: agentName, description: agentDesc, system_prompt: prompt, model: selectedModel,
-      tools: [...selectedTools], target_symbols: allSymbols, use_portfolio: usePortfolio,
+      tools: [...selectedTools], target_symbols: allSymbols, use_portfolio: isPortfolioConnected,
       news_sources: newsSources,
       email_notify: notifyEmail, schedule, status: "active",
       trigger_type: triggerType, trigger_config,
@@ -595,6 +613,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       const { error } = await supabase.from("agents").insert({ ...payload, user_id: user!.id, template_id: "daily_digest" });
       if (error) { console.error("Save agent error:", error.message); setIsSaved(false); return; }
     }
+    // Đã lưu thành công — chốt lại "bản gốc" ngay tại đây để không tự chặn nhầm việc điều
+    // hướng đi (blocker) hay lượt onBack() tự động bên dưới.
+    initialSnapshotRef.current = buildDraftSnapshot();
     setTimeout(() => onBack(), 1200);
   };
 
@@ -624,9 +645,14 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   const curModel = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
   const selTools = ALL_TOOLS.filter(t => selectedTools.has(t.id));
   const selFiles = kbDocs.filter(f => selectedKB.has(f.id));
-  const lockedSymbols = usePortfolio ? portfolioSymbols : [];
-  const extraSymbols = watchlist.filter(s => !lockedSymbols.includes(s));
-  const allSymbols = [...lockedSymbols, ...extraSymbols];
+  // "Kết nối danh mục" là trạng thái SUY RA (derived), không phải cờ lưu riêng: bật khi và chỉ khi
+  // mã agent đang theo dõi khớp CHÍNH XÁC với danh mục hiện tại. Bất kỳ thay đổi nào phá vỡ sự khớp
+  // này (user thêm/xoá mã ở đây, hoặc thêm/xoá cổ phiếu trong danh mục ở nơi khác) đều tự động tắt nó,
+  // tới khi user chủ động bấm "Kết nối danh mục" để đồng bộ lại.
+  const isPortfolioConnected = portfolioSymbols.length > 0
+    && watchlist.length === portfolioSymbols.length
+    && watchlist.every(s => portfolioSymbols.includes(s));
+  const allSymbols = watchlist;
   const totalMa = allSymbols.length;
   const displayTickers = allSymbols;
   // Gợi ý mã: khớp tiền tố symbol HOẶC tên công ty; ẩn mã đã thêm; tối đa 8
@@ -638,12 +664,47 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
         .slice(0, 8)
     : [];
 
+  // ── Phát hiện thay đổi chưa lưu ──────────────────────────────────────────
+  const buildDraftSnapshot = () => JSON.stringify({
+    agentName, agentDesc, prompt, selectedModel,
+    selectedKB: [...selectedKB].sort(), selectedTools: [...selectedTools].sort(),
+    watchlist: [...watchlist].sort(), newsSources: [...newsSources].sort(),
+    triggerType, eventType, eventMultiple, eventDays, eventMinImpact,
+    frequency, scheduleTime, selectedDays: [...selectedDays].sort(),
+    notifyEmail, notifyZalo,
+  });
+
+  // Chụp lại "bản gốc" đúng 1 lần, ngay sau khi agent đã nạp xong (hoặc ngay lập tức với agent mới).
+  useEffect(() => {
+    if (agentLoaded && initialSnapshotRef.current === null) {
+      initialSnapshotRef.current = buildDraftSnapshot();
+    }
+  });
+
+  const isDirty = initialSnapshotRef.current !== null && buildDraftSnapshot() !== initialSnapshotRef.current;
+
+  // Cảnh báo khi đóng tab / tải lại trang mà còn thay đổi chưa lưu
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  // Chặn điều hướng trong app (sidebar, breadcrumb…) khi còn thay đổi chưa lưu
+  const blocker = useBlocker(isDirty);
+
+  const requestLeave = (action: () => void) => {
+    if (isDirty) { leaveActionRef.current = action; setConfirmLeaveOpen(true); }
+    else action();
+  };
+
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT, background: bgApp }}>
 
       {/* ── Top bar ── */}
       <div style={{ height: 52, display: "flex", alignItems: "center", gap: 12, padding: "0 16px", borderBottom: "0.5px solid " + divider, background: bgPanel, flexShrink: 0, zIndex: 10 }}>
-        <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", color: fgMuted, fontSize: 13, fontFamily: FONT }}>
+        <button onClick={() => requestLeave(onBack)} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", color: fgMuted, fontSize: 13, fontFamily: FONT }}>
           <ChevronLeft size={16} strokeWidth={1.5} /> Agents
         </button>
         <span style={{ color: isDark ? "rgba(255,255,255,0.20)" : "rgba(26,26,46,0.20)" }}>/</span>
@@ -705,7 +766,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
             <div style={{ padding: "10px 14px", background: isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                 <Sparkles size={12} color={brand} strokeWidth={1.5} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>AI đã cải thiện prompt theo chuẩn tài chính — xem trước bên dưới</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>AI đã cải thiện prompt theo chuẩn tài chính, xem trước bên dưới</span>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={() => setShowOptimized(false)} style={{ flex: 1, padding: "6px 0", borderRadius: 7, border: "none", background: brand, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>Áp dụng</button>
@@ -775,14 +836,13 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 <div style={{ fontSize: 13, fontWeight: 600, color: fgDisabled, marginBottom: 3 }}>
                   {selFiles.length > 0 ? `${selFiles.length} file đã chọn` : "Chưa có file nào"}
                 </div>
-                <div style={{ fontSize: 11, color: fgDisabled }}>Tính năng đang phát triển — sẽ ra mắt sớm</div>
+                <div style={{ fontSize: 11, color: fgDisabled }}>Tính năng đang phát triển, sẽ ra mắt sớm</div>
               </div>
             </button>
           </Section>
 
           {/* Tools */}
-          {/* Công cụ phân tích — ẩn: brain "Default" tự query đúng dữ liệu, không cần chọn tool */}
-          {false && (
+          {/* Công cụ phân tích */}
           <Section id="tools" label="Công cụ phân tích" icon={<Wrench size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("tools")} onToggle={() => toggleSection("tools")} badge={`${selectedTools.size}/${ALL_TOOLS.length} công cụ`} isDark={isDark}>
             <button
               onClick={() => setShowToolsPicker(true)}
@@ -792,8 +852,8 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 {selTools.slice(0, 5).map(t => {
                   const Icon = t.Icon;
                   return (
-                    <div key={t.id} style={{ width: 30, height: 30, borderRadius: 8, background: t.color + "18", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Icon size={14} color={t.color} strokeWidth={1.5} />
+                    <div key={t.id} style={{ width: 30, height: 30, borderRadius: 8, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon size={14} color={brand} strokeWidth={1.5} />
                     </div>
                   );
                 })}
@@ -812,7 +872,6 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
               <ChevronDown size={14} color={fgDisabled} strokeWidth={1.5} />
             </button>
           </Section>
-          )}
 
           {/* Mã quan tâm (tùy chọn) */}
           <Section id="watchlist" label="Mã quan tâm (tùy chọn)" icon={<TrendingUp size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("watchlist")} onToggle={() => toggleSection("watchlist")} badge={`${totalMa} mã`} isDark={isDark}>
@@ -826,7 +885,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
               <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: fg, marginBottom: 3, display: "flex", alignItems: "center", gap: 6 }}>
                   {totalMa} mã theo dõi
-                  {usePortfolio && <span style={{ fontSize: 10, padding: "1px 7px", borderRadius: 99, background: "rgba(52,199,89,0.12)", color: "#1a7a3a", fontWeight: 700 }}>Danh mục</span>}
+                  {isPortfolioConnected && <span style={{ fontSize: 10, padding: "1px 7px", borderRadius: 99, background: "rgba(52,199,89,0.12)", color: "#1a7a3a", fontWeight: 700 }}>Danh mục</span>}
                 </div>
                 <div style={{ fontSize: 11, color: fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {displayTickers.slice(0, 6).join(" · ")}{displayTickers.length > 6 ? ` +${displayTickers.length - 6}` : ""}
@@ -949,7 +1008,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, border: "1px solid " + (isDark ? "rgba(77,143,232,0.25)" : "rgba(8,73,172,0.20)"), background: isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)" }}>
                   <div style={{ width: 32, height: 32, borderRadius: 9, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Inbox size={16} color={brand} strokeWidth={1.5} /></div>
-                  <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700, color: brand }}>Inbox Wealbee</div><div style={{ fontSize: 11, color: fgSubtle }}>Luôn bật — kết quả vào Inbox app</div></div>
+                  <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700, color: brand }}>Inbox Wealbee</div><div style={{ fontSize: 11, color: fgSubtle }}>Luôn bật, kết quả vào Inbox app</div></div>
                   <div style={{ width: 36, height: 20, borderRadius: 99, background: brand, display: "flex", alignItems: "center", justifyContent: "flex-end", padding: "0 3px", flexShrink: 0 }}><div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff" }} /></div>
                 </div>
 
@@ -1181,7 +1240,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 <textarea
                   value={agentDesc}
                   onChange={e => setAgentDesc(e.target.value.slice(0, 800))}
-                  placeholder="Giới thiệu ngắn về chức năng của agent — hiển thị cho người dùng."
+                  placeholder="Giới thiệu ngắn về chức năng của agent, hiển thị cho người dùng."
                   rows={4}
                   style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px 24px", borderRadius: 10, border: "1px solid " + inputBorder, background: bgMuted, color: fg, fontSize: 14, fontFamily: FONT, outline: "none", resize: "vertical", lineHeight: 1.5 }}
                 />
@@ -1196,6 +1255,35 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 disabled={!agentName.trim()}
                 style={{ padding: "9px 22px", borderRadius: 9, border: "none", background: agentName.trim() ? brand : (isDark ? "rgba(255,255,255,0.12)" : "#e5e7eb"), color: agentName.trim() ? "#fff" : fgDisabled, fontSize: 13, fontWeight: 700, cursor: agentName.trim() ? "pointer" : "not-allowed", fontFamily: FONT, display: "flex", alignItems: "center", gap: 6 }}>
                 Tiếp tục <ArrowRight style={{ width: 15, height: 15 }} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════ XÁC NHẬN RỜI TRANG KHI CHƯA LƯU ════════ */}
+      {(confirmLeaveOpen || blocker.state === "blocked") && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: FONT }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: "100%", borderRadius: 16, overflow: "hidden", background: bgPanel, boxShadow: "0 24px 80px rgba(0,0,0,0.22), 0 0 0 0.5px " + divider }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 22px", borderBottom: "0.5px solid " + divider }}>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(255,149,0,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <AlertTriangle style={{ width: 16, height: 16, color: "#FF9500" }} />
+              </div>
+              <span style={{ fontSize: 16, fontWeight: 700, color: fg }}>Thay đổi chưa được lưu</span>
+            </div>
+            <div style={{ padding: 22, fontSize: 13.5, color: fgMuted, lineHeight: 1.6 }}>
+              Bạn vừa thay đổi cấu hình agent này nhưng chưa bấm "Lưu Agent". Nếu rời khỏi trang bây giờ, các thay đổi vừa rồi sẽ bị xoá.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 22px", borderTop: "0.5px solid " + divider }}>
+              <button
+                onClick={() => { setConfirmLeaveOpen(false); if (blocker.state === "blocked") blocker.reset(); }}
+                style={{ padding: "9px 18px", borderRadius: 9, border: "1px solid " + inputBorder, background: "transparent", color: fgMuted, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>
+                Tiếp tục chỉnh sửa
+              </button>
+              <button
+                onClick={() => { setConfirmLeaveOpen(false); if (blocker.state === "blocked") blocker.proceed(); else leaveActionRef.current(); }}
+                style={{ padding: "9px 22px", borderRadius: 9, border: "none", background: "#e0524d", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
+                Rời khỏi, xoá thay đổi
               </button>
             </div>
           </div>
@@ -1291,39 +1379,61 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                       {groupTools.map((t, idx) => {
                         const Icon = t.Icon;
                         const sel = selectedTools.has(t.id);
+                        const expanded = expandedTools.has(t.id);
+                        const needsExpand = t.desc.length > 100;
                         return (
                           <div key={t.id} style={{ borderBottom: idx < groupTools.length - 1 ? "0.5px solid " + dividerFaint : "none" }}>
-                            <div onClick={() => t.available && toggleTool(t.id)} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "14px 20px", cursor: t.available ? "pointer" : "default", background: sel ? (isDark ? "rgba(77,143,232,0.07)" : t.color + "08") : "transparent", transition: "background 80ms", opacity: t.available ? 1 : 0.45 }}>
-                              <div style={{ width: 44, height: 44, borderRadius: 12, background: t.color + "18", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
-                                <Icon size={20} color={t.color} strokeWidth={1.5} />
+                            <div onClick={() => t.available && toggleTool(t.id)} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "14px 20px", cursor: t.available ? "pointer" : "default", background: sel ? (isDark ? "rgba(52,199,89,0.07)" : "rgba(52,199,89,0.05)") : "transparent", transition: "background 80ms", opacity: t.available ? 1 : 0.45 }}>
+                              <div style={{ width: 44, height: 44, borderRadius: 12, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                                <Icon size={20} color={brand} strokeWidth={1.5} />
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 14, fontWeight: 700, color: sel ? t.color : fg, marginBottom: 3, display: "flex", alignItems: "center", gap: 7 }}>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: fg, marginBottom: 3, display: "flex", alignItems: "center", gap: 7 }}>
                                   {t.name}
                                   {!t.available && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(26,26,46,0.07)", color: fgDisabled }}>Sắp ra mắt</span>}
                                 </div>
-                                <div style={{ fontSize: 12, color: fgSubtle, marginBottom: t.includes?.length ? 7 : 0 }}>{t.desc}</div>
                                 {t.includes?.length > 0 && (
-                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
                                     {t.includes.map(inc => (
-                                      <span key={inc} style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: sel ? (t.color + "18") : isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.05)", color: sel ? t.color : fgSubtle }}>
+                                      <span key={inc} style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", color: brand }}>
                                         {inc}
                                       </span>
                                     ))}
                                   </div>
                                 )}
+                                <div style={{
+                                  fontSize: 12, color: fgSubtle, lineHeight: 1.5,
+                                  ...(expanded ? {} : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const, overflow: "hidden" }),
+                                }}>
+                                  {t.desc}
+                                </div>
+                                {needsExpand && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setExpandedTools(prev => {
+                                        const next = new Set(prev);
+                                        next.has(t.id) ? next.delete(t.id) : next.add(t.id);
+                                        return next;
+                                      });
+                                    }}
+                                    style={{ marginTop: 3, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 11, fontWeight: 700, color: brand, fontFamily: FONT }}
+                                  >
+                                    {expanded ? "Thu gọn" : "Xem thêm"}
+                                  </button>
+                                )}
                               </div>
-                              <div style={{ width: 40, height: 22, borderRadius: 99, flexShrink: 0, background: sel && t.available ? t.color : isDark ? "rgba(255,255,255,0.12)" : "rgba(26,26,46,0.12)", display: "flex", alignItems: "center", justifyContent: sel && t.available ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms ease", marginTop: 2 }}>
+                              <div style={{ width: 40, height: 22, borderRadius: 99, flexShrink: 0, background: sel && t.available ? "#34C759" : isDark ? "rgba(255,255,255,0.12)" : "rgba(26,26,46,0.12)", display: "flex", alignItems: "center", justifyContent: sel && t.available ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms ease", marginTop: 2 }}>
                                 <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.20)" }} />
                               </div>
                             </div>
-                            {/* News source picker — only for news_feed when selected */}
+                            {/* News source picker, chỉ hiện với news_feed khi đang bật */}
                             {t.id === "news_feed" && sel && availableNewsSources.length > 0 && (
                               <div onClick={e => e.stopPropagation()} style={{ margin: "0 20px 14px", padding: "12px 14px", borderRadius: 10, background: isDark ? "rgba(255,152,0,0.06)" : "rgba(255,152,0,0.05)", border: "0.5px solid rgba(255,152,0,0.20)" }}>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#FF9500", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
                                   Nguồn tin tức
                                   <span style={{ fontWeight: 400, color: fgDisabled, textTransform: "none", letterSpacing: 0, marginLeft: 6 }}>
-                                    {newsSources.length === 0 ? "— tất cả nguồn" : `— ${newsSources.length} nguồn đã chọn`}
+                                    {newsSources.length === 0 ? "(tất cả nguồn)" : `(${newsSources.length} nguồn đã chọn)`}
                                   </span>
                                 </div>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
@@ -1374,21 +1484,18 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Kết nối danh mục</div>
                 <div onClick={() => {
                   if (!portfolioSymbols.length) return;
-                  setUsePortfolio(v => {
-                    const next = !v;
-                    // Either way, keep watchlist clean of portfolio symbols
-                    setWatchlist(prev => prev.filter(s => !portfolioSymbols.includes(s)));
-                    return next;
-                  });
-                }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, cursor: portfolioSymbols.length > 0 ? "pointer" : "default", border: usePortfolio ? "1px solid rgba(52,199,89,0.35)" : "0.5px solid " + divider, background: usePortfolio ? "rgba(52,199,89,0.06)" : bgMuted, transition: "all 120ms", opacity: portfolioSymbols.length === 0 ? 0.45 : 1 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 11, background: usePortfolio ? "rgba(52,199,89,0.15)" : isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.06)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><TrendingUp size={18} color={usePortfolio ? "#1a7a3a" : fgDisabled} strokeWidth={1.5} /></div>
+                  // Bấm khi ĐANG kết nối → ngắt kết nối, xoá sạch để user tự chọn lại từ đầu.
+                  // Bấm khi CHƯA kết nối → đồng bộ chủ động: mã theo dõi chuyển hẳn về đúng mã trong danh mục.
+                  setWatchlist(isPortfolioConnected ? [] : portfolioSymbols);
+                }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, cursor: portfolioSymbols.length > 0 ? "pointer" : "default", border: isPortfolioConnected ? "1px solid rgba(52,199,89,0.35)" : "0.5px solid " + divider, background: isPortfolioConnected ? "rgba(52,199,89,0.06)" : bgMuted, transition: "all 120ms", opacity: portfolioSymbols.length === 0 ? 0.45 : 1 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 11, background: isPortfolioConnected ? "rgba(52,199,89,0.15)" : isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.06)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><TrendingUp size={18} color={isPortfolioConnected ? "#1a7a3a" : fgDisabled} strokeWidth={1.5} /></div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: usePortfolio ? "#1a7a3a" : fg }}>Kết nối danh mục hiện tại</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: isPortfolioConnected ? "#1a7a3a" : fg }}>Kết nối danh mục hiện tại</div>
                     <div style={{ fontSize: 11, color: fgSubtle, marginTop: 2 }}>
-                      {portfolioSymbols.length > 0 ? `${portfolioSymbols.join(" · ")} (${portfolioSymbols.length} mã)` : "Chưa có danh mục — thêm mã bên dưới"}
+                      {portfolioSymbols.length > 0 ? `${portfolioSymbols.join(" · ")} (${portfolioSymbols.length} mã)` : "Chưa có danh mục, thêm mã bên dưới"}
                     </div>
                   </div>
-                  <div style={{ width: 40, height: 22, borderRadius: 99, background: usePortfolio ? "#34C759" : isDark ? "rgba(255,255,255,0.15)" : "rgba(26,26,46,0.15)", display: "flex", alignItems: "center", justifyContent: usePortfolio ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms", flexShrink: 0 }}>
+                  <div style={{ width: 40, height: 22, borderRadius: 99, background: isPortfolioConnected ? "#34C759" : isDark ? "rgba(255,255,255,0.15)" : "rgba(26,26,46,0.15)", display: "flex", alignItems: "center", justifyContent: isPortfolioConnected ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms", flexShrink: 0 }}>
                     <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.20)" }} />
                   </div>
                 </div>
@@ -1425,17 +1532,20 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 <div style={{ padding: "14px 20px" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Đang theo dõi ({allSymbols.length})</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-                    {lockedSymbols.map(sym => (
-                      <span key={sym} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 99, background: isDark ? "rgba(52,199,89,0.12)" : "rgba(52,199,89,0.10)", border: "0.5px solid rgba(52,199,89,0.4)", fontSize: 13, fontWeight: 700, color: "#34C759" }}>
-                        {sym}
-                      </span>
-                    ))}
-                    {extraSymbols.map(sym => (
-                      <span key={sym} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px 6px 14px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)", fontSize: 13, fontWeight: 700, color: brand }}>
-                        {sym}
-                        <button onClick={() => setWatchlist(p => p.filter(s => s !== sym))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}><X size={11} color={brand} strokeWidth={2.5} /></button>
-                      </span>
-                    ))}
+                    {watchlist.map(sym => {
+                      const inPortfolio = portfolioSymbols.includes(sym);
+                      return (
+                        <span key={sym} style={{
+                          display: "flex", alignItems: "center", gap: 6, padding: "6px 10px 6px 14px", borderRadius: 99,
+                          background: inPortfolio ? (isDark ? "rgba(52,199,89,0.12)" : "rgba(52,199,89,0.10)") : (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)"),
+                          border: inPortfolio ? "0.5px solid rgba(52,199,89,0.4)" : "none",
+                          fontSize: 13, fontWeight: 700, color: inPortfolio ? "#34C759" : brand,
+                        }}>
+                          {sym}
+                          <button onClick={() => setWatchlist(p => p.filter(s => s !== sym))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}><X size={11} color={inPortfolio ? "#34C759" : brand} strokeWidth={2.5} /></button>
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               )}
