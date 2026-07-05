@@ -61,7 +61,8 @@ export function AnalystReportsPage({ isDark, addContextCard }: { isDark: boolean
       const { data } = await supabase
         .from("analyst_reports")
         .select("id,ticker,title,source_firm,recommendation,target_price,report_date,pdf_url")
-        .order("report_date", { ascending: false, nullsFirst: false })
+        // Sắp theo edocs id (thứ tự Vietstock thêm báo cáo). report_date từ PDF không đáng
+        // tin (nhiều báo cáo null/sai) nên KHÔNG dùng để sắp xếp.
         .order("id", { ascending: false })
         .limit(300);
       if (!cancelled) { setReports((data ?? []) as AnalystReport[]); setLoading(false); }
