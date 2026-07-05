@@ -275,7 +275,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
     body: JSON.stringify({
       model,
       temperature: 0,
-      max_tokens: 3000,
+      max_tokens: 8000,
       stream: true,
       stream_options: { include_usage: true },
       messages: [
@@ -361,7 +361,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
     body: JSON.stringify({
       model,
       temperature: 0,
-      max_tokens: 3000,
+      max_tokens: 8000,
       stream: true,
       stream_options: { include_usage: true },
       messages: [

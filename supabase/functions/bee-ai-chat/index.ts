@@ -709,7 +709,7 @@ Deno.serve(async (req) => {
             tools: TOOL_DEFS,
             tool_choice: "auto",
             temperature: 0,
-            max_tokens: 1500,
+            max_tokens: 4000,
           };
 
           const callRes = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -801,7 +801,7 @@ Deno.serve(async (req) => {
               },
               body: JSON.stringify({
                 model: "claude-sonnet-4-6",
-                max_tokens: 1500,
+                max_tokens: 4000,
                 temperature: 0,
                 system: fullSystem,
                 messages: anthropicMsgs,
@@ -847,7 +847,7 @@ Deno.serve(async (req) => {
                 model: CHAT_MODEL,
                 messages: loopMessages,
                 temperature: 0,
-                max_tokens: 1500,
+                max_tokens: 4000,
                 stream: true,
                 stream_options: { include_usage: true },
                 tool_choice: "none", // final answer only, no more tool calls

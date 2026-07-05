@@ -1125,7 +1125,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
               model: callModel,
               messages,
               temperature: 0,
-              max_tokens: 2000,
+              max_tokens: 8000,
             };
             if (toolDefs.length > 0) {
               callBody.tools = toolDefs;
@@ -1197,7 +1197,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
               },
               body: JSON.stringify({
                 model: apiModel,
-                max_tokens: 2000,
+                max_tokens: 8000,
                 temperature: 0,
                 system: systemPrompt,
                 messages: anthropicMessages,
@@ -1306,7 +1306,7 @@ QUY TẮC:
               model: "gpt-4.1-mini",
               messages: [{ role: "system", content: valSystem }, { role: "user", content: valUser }],
               temperature: 0,
-              max_tokens: 2000,
+              max_tokens: 8000,
             }),
           });
 
