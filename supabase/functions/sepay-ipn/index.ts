@@ -7,7 +7,9 @@ import { PLAN_CAP } from "../_shared/payment.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const SEPAY_SECRET = Deno.env.get("SEPAY_SECRET_KEY") ?? "";
+// Xác thực IPN (tùy chọn để test). Khi go-live: bật auth type=SECRET_KEY ở SePay +
+// set SEPAY_IPN_APIKEY = secret key → chặn IPN giả. Chưa set → bỏ qua kiểm tra (chỉ test).
+const IPN_APIKEY = Deno.env.get("SEPAY_IPN_APIKEY") ?? "";
 const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
 const json = (b: any, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } });
@@ -15,10 +17,9 @@ const json = (b: any, s = 200) => new Response(JSON.stringify(b), { status: s, h
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ success: false, error: "method" }, 405);
 
-  // Xác thực: SePay gửi X-Secret-Key = secret key của merchant
-  if (SEPAY_SECRET) {
+  if (IPN_APIKEY) {
     const hdr = req.headers.get("X-Secret-Key") ?? req.headers.get("x-secret-key") ?? "";
-    if (hdr !== SEPAY_SECRET) return json({ success: false, error: "unauthorized" }, 401);
+    if (hdr !== IPN_APIKEY) return json({ success: false, error: "unauthorized" }, 401);
   }
 
   const p = await req.json().catch(() => ({} as any));
