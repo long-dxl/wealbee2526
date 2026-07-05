@@ -28,10 +28,22 @@ export function fmtBeeny(n: number): string {
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
-/** Gói hiện tại của user (từ user_profiles.plan). */
+/** Gói hiện tại (đã tính hết hạn trial/gói → về free nếu quá hạn). */
 export async function getUserPlan(userId: string): Promise<string> {
-  const { data } = await supabase.from("user_profiles").select("plan").eq("user_id", userId).limit(1);
-  return normPlan(data?.[0]?.plan);
+  const { data } = await supabase.from("user_profiles").select("plan, plan_expires_at").eq("user_id", userId).limit(1);
+  const row = data?.[0];
+  let plan = normPlan(row?.plan);
+  if (plan !== "free" && row?.plan_expires_at && Date.parse(row.plan_expires_at) < Date.now()) plan = "free";
+  return plan;
+}
+
+/** Số ngày dùng thử/gói còn lại (null nếu không có hạn hoặc free). */
+export async function getPlanDaysLeft(userId: string): Promise<number | null> {
+  const { data } = await supabase.from("user_profiles").select("plan, plan_expires_at").eq("user_id", userId).limit(1);
+  const row = data?.[0];
+  if (!row?.plan_expires_at || normPlan(row.plan) === "free") return null;
+  const ms = Date.parse(row.plan_expires_at) - Date.now();
+  return ms > 0 ? Math.ceil(ms / 86400000) : 0;
 }
 
 /** Kiểm tra còn tạo được agent không. Trả {ok, count, limit, plan}. */
@@ -52,8 +64,19 @@ export async function getBeenyBalance(userId: string): Promise<number | null> {
   return Number(data[0].balance);
 }
 
-/** Gói + số dư Beeny cùng lúc (cho thanh sidebar). */
-export async function getPlanAndBeeny(userId: string): Promise<{ plan: string; label: string; balance: number | null }> {
-  const [plan, balance] = await Promise.all([getUserPlan(userId), getBeenyBalance(userId)]);
-  return { plan, label: PLAN_LIMITS[plan].label, balance };
+/** Gói + số dư Beeny + số ngày còn lại (đã tính hết hạn). Dùng cho sidebar & settings. */
+export async function getPlanAndBeeny(userId: string): Promise<{ plan: string; label: string; balance: number | null; daysLeft: number | null }> {
+  const [profRes, balance] = await Promise.all([
+    supabase.from("user_profiles").select("plan, plan_expires_at").eq("user_id", userId).limit(1),
+    getBeenyBalance(userId),
+  ]);
+  const row = profRes.data?.[0];
+  let plan = normPlan(row?.plan);
+  let daysLeft: number | null = null;
+  if (plan !== "free" && row?.plan_expires_at) {
+    const ms = Date.parse(row.plan_expires_at) - Date.now();
+    if (ms < 0) plan = "free";
+    else daysLeft = Math.ceil(ms / 86400000);
+  }
+  return { plan, label: PLAN_LIMITS[plan].label, balance, daysLeft };
 }

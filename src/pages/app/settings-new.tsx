@@ -112,6 +112,7 @@ export function Settings() {
   const [totalBeeny,   setTotalBeeny]   = useState(0);
   const [balance,      setBalance]      = useState<number | null>(null);
   const [plan,         setPlan]         = useState("free");
+  const [daysLeft,     setDaysLeft]     = useState<number | null>(null);
   const [upgrading,    setUpgrading]    = useState<string | null>(null);
 
   // Quay lại từ SePay: ?payment=success → làm mới gói + báo thành công
@@ -149,9 +150,9 @@ export function Settings() {
       if (!user) return;
       const since = new Date(Date.now() - 30 * 86400000).toISOString();
 
-      // Số dư + gói hiện tại
-      const { plan: p, balance: bal } = await getPlanAndBeeny(user.id);
-      setPlan(p); setBalance(bal);
+      // Số dư + gói hiện tại + ngày còn lại
+      const { plan: p, balance: bal, daysLeft: dl } = await getPlanAndBeeny(user.id);
+      setPlan(p); setBalance(bal); setDaysLeft(dl);
 
       // Lịch sử tiêu Beeny (mỗi lượt trừ = 1 giao dịch kind='deduct')
       const { data: txs } = await supabase
@@ -637,6 +638,11 @@ export function Settings() {
                     <CreditCard size={16} color={theme.brand} strokeWidth={1.8} />
                     <span style={{ fontSize: 15, fontWeight: 700, color: headingColor, fontFamily: FONT }}>Số dư & tiêu dùng Beeny</span>
                     <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.09)", color: theme.brand, fontFamily: FONT }}>{PLAN_LIMITS[plan]?.label ?? "Free"}</span>
+                    {daysLeft != null && (
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: isDark ? "rgba(52,199,89,0.14)" : "rgba(52,199,89,0.10)", color: "#1a7f37", fontFamily: FONT }}>
+                        còn {daysLeft} ngày{daysLeft <= 7 ? " dùng thử" : ""}
+                      </span>
+                    )}
                   </div>
                   <button onClick={loadBeenyUsage} title="Làm mới" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 8, border: "0.5px solid " + borderColor, background: "transparent", cursor: "pointer" }}>
                     <RefreshCw size={14} color={subtleColor} strokeWidth={1.8} />

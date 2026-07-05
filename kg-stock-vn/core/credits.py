@@ -57,14 +57,35 @@ def _today_vn():
     return datetime.now(VN_TZ).date().isoformat()
 
 
+def _is_expired(iso) -> bool:
+    """plan_expires_at đã qua chưa? (None/lỗi → chưa)."""
+    if not iso:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt < datetime.now(timezone.utc)
+    except Exception:
+        return False
+
+
 def get_wallet(sb, user_id: str) -> dict:
     """Lấy ví + LAZY refill (tạo mới nếu chưa có, tặng đầy trần khi đăng ký)."""
     plan = "free"
     try:
-        pr = (sb.table("user_profiles").select("plan").eq("user_id", user_id)
+        pr = (sb.table("user_profiles").select("plan, plan_expires_at").eq("user_id", user_id)
               .limit(1).execute().data)
         if pr:
             plan = norm_plan(pr[0].get("plan"))
+            # Hết hạn trial/gói → hạ về free (ghi lại để nhất quán)
+            if plan != "free" and _is_expired(pr[0].get("plan_expires_at")):
+                plan = "free"
+                try:
+                    sb.table("user_profiles").update(
+                        {"plan": "free", "plan_expires_at": None}).eq("user_id", user_id).execute()
+                except Exception:
+                    pass
     except Exception:
         pass
     cfg = PLANS[plan]

@@ -53,12 +53,25 @@ async function log(sb: any, userId: string, delta: number, balanceAfter: number,
   } catch (_e) { /* log lỗi không chặn luồng chính */ }
 }
 
+function isExpired(iso?: string | null): boolean {
+  if (!iso) return false;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) && t < Date.now();
+}
+
 /** Lấy ví + lazy refill (tạo mới = tặng đầy trần). */
 export async function getWallet(sb: any, userId: string): Promise<{ plan: string; balance: number }> {
   let plan = "free";
   try {
-    const { data: pr } = await sb.from("user_profiles").select("plan").eq("user_id", userId).limit(1);
-    if (pr?.length) plan = normPlan(pr[0].plan);
+    const { data: pr } = await sb.from("user_profiles").select("plan, plan_expires_at").eq("user_id", userId).limit(1);
+    if (pr?.length) {
+      plan = normPlan(pr[0].plan);
+      // Hết hạn trial/gói → hạ về free
+      if (plan !== "free" && isExpired(pr[0].plan_expires_at)) {
+        plan = "free";
+        try { await sb.from("user_profiles").update({ plan: "free", plan_expires_at: null }).eq("user_id", userId); } catch (_e) { /* */ }
+      }
+    }
   } catch (_e) { /* mặc định free */ }
   const cfg = PLANS[plan];
   const today = todayVN();
