@@ -35,6 +35,9 @@ import { AgentsPage } from "./pages/app/agents";
 // Ticker detail page (real Supabase data)
 import { TickerDetailPage } from "./pages/app/ticker-detail-page";
 
+// Tool detail page
+import { ToolDetailPage } from "./pages/app/tool-detail-page";
+
 // Legacy admin page
 import { AdminDailyReview } from "./pages/admin-daily-review";
 
@@ -68,6 +71,7 @@ export const router = createBrowserRouter([
           { path: "agent-studio",    Component: AgentStudioRoute  },
           { path: "templates",       Component: TemplatesRoute    },
           { path: "tools",           Component: ToolLibraryRoute  },
+          { path: "tools/:id",       Component: ToolDetailPage    },
           { path: "knowledge",       Component: KnowledgeBaseRoute },
           { path: "portfolio",       Component: PortfolioRoute    },
           { path: "settings",        Component: SettingsRoute     },

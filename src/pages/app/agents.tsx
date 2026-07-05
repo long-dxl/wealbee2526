@@ -2,7 +2,7 @@ import {
   Bot, Play, Pause, Clock, Zap,
   BarChart3, Mail, TrendingUp, Search, Globe, Plus,
   RefreshCw, AlertCircle, Inbox, Settings2, ArrowLeft,
-  CheckCircle, Loader2, Database, Bell, ExternalLink, // icons
+  CheckCircle, Loader2, Database, Bell, ExternalLink, Trash2, AlertTriangle, X, // icons
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation, useOutletContext } from "react-router";
@@ -67,16 +67,9 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "trending-up": TrendingUp, "globe": Globe, "zap": Zap,
 };
 
-const TEMPLATE_COLORS: Record<string, { bg: string; color: string }> = {
-  daily_digest:    { bg: "rgba(8,73,172,0.1)",    color: "#0849ac" },
-  portfolio_health:{ bg: "rgba(14,165,160,0.1)",  color: "#0ea5a0" },
-  market_scanner:  { bg: "rgba(139,92,246,0.1)",  color: "#8b5cf6" },
-  earnings_watch:  { bg: "rgba(245,158,11,0.1)",  color: "#f59e0b" },
-  macro_watch:     { bg: "rgba(16,185,129,0.1)",  color: "#10b981" },
-  deep_research:   { bg: "rgba(99,102,241,0.1)",  color: "#6366f1" },
-  insider_buy:     { bg: "rgba(22,163,74,0.1)",   color: "#16a34a" },
-  volume_spike:    { bg: "rgba(234,88,12,0.1)",   color: "#ea580c" },
-};
+// Một màu brand duy nhất cho mọi loại agent — nhận diện đến từ icon + tên, không phải
+// một "cầu vồng" màu tùy tiện theo template (đồng bộ với bảng màu Wealbee dùng khắp app).
+const TEMPLATE_COLOR = { bg: "rgba(8,73,172,0.08)", color: "#0849AC" };
 
 const STEP_ICONS: Record<string, React.ElementType> = {
   price_feed:  BarChart3,
@@ -139,13 +132,13 @@ function formatSchedule(schedule: string): string {
 
 function StatusBadge({ status }: { status: UserAgent["status"] }) {
   const cfg = {
-    active: { label: "Đang bật", color: "#0ea5a0", bg: "rgba(14,165,160,0.1)" },
-    paused: { label: "Tạm dừng", color: "#f59e0b", bg: "rgba(245,158,11,0.1)" },
-    draft:  { label: "Bản nháp", color: "#99a1af", bg: "rgba(153,161,175,0.1)" },
+    active: { label: "Đang bật", color: "#1a7a3a", bg: "rgba(52,199,89,0.12)" },
+    paused: { label: "Tạm dừng", color: "#6a7282", bg: "rgba(106,114,130,0.10)" },
+    draft:  { label: "Bản nháp", color: "#6a7282", bg: "rgba(106,114,130,0.10)" },
   };
   const c = cfg[status];
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, fontSize: "0.625rem", fontWeight: 700, background: c.bg, color: c.color }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, fontSize: "0.625rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, background: c.bg, color: c.color }}>
       {status === "active" && <span style={{ width: 5, height: 5, borderRadius: "50%", background: c.color }} />}
       {c.label}
     </span>
@@ -657,6 +650,7 @@ export function AgentsPage() {
   const [symbolPicker, setSymbolPicker] = useState<{ agentId: string; symbols: string[] } | null>(null);
   const [needPortfolio, setNeedPortfolio] = useState(false);
   const [runPanel, setRunPanel] = useState<RunPanelState | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<UserAgent | null>(null);
   const navigate = useNavigate();
   const { openCreateAgentModal } = useOutletContext<AppOutletContext>();
 
@@ -716,7 +710,6 @@ export function AgentsPage() {
   };
 
   const deleteAgent = async (agentId: string) => {
-    if (!confirm("Xóa agent này?")) return;
     await supabase.from("agents").delete().eq("id", agentId);
     setAgents(prev => prev.filter(a => a.id !== agentId));
   };
@@ -853,6 +846,35 @@ export function AgentsPage() {
 
       {needPortfolio && <NeedPortfolioModal onDismiss={() => setNeedPortfolio(false)} />}
 
+      {confirmDelete && (
+        <div onClick={() => setConfirmDelete(null)} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 400, maxWidth: "100%", borderRadius: 16, overflow: "hidden", background: "#fff", boxShadow: "0 24px 80px rgba(0,0,0,0.22), 0 0 0 0.5px rgba(8,73,172,0.10)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 22px", borderBottom: "0.5px solid rgba(8,73,172,0.10)" }}>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(255,57,49,0.10)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <AlertTriangle style={{ width: 16, height: 16, color: "#FF3B30" }} />
+              </div>
+              <span style={{ fontSize: 16, fontWeight: 700, color: "#1a1a2e", flex: 1 }}>Xóa agent</span>
+              <button onClick={() => setConfirmDelete(null)} aria-label="Đóng" style={{ background: "none", border: "none", cursor: "pointer", color: "#99a1af", display: "flex", padding: 2 }}>
+                <X style={{ width: 18, height: 18 }} />
+              </button>
+            </div>
+            <div style={{ padding: 22, fontSize: 13.5, color: "#6a7282", lineHeight: 1.6 }}>
+              Xóa agent <strong style={{ color: "#1a1a2e" }}>{confirmDelete.name}</strong>?
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 22px", borderTop: "0.5px solid rgba(8,73,172,0.10)" }}>
+              <button onClick={() => setConfirmDelete(null)}
+                style={{ padding: "9px 18px", borderRadius: 9, border: "1px solid rgba(8,73,172,0.18)", background: "transparent", color: "#6a7282", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Hủy
+              </button>
+              <button onClick={() => { deleteAgent(confirmDelete.id); setConfirmDelete(null); }}
+                style={{ padding: "9px 22px", borderRadius: 9, border: "none", background: "#FF3B30", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                Xóa agent
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
@@ -874,7 +896,7 @@ export function AgentsPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
             {templates.map(tmpl => {
               const Icon = ICON_MAP[tmpl.icon] || Bot;
-              const colors = TEMPLATE_COLORS[tmpl.id] || { bg: "rgba(8,73,172,0.1)", color: "#0849ac" };
+              const colors = TEMPLATE_COLOR;
               const alreadyAdded = agents.some(a => a.template_id === tmpl.id);
               const isReady = READY_TEMPLATE_IDS.includes(tmpl.id);
               const disabled = alreadyAdded || !isReady;
@@ -929,7 +951,7 @@ export function AgentsPage() {
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
           {agents.map(agent => {
-            const colors = TEMPLATE_COLORS[agent.template_id] || { bg: "rgba(8,73,172,0.1)", color: "#0849ac" };
+            const colors = TEMPLATE_COLOR;
             const tmpl   = templates.find(t => t.id === agent.template_id);
             const Icon   = ICON_MAP[tmpl?.icon ?? "bot"] || Bot;
             const firstLine = agent.system_prompt?.split("\n")[0] ?? "";
@@ -943,15 +965,18 @@ export function AgentsPage() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <h3 style={{ fontSize: "0.9375rem", fontWeight: 700, color: "#1a1a2e" }}>{agent.name}</h3>
-                      <StatusBadge status={agent.status} />
+                      <h3 style={{ flex: "1 1 auto", minWidth: 0, fontSize: "0.9375rem", fontWeight: 700, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{agent.name}</h3>
+                      <div style={{ flexShrink: 0 }}><StatusBadge status={agent.status} /></div>
                     </div>
-                    <p style={{ fontSize: "0.75rem", color: "#6a7282", marginTop: 4, lineHeight: 1.4 }}>{agent.description}</p>
+                    <p style={{
+                      fontSize: "0.75rem", color: "#6a7282", marginTop: 4, lineHeight: 1.4,
+                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                    }}>{agent.description}</p>
                     {/* Show saved symbols */}
                     {(agent.target_symbols?.length ? agent.target_symbols : savedSym ? [savedSym] : []).length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
                         {(agent.target_symbols?.length ? agent.target_symbols : [savedSym!]).map(s => (
-                          <span key={s} style={{ padding: "2px 8px", borderRadius: 5, background: "rgba(99,102,241,0.09)", color: "#6366f1", fontSize: "0.625rem", fontWeight: 700, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                          <span key={s} style={{ padding: "2px 8px", borderRadius: 5, background: "rgba(8,73,172,0.08)", color: "#0849AC", fontSize: "0.625rem", fontWeight: 700, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                             {s}
                           </span>
                         ))}
@@ -960,15 +985,12 @@ export function AgentsPage() {
                   </div>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 14 }}>
                   <Clock style={{ width: 11, height: 11, color: "#99a1af" }} />
                   <span style={{ fontSize: "0.6875rem", color: "#99a1af" }}>{formatTrigger(agent)}</span>
-                  {agent.run_count > 0 && <span style={{ fontSize: "0.6875rem", color: "#c4c9d4" }}>· Đã chạy {agent.run_count} lần</span>}
                 </div>
-                {agent.last_run_at && <div style={{ fontSize: "0.625rem", color: "#c4c9d4", marginBottom: 14 }}>Lần cuối: {new Date(agent.last_run_at).toLocaleString("vi-VN")}</div>}
-                {!agent.last_run_at && <div style={{ marginBottom: 14 }} />}
 
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <button
                     onClick={() => {
                       // CHỈ agent THỦ CÔNG phân tích theo mã (vd Deep Research) mới hỏi/đổi mã trước khi chạy.
@@ -987,16 +1009,16 @@ export function AgentsPage() {
                     <Play style={{ width: 11, height: 11 }} />Chạy ngay
                   </button>
                   <button onClick={() => toggleAgent(agent)}
-                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(8,73,172,0.12)", background: "transparent", color: agent.status === "active" ? "#f59e0b" : "#0ea5a0", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}>
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(8,73,172,0.12)", background: "transparent", color: "#6a7282", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}>
                     {agent.status === "active" ? <><Pause style={{ width: 11, height: 11 }} />Tạm dừng</> : <><Play style={{ width: 11, height: 11 }} />Bật lại</>}
                   </button>
                   <button onClick={() => navigate(`/app/agent-studio?agent_id=${agent.id}`)}
                     style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid rgba(8,73,172,0.12)", background: "transparent", color: "#6a7282", cursor: "pointer", fontSize: "0.75rem", fontFamily: "inherit" }}>
-                    <Settings2 style={{ width: 11, height: 11 }} />Chỉnh sửa
+                    <Settings2 style={{ width: 11, height: 11 }} />Sửa
                   </button>
-                  <button onClick={() => deleteAgent(agent.id)}
-                    style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.12)", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: "0.75rem", fontFamily: "inherit" }}>
-                    Xóa
+                  <button onClick={() => setConfirmDelete(agent)} aria-label="Xóa agent" title="Xóa agent"
+                    style={{ marginLeft: "auto", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, padding: 0, borderRadius: 8, border: "1px solid rgba(255,57,49,0.15)", background: "transparent", color: "#FF3B30", cursor: "pointer" }}>
+                    <Trash2 style={{ width: 13, height: 13 }} />
                   </button>
                 </div>
               </div>

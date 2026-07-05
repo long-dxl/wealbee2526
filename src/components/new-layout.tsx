@@ -180,7 +180,9 @@ function NewLayoutInner() {
           </div>
         )}
 
-        <div style={{ flex: 1, overflowY: "auto", paddingBottom: 24, background: theme.bg }}>
+        {/* paddingBottom > chiều cao thanh compliance footer (22px, position:fixed, xem bên dưới) —
+            để nội dung cuối trang (card, nút…) không bị thanh footer đè lên khi cuộn hết */}
+        <div style={{ flex: 1, overflowY: "auto", paddingBottom: 44, background: theme.bg }}>
           <Outlet context={{ onNavigate: handleNavigate, addContextCard, removeContextCard, isDark, theme, openCreateAgentModal: () => setCreateAgentOpen(true) }} />
         </div>
       </div>

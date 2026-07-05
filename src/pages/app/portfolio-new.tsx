@@ -1,13 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, Pencil, Trash2, ArrowUpRight, RefreshCw, X, Activity, GripVertical, Link2, AlertCircle } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, Pencil, Trash2, ArrowUpRight, RefreshCw, X, GripVertical, Link2, AlertCircle, CheckCircle2 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from "recharts";
 import { supabase } from "../../lib/supabase/client";
+import { useCurrentUser } from "../../lib/hooks/useCurrentUser";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { useBrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { fetchPositions, fetchCashBalance, type DnsePosition, type DnseCashBalance } from "../../lib/services/dnse";
+
+interface TickerOption { symbol: string; name: string; }
 
 interface Holding {
   id?: string;          // portfolio_holdings.id
@@ -76,18 +80,6 @@ function PerfTooltip({ active, payload, label, isDark }: any) {
   );
 }
 
-function AllocTooltip({ active, payload }: any) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  return (
-    <div style={{ background: "#fff", border: "1px solid rgba(8,73,172,0.15)", borderRadius: 12, padding: "12px 16px", fontFamily: FONT, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 160 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1A2E", marginBottom: 4 }}>{d.symbol} <span style={{ fontWeight: 400, color: "rgba(26,26,46,0.55)", fontSize: 12 }}>({d.name})</span></div>
-      <div style={{ fontSize: 15, fontWeight: 700, color: payload[0].fill, marginBottom: 2 }}>{d.value.toLocaleString("vi-VN")} đ</div>
-      <div style={{ fontSize: 12, color: "rgba(26,26,46,0.55)" }}>{d.pct.toFixed(1)}% danh mục</div>
-    </div>
-  );
-}
-
 // ── DragHint overlay ──────────────────────────────────────────────────────────
 function DragHint({ isDark }: { isDark: boolean }) {
   const accent = isDark ? "rgba(77,143,232,0.80)" : "rgba(8,73,172,0.65)";
@@ -109,6 +101,139 @@ function DragHint({ isDark }: { isDark: boolean }) {
       </div>
     </div>
   );
+}
+
+// ── Data fetchers (thuần, dùng làm queryFn cho React Query — xem component bên dưới) ────
+async function fetchHoldings(userId: string): Promise<Holding[]> {
+  const { data: rows, error } = await supabase
+    .from("portfolio_holdings")
+    .select("id, symbol, quantity, avg_cost, purchase_date, notes")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  if (!rows) return [];
+
+  const symbols = rows.map((r: any) => r.symbol);
+  const latestPrices: Record<string, number> = {};
+  const tickerNames: Record<string, string> = {};
+
+  if (symbols.length > 0) {
+    // Giá mới nhất + tên mã: 2 truy vấn độc lập, chạy song song
+    const [{ data: prices }, { data: tickers }] = await Promise.all([
+      supabase.from("prices_daily").select("symbol,date,close")
+        .in("symbol", symbols)
+        .order("date", { ascending: false })
+        .limit(symbols.length * 15),
+      supabase.from("tickers").select("symbol,name").in("symbol", symbols),
+    ]);
+    prices?.forEach((p: any) => {
+      if (latestPrices[p.symbol] == null && p.close != null) latestPrices[p.symbol] = Number(p.close);
+    });
+    tickers?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
+  }
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    symbol: r.symbol,
+    name: tickerNames[r.symbol] || r.symbol,
+    quantity: Number(r.quantity),
+    avgPrice: r.avg_cost != null ? Number(r.avg_cost) : null,
+    currentPrice: latestPrices[r.symbol] ?? 0,
+    purchaseDate: r.purchase_date
+      ? new Date(r.purchase_date).toLocaleDateString("vi-VN")
+      : null,
+  }));
+}
+
+async function fetchPortfolioChart(currentHoldings: Holding[], period: ChartPeriod): Promise<ChartPoint[]> {
+  if (!currentHoldings.length) return [];
+  try {
+    let cutStr: string;
+    const now = new Date();
+    if (period === "YTD") {
+      cutStr = `${now.getFullYear()}-01-01`;
+    } else if (period === "ALL") {
+      cutStr = "2000-01-01";
+    } else {
+      const days = PERIOD_DAYS[period] ?? 30;
+      const cutoff = new Date(now);
+      cutoff.setDate(cutoff.getDate() - days);
+      cutStr = cutoff.toISOString().slice(0, 10);
+    }
+
+    const symbols = currentHoldings.map(h => h.symbol);
+
+    const [{ data: priceRows }, { data: indexRows }] = await Promise.all([
+      supabase.from("prices_daily").select("symbol,date,close").in("symbol", symbols).gte("date", cutStr).order("date", { ascending: true }),
+      supabase.from("market_indices").select("index_code,date,close").in("index_code", ["VNINDEX", "HNX"]).gte("date", cutStr).order("date", { ascending: true }),
+    ]);
+
+    const priceByDate: Record<string, Record<string, number>> = {};
+    for (const row of priceRows ?? []) {
+      if (!priceByDate[row.date]) priceByDate[row.date] = {};
+      priceByDate[row.date][row.symbol] = Number(row.close);
+    }
+
+    const vniMap: Record<string, number> = {};
+    const hnxMap: Record<string, number> = {};
+    for (const row of indexRows ?? []) {
+      if (row.index_code === "VNINDEX") vniMap[row.date] = Number(row.close);
+      else hnxMap[row.date] = Number(row.close);
+    }
+
+    const allDates = [...new Set(Object.keys(priceByDate))].sort();
+    if (!allDates.length) return [];
+
+    const lastKnown: Record<string, number> = {};
+    currentHoldings.forEach(h => { lastKnown[h.symbol] = h.currentPrice; });
+
+    const points: ChartPoint[] = [];
+    let basePortfolio = 0;
+    let baseVni = 0;
+    let baseHnx = 0;
+
+    allDates.forEach((date, idx) => {
+      for (const sym of symbols) {
+        if (priceByDate[date]?.[sym] != null) lastKnown[sym] = priceByDate[date][sym];
+      }
+      const portfolioVal = currentHoldings.reduce((s, h) => s + h.quantity * (lastKnown[h.symbol] ?? 0), 0);
+      if (idx === 0) {
+        basePortfolio = portfolioVal;
+        baseVni = vniMap[date] ?? 0;
+        baseHnx = hnxMap[date] ?? 0;
+      }
+      const portfolioPct = basePortfolio > 0 ? parseFloat(((portfolioVal / basePortfolio - 1) * 100).toFixed(2)) : 0;
+      const vniPct = baseVni > 0 && vniMap[date] ? parseFloat(((vniMap[date] / baseVni - 1) * 100).toFixed(2)) : 0;
+      const hnxPct = baseHnx > 0 && hnxMap[date] ? parseFloat(((hnxMap[date] / baseHnx - 1) * 100).toFixed(2)) : 0;
+
+      const dt = new Date(date);
+      const label = period === "ALL"
+        ? `${dt.getMonth() + 1}/${String(dt.getFullYear()).slice(2)}`
+        : period === "YTD"
+        ? `T${dt.getMonth() + 1}`
+        : `${dt.getDate()}/${dt.getMonth() + 1}`;
+
+      points.push({ date: label, portfolio: portfolioPct, vni: vniPct, hnx: hnxPct });
+    });
+
+    if (period === "ALL" || period === "YTD") {
+      const byLabel: Record<string, ChartPoint[]> = {};
+      points.forEach(p => {
+        if (!byLabel[p.date]) byLabel[p.date] = [];
+        byLabel[p.date].push(p);
+      });
+      return Object.values(byLabel).map(group => ({
+        date: group[0].date,
+        portfolio: parseFloat((group.reduce((s, p) => s + p.portfolio, 0) / group.length).toFixed(2)),
+        vni: parseFloat((group.reduce((s, p) => s + p.vni, 0) / group.length).toFixed(2)),
+        hnx: parseFloat((group.reduce((s, p) => s + p.hnx, 0) / group.length).toFixed(2)),
+      }));
+    }
+    return points;
+  } catch {
+    return [];
+  }
 }
 
 export function Portfolio({
@@ -133,15 +258,16 @@ export function Portfolio({
   const refStroke = isDark ? "rgba(255,255,255,0.12)" : "rgba(8,73,172,0.15)";
 
   const [holdings,         setHoldings]         = useState<Holding[]>([]);
-  const [portfolioLoading, setPortfolioLoading] = useState(true);
   const [saveError,        setSaveError]        = useState<string | null>(null);
   const [showModal,        setShowModal]        = useState(false);
   const [editingHolding,   setEditingHolding]   = useState<Holding | null>(null);
   const [form, setForm] = useState({ symbol: "", quantity: "", avgPrice: "", purchaseDate: "" });
+  const [allTickers,            setAllTickers]            = useState<TickerOption[]>([]);
+  const [symbolSuggestions,     setSymbolSuggestions]     = useState<TickerOption[]>([]);
+  const [showSymbolSuggestions, setShowSymbolSuggestions] = useState(false);
+  const [symbolCursor,          setSymbolCursor]          = useState(-1);
   const [hoveredSlice, setHoveredSlice] = useState<string | null>(null);
   const [chartDataReal,   setChartDataReal]   = useState<ChartPoint[]>([]);
-  const [chartLoading,    setChartLoading]    = useState(false);
-  const [lastAgentRun,    setLastAgentRun]    = useState<string | null>(null);
 
   // ── DNSE live data ────────────────────────────────────────────────────────
   const { config: brokerConfig } = useBrokerConfig();
@@ -151,6 +277,42 @@ export function Portfolio({
   const [dnseError,      setDnseError]      = useState<string | null>(null);
   const [dnseCountdown,  setDnseCountdown]  = useState(0);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Nạp danh sách mã cổ phiếu (mã + tên công ty) một lần khi mở modal
+  useEffect(() => {
+    if (!showModal || allTickers.length > 0) return;
+    supabase
+      .from("tickers")
+      .select("symbol, name")
+      .order("symbol")
+      .then(({ data }) => {
+        if (data?.length) setAllTickers(data as TickerOption[]);
+      });
+  }, [showModal, allTickers.length]);
+
+  // Gợi ý mã cổ phiếu khi gõ trong modal thêm/sửa
+  useEffect(() => {
+    const q = form.symbol.trim().toLowerCase();
+    if (!showModal || editingHolding || !q) {
+      setSymbolSuggestions([]);
+      setSymbolCursor(-1);
+      return;
+    }
+    setSymbolSuggestions(
+      allTickers
+        .filter((t) => t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q))
+        .slice(0, 6)
+    );
+    setSymbolCursor(-1);
+  }, [form.symbol, showModal, editingHolding, allTickers]);
+
+  const isValidSymbol = form.symbol.trim() !== "" && allTickers.some((t) => t.symbol === form.symbol.trim().toUpperCase());
+
+  const selectSymbol = (sym: string) => {
+    setForm((prev) => ({ ...prev, symbol: sym }));
+    setShowSymbolSuggestions(false);
+    setSymbolCursor(-1);
+  };
 
   const isMarketOpen = (): boolean => {
     const now = new Date();
@@ -202,197 +364,49 @@ export function Portfolio({
     };
   }, [brokerConfig, loadDnseData]);
 
-  // ── Load portfolio_holdings + enrich with latest prices ─────────────────
-  const loadHoldings = async () => {
-    setPortfolioLoading(true);
-    setSaveError(null);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: rows, error } = await supabase
-        .from("portfolio_holdings")
-        .select("id, symbol, quantity, avg_cost, purchase_date, notes")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: true });
-
-      if (error) { setSaveError(error.message); return; }
-      if (!rows) return;
-
-      const symbols = rows.map((r: any) => r.symbol);
-      const latestPrices: Record<string, number> = {};
-      const tickerNames: Record<string, string> = {};
-
-      if (symbols.length > 0) {
-        // Giá mới nhất THEO TỪNG MÃ (mỗi mã có ngày giao dịch cuối khác nhau → không dùng 1 ngày global)
-        const { data: prices } = await supabase
-          .from("prices_daily").select("symbol,date,close")
-          .in("symbol", symbols)
-          .order("date", { ascending: false })
-          .limit(symbols.length * 15);
-        prices?.forEach((p: any) => {
-          if (latestPrices[p.symbol] == null && p.close != null) latestPrices[p.symbol] = Number(p.close);
-        });
-        // Get names from tickers
-        const { data: tickers } = await supabase
-          .from("tickers").select("symbol,name").in("symbol", symbols);
-        tickers?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
-      }
-
-      const mapped: Holding[] = rows.map((r: any) => ({
-        id: r.id,
-        symbol: r.symbol,
-        name: tickerNames[r.symbol] || r.symbol,
-        quantity: Number(r.quantity),
-        avgPrice: r.avg_cost != null ? Number(r.avg_cost) : null,
-        currentPrice: latestPrices[r.symbol] ?? 0,
-        purchaseDate: r.purchase_date
-          ? new Date(r.purchase_date).toLocaleDateString("vi-VN")
-          : null,
-      }));
-      setHoldings(mapped);
-      // Load chart after holdings are ready
-      loadChartData(mapped, chartPeriod);
-    } finally {
-      setPortfolioLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadHoldings();
-    loadAgentStatus();
-  }, []);
-
-  const loadAgentStatus = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data } = await supabase
-      .from("agent_runs")
-      .select("finished_at")
-      .eq("user_id", user.id)
-      .eq("status", "completed")
-      .order("finished_at", { ascending: false })
-      .limit(1)
-      .single();
-    if (data?.finished_at) {
-      const d = new Date(data.finished_at);
-      setLastAgentRun(d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Ho_Chi_Minh" }));
-    }
-  };
-
-  const loadChartData = async (currentHoldings: Holding[], period: ChartPeriod) => {
-    if (!currentHoldings.length) { setChartDataReal([]); return; }
-    setChartLoading(true);
-    try {
-      // Determine cutoff date
-      let cutStr: string;
-      const now = new Date();
-      if (period === "YTD") {
-        cutStr = `${now.getFullYear()}-01-01`;
-      } else if (period === "ALL") {
-        cutStr = "2000-01-01";
-      } else {
-        const days = PERIOD_DAYS[period] ?? 30;
-        const cutoff = new Date(now);
-        cutoff.setDate(cutoff.getDate() - days);
-        cutStr = cutoff.toISOString().slice(0, 10);
-      }
-
-      const symbols = currentHoldings.map(h => h.symbol);
-
-      const [{ data: priceRows }, { data: indexRows }] = await Promise.all([
-        supabase.from("prices_daily").select("symbol,date,close").in("symbol", symbols).gte("date", cutStr).order("date", { ascending: true }),
-        supabase.from("market_indices").select("index_code,date,close").in("index_code", ["VNINDEX", "HNX"]).gte("date", cutStr).order("date", { ascending: true }),
-      ]);
-
-      // Build daily price maps
-      const priceByDate: Record<string, Record<string, number>> = {};
-      for (const row of priceRows ?? []) {
-        if (!priceByDate[row.date]) priceByDate[row.date] = {};
-        priceByDate[row.date][row.symbol] = Number(row.close);
-      }
-
-      const vniMap: Record<string, number> = {};
-      const hnxMap: Record<string, number> = {};
-      for (const row of indexRows ?? []) {
-        if (row.index_code === "VNINDEX") vniMap[row.date] = Number(row.close);
-        else hnxMap[row.date] = Number(row.close);
-      }
-
-      // All trading dates from price data
-      const allDates = [...new Set(Object.keys(priceByDate))].sort();
-      if (!allDates.length) { setChartDataReal([]); return; }
-
-      // Track last known price per symbol (fallback when no data for a day)
-      const lastKnown: Record<string, number> = {};
-      currentHoldings.forEach(h => { lastKnown[h.symbol] = h.currentPrice; });
-
-      const points: ChartPoint[] = [];
-      let basePortfolio = 0;
-      let baseVni = 0;
-      let baseHnx = 0;
-
-      allDates.forEach((date, idx) => {
-        // Update last known prices
-        for (const sym of symbols) {
-          if (priceByDate[date]?.[sym] != null) lastKnown[sym] = priceByDate[date][sym];
-        }
-
-        const portfolioVal = currentHoldings.reduce((s, h) => s + h.quantity * (lastKnown[h.symbol] ?? 0), 0);
-
-        if (idx === 0) {
-          basePortfolio = portfolioVal;
-          baseVni = vniMap[date] ?? 0;
-          baseHnx = hnxMap[date] ?? 0;
-        }
-
-        const portfolioPct = basePortfolio > 0 ? parseFloat(((portfolioVal / basePortfolio - 1) * 100).toFixed(2)) : 0;
-        const vniPct = baseVni > 0 && vniMap[date] ? parseFloat(((vniMap[date] / baseVni - 1) * 100).toFixed(2)) : 0;
-        const hnxPct = baseHnx > 0 && hnxMap[date] ? parseFloat(((hnxMap[date] / baseHnx - 1) * 100).toFixed(2)) : 0;
-
-        const dt = new Date(date);
-        const label = period === "ALL"
-          ? `${dt.getMonth() + 1}/${String(dt.getFullYear()).slice(2)}`
-          : period === "YTD"
-          ? `T${dt.getMonth() + 1}`
-          : `${dt.getDate()}/${dt.getMonth() + 1}`;
-
-        points.push({ date: label, portfolio: portfolioPct, vni: vniPct, hnx: hnxPct });
-      });
-
-      // For ALL/YTD: reduce to monthly averages to avoid too many points
-      if (period === "ALL" || period === "YTD") {
-        const byLabel: Record<string, ChartPoint[]> = {};
-        points.forEach(p => {
-          if (!byLabel[p.date]) byLabel[p.date] = [];
-          byLabel[p.date].push(p);
-        });
-        const reduced = Object.values(byLabel).map(group => ({
-          date: group[0].date,
-          portfolio: parseFloat((group.reduce((s, p) => s + p.portfolio, 0) / group.length).toFixed(2)),
-          vni: parseFloat((group.reduce((s, p) => s + p.vni, 0) / group.length).toFixed(2)),
-          hnx: parseFloat((group.reduce((s, p) => s + p.hnx, 0) / group.length).toFixed(2)),
-        }));
-        setChartDataReal(reduced);
-      } else {
-        setChartDataReal(points);
-      }
-    } catch {
-      setChartDataReal([]);
-    } finally {
-      setChartLoading(false);
-    }
-  };
-
-  // Chart state
+  // Chart state (khai báo trước để queryKey bên dưới dùng được)
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("3M");
   const [showVni, setShowVni] = useState(true);
   const [showHnx, setShowHnx] = useState(true);
 
-  // Reload chart when period changes (holdings already loaded)
+  // ── Data fetch, có cache (React Query) ────────────────────────────────────
+  // Chuyển trang đi rồi quay lại trong thời gian "stale" sẽ không tải lại từ đầu.
+  const queryClient = useQueryClient();
+  const userQuery = useCurrentUser();
+  const userId = userQuery.data?.id;
+
+  const holdingsQuery = useQuery({
+    queryKey: ["portfolio", "holdings", userId],
+    queryFn: () => fetchHoldings(userId!),
+    enabled: !!userId,
+    staleTime: 30_000,
+  });
+
+  const symbolsKey = (holdingsQuery.data ?? []).map(h => h.symbol).sort().join(",");
+  const chartQuery = useQuery({
+    queryKey: ["portfolio", "chart", userId, symbolsKey, chartPeriod],
+    queryFn: () => fetchPortfolioChart(holdingsQuery.data!, chartPeriod),
+    enabled: !!holdingsQuery.data && holdingsQuery.data.length > 0,
+    staleTime: 30_000,
+  });
+
+  // Đồng bộ kết quả query vào state hiện có (JSX phía dưới không cần sửa)
   useEffect(() => {
-    if (holdings.length > 0) loadChartData(holdings, chartPeriod);
-  }, [chartPeriod]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (holdingsQuery.data) setHoldings(holdingsQuery.data);
+  }, [holdingsQuery.data]);
+  useEffect(() => {
+    if (!holdingsQuery.data || holdingsQuery.data.length === 0) { setChartDataReal([]); return; }
+    if (chartQuery.data) setChartDataReal(chartQuery.data);
+  }, [chartQuery.data, holdingsQuery.data]);
+  useEffect(() => {
+    if (holdingsQuery.error) setSaveError((holdingsQuery.error as Error).message);
+  }, [holdingsQuery.error]);
+
+  const portfolioLoading = userQuery.isLoading || holdingsQuery.isLoading;
+  const chartLoading = chartQuery.isLoading || chartQuery.isFetching;
+
+  // Dùng lại sau khi user tự sửa/xoá holding — báo React Query lấy lại dữ liệu mới
+  const invalidateHoldings = () => queryClient.invalidateQueries({ queryKey: ["portfolio", "holdings", userId] });
 
   const totalValue = holdings.reduce((sum: number, h: Holding) => sum + h.quantity * h.currentPrice, 0);
   const totalPnl = holdings.reduce((sum: number, h: Holding) => {
@@ -482,7 +496,7 @@ export function Portfolio({
     }
 
     setShowModal(false);
-    await loadHoldings();
+    await invalidateHoldings();
   };
 
   const deleteHolding = async (id: string) => {
@@ -490,6 +504,7 @@ export function Portfolio({
     if (!user) return;
     setHoldings(prev => prev.filter(h => h.id !== id));
     await supabase.from("portfolio_holdings").delete().eq("id", id).eq("user_id", user.id);
+    invalidateHoldings();
   };
 
   // Context cards for drag-to-hub
@@ -555,7 +570,7 @@ export function Portfolio({
           </div>
           <button
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); loadHoldings(); }}
+            onClick={(e) => { e.stopPropagation(); invalidateHoldings(); }}
             disabled={portfolioLoading}
             style={{
               display: "flex", alignItems: "center", gap: 6, padding: "8px 14px",
@@ -576,7 +591,7 @@ export function Portfolio({
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#34C759", flexShrink: 0, boxShadow: "0 0 0 3px rgba(52,199,89,0.20)" }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: fg }}>Danh mục thực tế — {brokerConfig.broker.toUpperCase()}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: fg }}>Danh mục thực tế ({brokerConfig.broker.toUpperCase()})</span>
               <span style={{ fontSize: 11, color: fgSubtle, fontFamily: FONT }}>TK: {brokerConfig.accountNo}</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -862,7 +877,6 @@ export function Portfolio({
                   />
                 ))}
               </Pie>
-              <Tooltip content={<AllocTooltip />} />
             </PieChart>
             {/* Center label */}
             <div style={{
@@ -1030,32 +1044,6 @@ export function Portfolio({
         </button>
       </div>
 
-      {/* Agent status */}
-      <div style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ background: "rgba(8,73,172,0.08)", borderRadius: 10, padding: 10, display: "flex", alignItems: "center" }}>
-          <Activity size={20} color="#0849AC" strokeWidth={1.5} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: fg }}>Portfolio Health</span>
-            <span style={{ background: "rgba(52,199,89,0.12)", color: "#34C759", fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6 }}>● Active</span>
-          </div>
-          <span style={{ fontSize: 13, color: fgSubtle }}>
-            Agent đang theo dõi danh mục{lastAgentRun ? ` · lần chạy cuối: ${lastAgentRun}` : ""}
-          </span>
-        </div>
-        <button
-          onClick={() => onNavigate("agents")}
-          style={{
-            display: "flex", alignItems: "center", gap: 6, padding: "8px 14px",
-            borderRadius: 10, border: "0.5px solid rgba(8,73,172,0.20)", background: "transparent",
-            color: brand, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT,
-          }}
-        >
-          Xem agent <ArrowUpRight size={13} strokeWidth={1.5} />
-        </button>
-      </div>
-
       {/* Modal */}
       {showModal && (
         <div
@@ -1072,8 +1060,86 @@ export function Portfolio({
               </button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ position: "relative" }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "rgba(26,26,46,0.60)", marginBottom: 6, fontFamily: FONT }}>
+                  Mã cổ phiếu
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    value={form.symbol}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      setForm((prev) => ({ ...prev, symbol: val }));
+                      setShowSymbolSuggestions(true);
+                    }}
+                    onFocus={() => setShowSymbolSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSymbolSuggestions(false), 200)}
+                    onKeyDown={(e) => {
+                      if (!showSymbolSuggestions || symbolSuggestions.length === 0) return;
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setSymbolCursor((c) => Math.min(c + 1, symbolSuggestions.length - 1));
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setSymbolCursor((c) => Math.max(c - 1, 0));
+                      } else if (e.key === "Enter") {
+                        e.preventDefault();
+                        selectSymbol(symbolSuggestions[symbolCursor >= 0 ? symbolCursor : 0].symbol);
+                      } else if (e.key === "Tab") {
+                        selectSymbol(symbolSuggestions[symbolCursor >= 0 ? symbolCursor : 0].symbol);
+                      } else if (e.key === "Escape") {
+                        setShowSymbolSuggestions(false);
+                        setSymbolCursor(-1);
+                      }
+                    }}
+                    placeholder="VD: HPG, VCB, FPT"
+                    disabled={editingHolding !== null}
+                    autoComplete="off"
+                    style={{
+                      width: "100%", padding: "10px 40px 10px 14px", borderRadius: 10,
+                      border: `0.5px solid ${isValidSymbol ? "rgba(16,185,129,0.45)" : "rgba(8,73,172,0.20)"}`,
+                      background: "#F5F5F7",
+                      fontSize: 14, color: "#1A1A2E", outline: "none", boxSizing: "border-box",
+                      fontFamily: FONT,
+                    }}
+                  />
+                  {isValidSymbol && !editingHolding && (
+                    <CheckCircle2
+                      size={17} strokeWidth={2} color="#10B981"
+                      style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+                    />
+                  )}
+                </div>
+                {showSymbolSuggestions && form.symbol.trim() && symbolSuggestions.length > 0 && (
+                  <div style={{
+                    position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 10,
+                    background: "#fff", border: "0.5px solid rgba(8,73,172,0.20)", borderRadius: 10,
+                    boxShadow: "0 8px 24px rgba(8,73,172,0.14)", maxHeight: 220, overflowY: "auto",
+                  }}>
+                    {symbolSuggestions.map((s, idx) => (
+                      <button
+                        key={s.symbol}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          selectSymbol(s.symbol);
+                        }}
+                        onMouseEnter={() => setSymbolCursor(idx)}
+                        style={{
+                          display: "block", width: "100%", textAlign: "left", padding: "8px 14px",
+                          background: idx === symbolCursor ? "rgba(8,73,172,0.06)" : "none",
+                          border: "none", borderBottom: "0.5px solid rgba(8,73,172,0.08)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#0849AC", fontFamily: FONT }}>{s.symbol}</div>
+                        <div style={{ fontSize: 12, color: "rgba(26,26,46,0.55)", fontFamily: FONT }}>{s.name}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               {[
-                { label: "Mã cổ phiếu", key: "symbol", placeholder: "VD: HPG, VCB, FPT" },
                 { label: "Số lượng (cp)", key: "quantity", placeholder: "VD: 1000" },
                 { label: "Giá mua TB (đ/cp) – tùy chọn", key: "avgPrice", placeholder: "VD: 22000" },
                 { label: "Ngày mua – tùy chọn", key: "purchaseDate", placeholder: "VD: 08/01/2026" },
@@ -1086,7 +1152,6 @@ export function Portfolio({
                     value={(form as any)[key]}
                     onChange={(e) => setForm((prev: typeof form) => ({ ...prev, [key]: e.target.value }))}
                     placeholder={placeholder}
-                    disabled={editingHolding !== null && key === "symbol"}
                     style={{
                       width: "100%", padding: "10px 14px", borderRadius: 10,
                       border: "0.5px solid rgba(8,73,172,0.20)", background: "#F5F5F7",
