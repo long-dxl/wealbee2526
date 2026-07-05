@@ -540,7 +540,7 @@ export function Portfolio({
   `;
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px", fontFamily: FONT, background: isDark ? "#0B0D18" : undefined }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px", fontFamily: FONT, background: isDark ? "#0B0D18" : undefined }}>
       <style>{hoverStyle}</style>
 
       {/* Header summary — draggable */}

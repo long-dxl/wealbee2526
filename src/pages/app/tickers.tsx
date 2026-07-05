@@ -227,7 +227,7 @@ export function Tickers({
   if (sortBy === "Ngành")       filtered = [...filtered].sort((a, b) => a.sector.localeCompare(b.sector));
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px", fontFamily: FONT }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px", fontFamily: FONT }}>
       <style>{`@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }`}</style>
 
       {/* Header */}

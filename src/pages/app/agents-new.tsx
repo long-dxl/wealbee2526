@@ -265,7 +265,7 @@ export function Agents({ onNavigate, isDark = false }: { onNavigate: (page: stri
   };
 
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
 
       {/* ── Header ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>

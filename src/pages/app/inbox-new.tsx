@@ -429,7 +429,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
         </div>
 
         {/* Detail content */}
-        <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px 80px" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px 80px" }}>
           {/* Meta */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <span style={{
@@ -466,7 +466,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
 
   // ── List view ─────────────────────────────────────────────────────────────
   return (
-    <div style={{ maxWidth: 760, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: 1040, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>

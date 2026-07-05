@@ -23,7 +23,7 @@ export function ToolDetailPage() {
 
   if (!tool) {
     return (
-      <div style={{ maxWidth: 720, margin: "0 auto", padding: 24, fontFamily: FONT, background: bgApp }}>
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, fontFamily: FONT, background: bgApp }}>
         <button onClick={() => navigate("/app/tools")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: fgMuted, fontSize: 13, fontFamily: FONT, marginBottom: 20 }}>
           <ArrowLeft size={15} strokeWidth={1.5} /> Công cụ
         </button>
@@ -38,7 +38,7 @@ export function ToolDetailPage() {
   const related = tools.filter((t) => t.category === tool.category && t.id !== tool.id);
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", padding: 24, fontFamily: FONT, background: bgApp }}>
+    <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, fontFamily: FONT, background: bgApp }}>
       <button onClick={() => navigate("/app/tools")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: fgMuted, fontSize: 13, fontFamily: FONT, marginBottom: 20 }}>
         <ArrowLeft size={15} strokeWidth={1.5} /> Công cụ
       </button>

@@ -121,7 +121,7 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
   };
 
   return (
-    <div style={{ maxWidth: 940, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
 
       {needPortfolio && <NeedPortfolioModal onDismiss={() => setNeedPortfolio(false)} />}
 

@@ -938,7 +938,7 @@ export function TickerDetailPage() {
         </div>
 
         {/* ── Body ─────────────────────────────────────────────────────────── */}
-        <div style={{ maxWidth: 1080, margin: "0 auto", padding: "24px 32px" }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px 32px" }}>
 
           {/* 2-col: company info + price */}
           {(() => {

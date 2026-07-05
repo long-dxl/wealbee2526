@@ -296,7 +296,7 @@ export function Settings() {
   ];
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px", fontFamily: FONT }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px", fontFamily: FONT }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, color: headingColor, margin: "0 0 20px" }}>Cài đặt</h1>
       <div style={{ display: "flex", gap: 20 }}>
 

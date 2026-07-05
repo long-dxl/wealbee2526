@@ -98,7 +98,7 @@ export function AnalystReportsPage({ isDark, addContextCard }: { isDark: boolean
 
   return (
     <div style={{ minHeight: "100%", background: pageBg, fontFamily: FONT }}>
-      <div style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: 24 }}>
 
         {/* Header */}
         <button onClick={() => navigate("/app")}
