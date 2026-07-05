@@ -140,6 +140,8 @@ function NewLayoutInner() {
     setHubContextCards(prev => prev.filter(c => c.id !== id));
   };
 
+  const clearContextCards = () => setHubContextCards([]);
+
   return (
     <div style={{
       display: "flex", height: "100vh", width: "100vw", overflow: "hidden",
@@ -199,6 +201,7 @@ function NewLayoutInner() {
             contextCards={hubContextCards}
             onAddContextCard={addContextCard}
             onRemoveContextCard={removeContextCard}
+            onClearContextCards={clearContextCards}
             isDark={isDark}
             theme={theme}
           />

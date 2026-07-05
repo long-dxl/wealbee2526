@@ -5,7 +5,7 @@ import {
   Check, X, Plus, FileText, Wrench, BookOpen, TrendingUp,
   Zap, Clock, RefreshCw, CheckCircle2, AlertTriangle, Eye,
   Lightbulb, Mail, Inbox, Info, Settings, History, RotateCcw,
-  Search, BarChart2, Activity, Globe, Calculator, ArrowRight,
+  Search, BarChart2, Activity, Globe, Calculator, ArrowRight, Users,
 } from "lucide-react";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { MdContent, RichContent } from "../../components/MdContent";
@@ -196,10 +196,16 @@ const TOOL_GROUPS = [
     id: "fundamental", category: "Phân tích cơ bản",
     tools: [
       {
-        id: "financials", name: "BCTC & Nội bộ", Icon: FileText,
-        desc: "Phân tích sâu như Analyst: IS/BS/CF 5 năm + chỉ số RIÊNG theo 4 loại hình (NH: NIM/CIR/NPL; CTCK: margin/VCSH; BH: combined ratio) + KQKD quý gần nhất, cổ tức, giao dịch nội bộ",
+        id: "financials", name: "BCTC", Icon: FileText,
+        desc: "Phân tích sâu như Analyst: IS/BS/CF + chỉ số RIÊNG theo 4 loại hình (NH: NIM/CIR/NPL; CTCK: margin/VCSH; BH: combined ratio), theo cả Năm và 5 Quý gần nhất",
         available: true,
-        includes: ["BCTC theo năm (doanh thu, LNST, EPS, ROE…)", "Lịch sử cổ tức", "Giao dịch nội bộ (MUA/BÁN)"],
+        includes: ["BCTC theo năm (doanh thu, LNST, EPS, ROE…)", "BCTC 5 quý gần nhất (YoY)", "Chỉ số tài chính theo loại hình"],
+      },
+      {
+        id: "insider_trades", name: "Cổ tức & Giao dịch nội bộ", Icon: Users,
+        desc: "Lịch sử chi trả cổ tức (tiền mặt/cổ phiếu) và giao dịch mua/bán của lãnh đạo, cổ đông nội bộ",
+        available: true,
+        includes: ["Lịch sử cổ tức", "Giao dịch nội bộ (MUA/BÁN)"],
       },
       {
         id: "value_chain", name: "Chuỗi cung ứng & yếu tố tác động", Icon: Activity,
@@ -385,10 +391,10 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
 
   // ── Cảnh báo rời trang khi có thay đổi chưa lưu ─────────────────────────────
   // agentLoaded: true khi agent (nếu có agentId) đã nạp xong dữ liệu thật, hoặc luôn true
-  // với agent mới tạo (không cần chờ nạp). initialSnapshotRef chụp lại đúng 1 lần trạng thái
+  // với agent mới tạo (không cần chờ nạp). initialSnapshot chụp lại đúng 1 lần trạng thái
   // "vừa nạp xong" để so sánh — nhờ vậy phát hiện đúng thay đổi thật của user, không bị race.
   const [agentLoaded, setAgentLoaded] = useState(!agentId);
-  const initialSnapshotRef = useRef<string | null>(null);
+  const [initialSnapshot, setInitialSnapshot] = useState<string | null>(null);
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   const leaveActionRef = useRef<() => void>(() => {});
 
@@ -624,8 +630,11 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       if (error) { console.error("Save agent error:", error.message); setIsSaved(false); return; }
     }
     // Đã lưu thành công — chốt lại "bản gốc" ngay tại đây để không tự chặn nhầm việc điều
-    // hướng đi (blocker) hay lượt onBack() tự động bên dưới.
-    initialSnapshotRef.current = buildDraftSnapshot();
+    // hướng đi (blocker) hay lượt onBack() tự động bên dưới. Dùng setState (thay vì mutate ref)
+    // để buộc re-render ngay, nhờ đó isDirty/useBlocker cập nhật về false TRƯỚC khi onBack()
+    // gọi navigate() — nếu không, blocker vẫn giữ giá trị isDirty=true của lần render trước
+    // và hiện nhầm modal "Thay đổi chưa được lưu" dù agent đã lưu xong.
+    setInitialSnapshot(buildDraftSnapshot());
     setTimeout(() => onBack(), 1200);
   };
 
@@ -686,12 +695,12 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
 
   // Chụp lại "bản gốc" đúng 1 lần, ngay sau khi agent đã nạp xong (hoặc ngay lập tức với agent mới).
   useEffect(() => {
-    if (agentLoaded && initialSnapshotRef.current === null) {
-      initialSnapshotRef.current = buildDraftSnapshot();
+    if (agentLoaded && initialSnapshot === null) {
+      setInitialSnapshot(buildDraftSnapshot());
     }
   });
 
-  const isDirty = initialSnapshotRef.current !== null && buildDraftSnapshot() !== initialSnapshotRef.current;
+  const isDirty = initialSnapshot !== null && buildDraftSnapshot() !== initialSnapshot;
 
   // Cảnh báo khi đóng tab / tải lại trang mà còn thay đổi chưa lưu
   useEffect(() => {

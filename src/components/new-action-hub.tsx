@@ -1,13 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Sparkles, PanelRightClose, Paperclip, ArrowUp,
-  Maximize2, RotateCcw, GripVertical, X, Plus,
+  Maximize2, RotateCcw, GripVertical, X, Plus, SquarePen,
 } from "lucide-react";
 import { ContextCard, CardType, DRAG_CARD_MIME, cardTypeQuestions } from "../types/cards";
 import { lightTheme, type Theme } from "../lib/theme-context";
 import { sendChatMessage, type ToolStep } from "../lib/supabase/bee-ai";
-import { supabase } from "../lib/supabase/client";
-import { getBeenyBalance, fmtBeeny } from "../lib/plan-limits";
 import { notifyWalletChanged } from "../lib/wallet-events";
 import { MdContent } from "./MdContent";
 
@@ -91,6 +89,7 @@ interface ActionHubProps {
   contextCards: ContextCard[];
   onAddContextCard: (c: ContextCard) => void;
   onRemoveContextCard: (id: string) => void;
+  onClearContextCards: () => void;
   isDark?: boolean;
   theme?: Theme;
 }
@@ -114,17 +113,6 @@ const cardTypeLabel: Record<CardType, string> = {
   tool: "Công cụ AI",
   report: "Báo cáo",
   knowledge: "Knowledge",
-};
-
-const cardTypeBg: Record<CardType, { bg: string; text: string; border: string }> = {
-  index: { bg: "rgba(8,73,172,0.08)", text: "#0849AC", border: "rgba(8,73,172,0.20)" },
-  portfolio: { bg: "rgba(52,199,89,0.10)", text: "#1a7a3a", border: "rgba(52,199,89,0.25)" },
-  news: { bg: "rgba(99,102,241,0.10)", text: "#6366F1", border: "rgba(99,102,241,0.20)" },
-  ticker: { bg: "rgba(109,40,217,0.08)", text: "#7c3aed", border: "rgba(109,40,217,0.20)" },
-  mover: { bg: "rgba(255,149,0,0.10)", text: "#FF9500", border: "rgba(255,149,0,0.25)" },
-  tool: { bg: "rgba(255,59,48,0.08)", text: "#c41a1a", border: "rgba(255,59,48,0.20)" },
-  report: { bg: "rgba(79,142,255,0.10)", text: "#1a4fa0", border: "rgba(79,142,255,0.25)" },
-  knowledge: { bg: "rgba(16,185,129,0.09)", text: "#065f46", border: "rgba(16,185,129,0.25)" },
 };
 
 interface ChatMessage {
@@ -155,7 +143,7 @@ const contextLabel: Record<string, string> = {
 
 export function ActionHub({
   currentPage, open, onClose, width, onWidthChange,
-  contextCards, onAddContextCard, onRemoveContextCard,
+  contextCards, onAddContextCard, onRemoveContextCard, onClearContextCards,
   isDark = false, theme = lightTheme,
 }: ActionHubProps) {
   const t = theme;
@@ -165,18 +153,6 @@ export function ActionHub({
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const cancelRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Số dư Beeny (refresh khi mở panel + sau mỗi lượt trả lời xong)
-  const [beenyBalance, setBeenyBalance] = useState<number | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user || cancelled) return;
-      getBeenyBalance(user.id).then(b => { if (!cancelled) setBeenyBalance(b); });
-    });
-    return () => { cancelled = true; };
-  }, [open, isTyping]);
 
   const toggleCot = (idx: number) => {
     setMessages(prev => prev.map((m, i) =>
@@ -325,6 +301,8 @@ export function ActionHub({
           setIsTyping(false);
           cancelRef.current = null;
           notifyWalletChanged();  // Beeny vừa bị trừ → refresh sidebar + badge
+          // Context đã dùng xong cho câu hỏi này — dọn để user kéo context mới cho câu tiếp theo
+          if (snapshot.length) onClearContextCards();
         },
         onError: (err) => {
           setMessages((prev) => {
@@ -349,12 +327,24 @@ export function ActionHub({
       });
       setIsTyping(false);
     }
-  }, [isTyping, contextCards, sessionId]);
+  }, [isTyping, contextCards, sessionId, onClearContextCards]);
 
   const handleSend = () => {
     if (!inputValue.trim()) return;
     fireQuestion(inputValue);
     setInputValue("");
+  };
+
+  // Đoạn chat mới — như ChatGPT/Claude: huỷ stream đang chạy (nếu có), xoá sạch
+  // hội thoại + sessionId (backend nhận biết đây là phiên mới) + context đã kéo.
+  const handleNewChat = () => {
+    cancelRef.current?.();
+    cancelRef.current = null;
+    setMessages([]);
+    setSessionId(undefined);
+    setIsTyping(false);
+    setInputValue("");
+    onClearContextCards();
   };
 
   return (
@@ -478,17 +468,23 @@ export function ActionHub({
             Action Hub
           </span>
 
-          {beenyBalance != null && (
-            <span title="Số dư Beeny — mỗi lượt phân tích trừ theo phí thật (gpt-5-mini)"
-              style={{
-                display: "flex", alignItems: "center", gap: 4, padding: "3px 9px",
-                borderRadius: 99, background: t.bgAccent, color: t.brand,
-                fontSize: 11, fontWeight: 700, flexShrink: 0,
-                fontFamily: "'Montserrat', system-ui, sans-serif",
-              }}>
-              🐝 {fmtBeeny(beenyBalance)} Beeny
-            </span>
-          )}
+          <button
+            onClick={handleNewChat}
+            disabled={messages.length === 0 && contextCards.length === 0}
+            title="Đoạn chat mới"
+            style={{
+              display: "flex", alignItems: "center", gap: 4, padding: "3px 8px",
+              borderRadius: 6, border: "0.5px solid " + t.borderStrong,
+              background: t.bgAccent, cursor: messages.length === 0 && contextCards.length === 0 ? "default" : "pointer",
+              color: t.brand, fontSize: 11, fontWeight: 700, flexShrink: 0,
+              fontFamily: "'Montserrat', system-ui, sans-serif",
+              opacity: messages.length === 0 && contextCards.length === 0 ? 0.45 : 1,
+            }}
+            onMouseEnter={(e) => { if (messages.length || contextCards.length) (e.currentTarget as HTMLElement).style.background = t.bgAccentActive; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccent; }}
+          >
+            <SquarePen size={12} strokeWidth={2} /> Đoạn chat mới
+          </button>
 
           {!isAtDefault && (
             <button
@@ -526,74 +522,6 @@ export function ActionHub({
             {contextLabel[currentPage] || "Wealbee"}
           </span>
         </div>
-
-        {/* Context chips — shown when cards have been dropped */}
-        {contextCards.length > 0 && (
-          <div style={{
-            padding: "10px 14px 8px",
-            borderBottom: "0.5px solid " + t.border,
-            background: isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.025)",
-            flexShrink: 0,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-              <Sparkles size={12} color={t.brand} strokeWidth={1.5} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: t.brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                Context
-              </span>
-              <span style={{
-                fontSize: 10, fontWeight: 700, color: t.brand,
-                background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)",
-                borderRadius: 99, padding: "1px 6px",
-                fontFamily: "'Montserrat', system-ui, sans-serif",
-              }}>
-                {contextCards.length}
-              </span>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {contextCards.map((card) => {
-                const style = cardTypeBg[card.type];
-                return (
-                  <div
-                    key={card.id}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      padding: "4px 8px 4px 10px", borderRadius: 99,
-                      background: style.bg, border: `0.5px solid ${style.border}`,
-                      fontFamily: "'Montserrat', system-ui, sans-serif",
-                    }}
-                  >
-                    <span style={{ fontSize: 10, fontWeight: 700, color: style.text, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                      {cardTypeLabel[card.type]}
-                    </span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: style.text }}>
-                      {card.label}
-                    </span>
-                    {card.badge && (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: style.text, opacity: 0.75 }}>
-                        {card.badge}
-                      </span>
-                    )}
-                    <button
-                      onClick={() => onRemoveContextCard(card.id)}
-                      style={{
-                        background: "none", border: "none", cursor: "pointer", padding: 0,
-                        marginLeft: 2, display: "flex", alignItems: "center",
-                        color: style.text, opacity: 0.6,
-                      }}
-                      title="Xóa khỏi context"
-                    >
-                      <X size={11} strokeWidth={2.5} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            {/* Drop hint while no drag active */}
-            <p style={{ margin: "8px 0 0", fontSize: 11, color: t.brand, fontFamily: "'Montserrat', system-ui, sans-serif", opacity: 0.55 }}>
-              Kéo thêm card vào đây để AI phân tích chính xác hơn
-            </p>
-          </div>
-        )}
 
         {/* Chat area */}
         <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -796,13 +724,13 @@ export function ActionHub({
           background: t.hubBg,
         }}>
           <div style={{
-            display: "flex", alignItems: "center", gap: 10,
+            display: "flex", flexDirection: "column", gap: contextCards.length > 0 ? 8 : 0,
             background: t.inputBg,
-            borderRadius: 20,
+            borderRadius: 18,
             border: contextCards.length > 0
               ? "1px solid " + t.brand
               : "1px solid " + t.inputBorder,
-            padding: "10px 10px 10px 16px",
+            padding: "10px 12px",
             boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.30)" : "0 4px 20px rgba(8,73,172,0.10), 0 1px 4px rgba(0,0,0,0.05)",
             transition: "border-color 150ms ease, box-shadow 150ms ease",
           }}
@@ -815,6 +743,55 @@ export function ActionHub({
               (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 20px rgba(0,0,0,0.30)" : "0 4px 20px rgba(8,73,172,0.10), 0 1px 4px rgba(0,0,0,0.05)";
             }}
           >
+            {/* Context chips — như file đính kèm trong ô chat của Claude/ChatGPT: nằm
+                ngay trong composer, một tông xanh brand duy nhất, không phân biệt màu
+                theo loại card (chỉ phân biệt bằng nhãn chữ TIN TỨC/BÁO CÁO/...). */}
+            {contextCards.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {contextCards.map((card) => (
+                  <div
+                    key={card.id}
+                    title={card.label}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 5,
+                      padding: "4px 7px 4px 9px", borderRadius: 8,
+                      background: t.bgAccent, border: "1px solid " + t.border,
+                      maxWidth: "100%", minWidth: 0,
+                      fontFamily: "'Montserrat', system-ui, sans-serif",
+                    }}
+                  >
+                    <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 700, color: t.brand, opacity: 0.65, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      {cardTypeLabel[card.type]}
+                    </span>
+                    <span style={{
+                      fontSize: 12, fontWeight: 600, color: t.fg,
+                      minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
+                      {card.label}
+                    </span>
+                    {card.badge && (
+                      <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, color: t.fgSubtle }}>
+                        {card.badge}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => onRemoveContextCard(card.id)}
+                      style={{
+                        flexShrink: 0,
+                        background: "none", border: "none", cursor: "pointer", padding: 0,
+                        marginLeft: 2, display: "flex", alignItems: "center",
+                        color: t.fgSubtle,
+                      }}
+                      title="Xóa khỏi context"
+                    >
+                      <X size={11} strokeWidth={2.5} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button
               style={{
                 background: "none", border: "none", cursor: "pointer",
@@ -868,6 +845,7 @@ export function ActionHub({
             >
               <ArrowUp size={16} strokeWidth={2.5} />
             </button>
+          </div>
           </div>
           <p style={{
             fontSize: 10.5, color: t.fgDisabled, marginTop: 8,
