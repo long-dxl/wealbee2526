@@ -46,7 +46,12 @@ Deno.serve(async (req) => {
   const plan = o.plan;
   const nowIso = new Date().toISOString();
   const todayVN = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
-  const expires = new Date(Date.now() + 30 * 86400 * 1000).toISOString();
+
+  // Gia hạn CỘNG DỒN: từ mốc muộn hơn giữa (hôm nay) và (hạn còn lại) + 30 ngày.
+  const { data: prof } = await sb.from("user_profiles").select("plan_expires_at").eq("user_id", o.user_id).limit(1);
+  const curExp = prof?.[0]?.plan_expires_at ? Date.parse(prof[0].plan_expires_at) : 0;
+  const base = Math.max(Date.now(), Number.isFinite(curExp) ? curExp : 0);
+  const expires = new Date(base + 30 * 86400 * 1000).toISOString();
 
   await sb.from("payment_orders").update({ status: "paid", paid_at: nowIso, sepay_id: txId || null }).eq("id", o.id);
   await sb.from("user_profiles").update({ plan, plan_expires_at: expires }).eq("user_id", o.user_id);
