@@ -46,6 +46,14 @@ function fmtTy(v: number | null): string {
   return `${(v / 1e9).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}`;
 }
 
+// "Q4/2025" so với "Q1/2026" theo string thì Q4 > Q1 dù Q1/2026 mới hơn — phải so
+// theo giá trị thời gian thật (năm*4 + quý), không dùng ORDER BY text của Postgres.
+function quarterSortKey(period: string): number {
+  const m = period.match(/^Q([1-4])\/(\d{4})$/);
+  if (!m) return -1;
+  return Number(m[2]) * 4 + Number(m[1]);
+}
+
 interface FSRow { statement: string; period: string; item_code: string; item_label_vi: string; value: number }
 
 function buildStatementTable(rows: FSRow[], priority: string[], periods: string[]): string[] {
@@ -65,7 +73,9 @@ function buildStatementTable(rows: FSRow[], priority: string[], periods: string[
     const isEps = c.includes("EPS");
     const cells = periods.map(p => {
       const v = it.vals[p];
-      if (v == null) return "n/a";
+      // EPS=0 khi LNST cùng quý dương gần như luôn là nguồn chưa kịp cập nhật (Vietcap
+      // thường công bố EPS trễ hơn các dòng khác 1 nhịp), không phải EPS thật bằng 0.
+      if (v == null || (isEps && v === 0)) return "n/a";
       return isEps ? `${Math.round(v).toLocaleString("vi-VN")}đ` : fmtTy(v);
     });
     out.push(`| ${it.label} | ${cells.join(" | ")} |`);
@@ -82,6 +92,37 @@ function buildStatementTable(rows: FSRow[], priority: string[], periods: string[
 export async function financialReport(sb: any, sym: string, ctype: string): Promise<string> {
   const lines: string[] = [];
   const type = RATIO_SET[ctype] ? ctype : "normal";
+
+  // Định giá hiện tại (period_type=CURRENT: giá, vốn hóa, P/E, P/B... snapshot gần nhất)
+  // — thiếu mục này thì Deep Research không thể đặt định giá cạnh hiệu quả vốn (ROE).
+  try {
+    const { data: cur } = await sb
+      .from("financial_ratios")
+      .select("period, ratio_code, value, unit")
+      .eq("symbol", sym).eq("period_type", "CURRENT");
+    if (cur?.length) {
+      const val = new Map<string, { value: number; unit?: string }>();
+      for (const r of cur as any[]) val.set(r.ratio_code, { value: r.value, unit: r.unit });
+      const asOf = (cur as any[])[0]?.period ?? "";
+      const fmtD = (v?: { value: number }) => v == null ? "n/a" : `${Math.round(v.value).toLocaleString("vi-VN")} đ`;
+      const fmtX = (v?: { value: number }) => v == null ? "n/a" : `${v.value.toFixed(2)}x`;
+      const rows: Array<[string, string]> = [
+        ["Giá cổ phiếu", fmtD(val.get("PRICE"))],
+        ["Vốn hóa", val.has("MARKET_CAP") ? `${(val.get("MARKET_CAP")!.value / 1e9).toLocaleString("vi-VN", { maximumFractionDigits: 0 })} tỷ đ` : "n/a"],
+        ["P/E (TTM)", fmtX(val.get("PE"))],
+        ["P/E (FY gần nhất)", fmtX(val.get("PE_FY"))],
+        ["P/B", fmtX(val.get("PB"))],
+        ["P/S", fmtX(val.get("PS"))],
+        ["Giá trị sổ sách/CP (BVPS)", fmtD(val.get("BVPS"))],
+        ["Tỷ suất cổ tức", val.has("DIVIDEND_YIELD") ? `${(val.get("DIVIDEND_YIELD")!.value * 100).toFixed(1)}%` : "n/a"],
+      ].filter(([, v]) => v !== "n/a") as Array<[string, string]>;
+      if (rows.length) {
+        lines.push(`\n### 0) Định giá hiện tại (tại ngày ${asOf})`);
+        lines.push("| Chỉ tiêu | Giá trị |", "|---|---|");
+        for (const [k, v] of rows) lines.push(`| ${k} | ${v} |`);
+      }
+    }
+  } catch { /* skip */ }
 
   // IS / BS / CF theo năm
   try {
@@ -130,43 +171,95 @@ export async function financialReport(sb: any, sym: string, ctype: string): Prom
     }
   } catch { /* skip */ }
 
-  // KQKD quý gần nhất (2026 chưa có → quý mới nhất) + YoY
+  // IS / BS / CF theo quý — 5 quý gần nhất (rolling theo dữ liệu thật có, sort theo
+  // quarterSortKey chứ không theo thứ tự chữ cái của cột period)
   try {
-    const { data: q } = await sb
+    const { data: fsq } = await sb
       .from("financial_statements")
-      .select("period, item_code, item_label_vi, value")
-      .eq("symbol", sym).eq("period_type", "QUARTER").eq("statement", "IS")
-      .order("period", { ascending: false });
-    if (q?.length) {
-      const latest = (q as any[])[0].period as string;
-      const m = latest.match(/^(Q\d)\/(\d{4})$/);
-      const prevYoY = m ? `${m[1]}/${Number(m[2]) - 1}` : null;
-      const keyCodes = ["BANK_TOI", "IS_REVENUE", "BANK_NII", "IS_OPERATING_PROFIT", "BANK_PREPROVISION", "IS_NET_PROFIT", "IS_EPS"];
-      const cur = new Map<string, { label: string; v: number }>();
-      const prv = new Map<string, number>();
-      for (const r of q as any[]) {
-        if (r.period === latest) cur.set(r.item_code, { label: r.item_label_vi.replace(/^\(derived\)\s*/, ""), v: r.value });
-        if (prevYoY && r.period === prevYoY) prv.set(r.item_code, r.value);
-      }
-      const rows = keyCodes.filter(c => cur.has(c));
-      if (rows.length) {
-        const hasYoY = !!prevYoY && prv.size > 0;
-        lines.push(`\n### ★ KQKD quý gần nhất: **${latest}**${hasYoY ? ` (so cùng kỳ ${prevYoY})` : ""}`);
-        lines.push(`| Chỉ tiêu (tỷ đồng) | ${latest} |${hasYoY ? ` ${prevYoY} | YoY |` : ""}`);
-        lines.push(`|---|---|${hasYoY ? "---|---|" : ""}`);
-        for (const c of rows) {
-          const it = cur.get(c)!;
-          const isEps = c.includes("EPS");
-          const curS = isEps ? `${Math.round(it.v).toLocaleString("vi-VN")}đ` : fmtTy(it.v);
-          if (hasYoY && prv.has(c)) {
-            const pv = prv.get(c)!;
-            const prvS = isEps ? `${Math.round(pv).toLocaleString("vi-VN")}đ` : fmtTy(pv);
-            const yoy = pv ? `${(((it.v - pv) / Math.abs(pv)) * 100).toFixed(1)}%` : "n/a";
-            lines.push(`| ${it.label} | ${curS} | ${prvS} | ${yoy} |`);
-          } else {
-            lines.push(`| ${it.label} | ${curS} |`);
+      .select("statement, period, item_code, item_label_vi, value")
+      .eq("symbol", sym).eq("period_type", "QUARTER");
+    if (fsq?.length) {
+      const qPeriods = [...new Set((fsq as FSRow[]).map(r => r.period))]
+        .sort((a, b) => quarterSortKey(b) - quarterSortKey(a))
+        .slice(0, 5)
+        .sort((a, b) => quarterSortKey(a) - quarterSortKey(b));
+      const pickQ = (st: string) => (fsq as FSRow[]).filter(r => r.statement === st && qPeriods.includes(r.period));
+      const isQ = buildStatementTable(pickQ("IS"), PRIORITY_IS, qPeriods);
+      const bsQ = buildStatementTable(pickQ("BS"), PRIORITY_BS, qPeriods);
+      const cfQ = buildStatementTable(pickQ("CF"), PRIORITY_CF, qPeriods);
+      if (isQ.length) { lines.push(`\n### 5) Kết quả kinh doanh (IS) · ${qPeriods[0]}–${qPeriods[qPeriods.length - 1]}`); lines.push(...isQ); }
+      if (bsQ.length) { lines.push(`\n### 6) Cân đối kế toán (BS) · theo quý`); lines.push(...bsQ); }
+      if (cfQ.length) { lines.push(`\n### 7) Lưu chuyển tiền tệ (CF) · theo quý`); lines.push(...cfQ); }
+
+      // Chỉ số theo quý (margin/growth — xem etl_bctc_quarterly.py để biết phạm vi)
+      try {
+        const { data: rtq } = await sb
+          .from("financial_ratios")
+          .select("period, ratio_code, value, unit")
+          .eq("symbol", sym).eq("period_type", "QUARTER")
+          .in("period", qPeriods);
+        if (rtq?.length) {
+          const byCodeQ = new Map<string, { unit?: string; vals: Record<string, number> }>();
+          for (const r of rtq as any[]) {
+            if (!byCodeQ.has(r.ratio_code)) byCodeQ.set(r.ratio_code, { unit: r.unit, vals: {} });
+            byCodeQ.get(r.ratio_code)!.vals[r.period] = r.value;
+          }
+          const shownQ = RATIO_SET[type].filter(c => byCodeQ.has(c));
+          if (shownQ.length) {
+            lines.push(`\n### 8) Chỉ số tài chính theo quý (${TYPE_LABEL[type]})`);
+            lines.push(`| Chỉ số | ${qPeriods.join(" | ")} |`, `|${"---|".repeat(qPeriods.length + 1)}`);
+            for (const c of shownQ) {
+              const it = byCodeQ.get(c)!;
+              lines.push(`| ${RATIO_LABEL[c] ?? c} | ${qPeriods.map(p => fmtRatioVal(c, it.vals[p] ?? null, it.unit)).join(" | ")} |`);
+            }
           }
         }
+      } catch { /* skip */ }
+    }
+  } catch { /* skip */ }
+
+  return lines.join("\n");
+}
+
+/**
+ * Cổ tức + Giao dịch nội bộ cho 1 mã — tool "Nội bộ" (tách riêng khỏi BCTC theo
+ * yêu cầu: mỗi tool 1 mục đích, Agent chọn độc lập).
+ */
+export async function insiderReport(sb: any, sym: string): Promise<string> {
+  const lines: string[] = [];
+
+  try {
+    const { data: divs } = await sb
+      .from("dividends")
+      .select("ex_date, payment_date, dividend_type, amount")
+      .eq("symbol", sym)
+      .order("ex_date", { ascending: false })
+      .limit(6);
+    if (divs?.length) {
+      lines.push(`\n### Lịch sử cổ tức`);
+      for (const d of divs as any[]) {
+        const typeLabel = d.dividend_type === "cash" ? "tiền mặt" : "cổ phiếu";
+        const amtLabel = d.dividend_type === "cash"
+          ? `${Number(d.amount).toLocaleString("vi-VN")} đ/CP`
+          : `${(Number(d.amount) * 100).toFixed(1)}%`;
+        lines.push(`- ${d.ex_date}: ${typeLabel} ${amtLabel}${d.payment_date ? ` (thanh toán ${d.payment_date})` : ""}`);
+      }
+    }
+  } catch { /* skip */ }
+
+  try {
+    const { data: ins } = await sb
+      .from("insider_transactions")
+      .select("trade_date, insider_name, position, trade_type, volume, price")
+      .eq("symbol", sym)
+      .order("trade_date", { ascending: false })
+      .limit(8);
+    if (ins?.length) {
+      lines.push(`\n### Giao dịch nội bộ gần đây`);
+      for (const t of ins as any[]) {
+        const vol = t.volume ? `${Number(t.volume).toLocaleString("vi-VN")} CP` : "";
+        const priceStr = t.price != null ? ` @ ${Number(t.price).toLocaleString("vi-VN")}đ` : "";
+        lines.push(`- ${t.trade_date}: ${t.insider_name}${t.position ? ` (${t.position})` : ""} **${t.trade_type === "buy" ? "MUA" : "BÁN"}** ${vol}${priceStr}`);
       }
     }
   } catch { /* skip */ }

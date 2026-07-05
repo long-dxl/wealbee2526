@@ -8,9 +8,10 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { financialReport, TYPE_LABEL } from "../_shared/financial-report.ts";
+import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { valueChainReport } from "../_shared/value-chain.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
+import { buildPriceContext, buildNewsContext, faUrl } from "../_shared/market-context.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -45,7 +46,7 @@ async function buildFinancialsContext(symbol: string, registry?: SourceRegistry)
   const sym  = symbol.toUpperCase();
   const lines: string[] = [`\n## Dữ liệu tài chính: ${sym}`];
 
-  // Báo cáo tài chính chi tiết: IS/BS/CF + chỉ số RIÊNG theo loại hình + KQKD quý gần nhất
+  // Báo cáo tài chính: IS/BS/CF + chỉ số RIÊNG theo loại hình (Năm + 5 Quý gần nhất)
   try {
     const { data: tk } = await sb.from("tickers").select("company_type").eq("symbol", sym).single();
     const ctype = tk?.company_type ?? "normal";
@@ -59,154 +60,28 @@ async function buildFinancialsContext(symbol: string, registry?: SourceRegistry)
     }
   } catch { /* ignore */ }
 
-  // Dividends
-  try {
-    const { data: divs } = await sb
-      .from("dividends")
-      .select("ex_date,dividend_type,amount,payment_date")
-      .eq("symbol", sym)
-      .order("ex_date", { ascending: false })
-      .limit(6);
+  return lines.length > 1 ? lines.join("\n") : "";
+}
 
-    if (divs?.length) {
-      const ref = registry ? ` ${registry.add("Cổ tức", faUrl(sym))}` : "";
-      lines.push(`\n### Lịch sử cổ tức${ref}`);
-      for (const d of divs) {
-        const typeLabel = d.dividend_type === "cash" ? "tiền mặt" : "cổ phiếu";
-        const amtLabel  = d.dividend_type === "cash"
-          ? `${Number(d.amount).toLocaleString("vi-VN")} đ/CP`
-          : `${(Number(d.amount) * 100).toFixed(1)}%`;
-        lines.push(`- ${d.ex_date}: ${typeLabel} ${amtLabel}${d.payment_date ? ` (thanh toán ${d.payment_date})` : ""}`);
-      }
-    }
-  } catch { /* ignore */ }
+// ─── Build insider context for a specific symbol (tool: insider_trades) ──────
 
-  // Insider transactions
-  try {
-    const { data: ins } = await sb
-      .from("insider_transactions")
-      .select("trade_date,insider_name,trade_type,volume")
-      .eq("symbol", sym)
-      .order("trade_date", { ascending: false })
-      .limit(8);
+async function buildInsiderContext(symbol: string, registry?: SourceRegistry): Promise<string> {
+  const sym = symbol.toUpperCase();
+  const lines: string[] = [`\n## Cổ tức & Giao dịch nội bộ: ${sym}`];
 
-    if (ins?.length) {
-      const ref = registry ? ` ${registry.add("Insider", faUrl(sym))}` : "";
-      lines.push(`\n### Giao dịch nội bộ gần đây${ref}`);
-      for (const t of ins) {
-        const vol = t.volume ? `${Number(t.volume).toLocaleString("vi-VN")} CP` : "";
-        lines.push(`- ${t.trade_date}: ${t.insider_name} **${t.trade_type === "buy" ? "MUA" : "BÁN"}** ${vol}`);
-      }
-    }
-  } catch { /* ignore */ }
+  const report = await insiderReport(sb, sym);
+  if (report.trim()) {
+    const ref = registry ? ` ${registry.add("Nội bộ", faUrl(sym))}` : "";
+    lines.push(`${ref}`);
+    lines.push(report);
+  } else {
+    lines.push(`\n*Không có dữ liệu cổ tức/giao dịch nội bộ cho ${sym}.*`);
+  }
 
   return lines.length > 1 ? lines.join("\n") : "";
 }
 
-// ─── Build price context (tool: price_feed) ──────────────────────────────────
-
-// FireAnt — single URL pattern that works for all tickers AND indices
-const faUrl = (sym: string) => `https://fireant.vn/ma-chung-khoan/${sym}`;
-const VS_INDEX_URL: Record<string, string> = {
-  VNINDEX: faUrl("VNINDEX"),
-  HNX:     faUrl("HNXINDEX"),
-};
-const vsStockUrl = faUrl;
-
-// Max age for price data: 5 calendar days (covers weekends + 1 holiday buffer)
-const PRICE_MAX_AGE_DAYS = 5;
-
-function daysSince(dateStr: string): number {
-  const todayUtc = new Date().toISOString().substring(0, 10);
-  return Math.round((new Date(todayUtc).getTime() - new Date(dateStr).getTime()) / 86400000);
-}
-
-async function buildPriceContext(registry?: SourceRegistry): Promise<string> {
-  const lines: string[] = [];
-  const todayStr = new Date().toISOString().substring(0, 10);
-  const todayVN  = new Date().toLocaleDateString("vi-VN", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-    timeZone: "Asia/Ho_Chi_Minh",
-  });
-  lines.push(`Ngày phân tích: ${todayVN}`);
-
-  // ── Market indices ──────────────────────────────────────────────────────────
-  try {
-    const { data: indices } = await sb
-      .from("market_indices")
-      .select("index_code, date, close, change_pt, change_pct")
-      .in("index_code", ["VNINDEX", "HNX"])
-      .order("date", { ascending: false })
-      .limit(4);
-
-    const seen = new Set<string>();
-    const fresh: typeof indices = [];
-    for (const idx of (indices ?? [])) {
-      if (seen.has(idx.index_code)) continue;
-      seen.add(idx.index_code);
-      if (daysSince(idx.date) <= PRICE_MAX_AGE_DAYS) fresh.push(idx);
-    }
-
-    if (fresh.length) {
-      lines.push("\n## Chỉ số thị trường");
-      for (const idx of fresh) {
-        const arrow = (idx.change_pct ?? 0) >= 0 ? "▲" : "▼";
-        const pct = idx.change_pct != null ? `${idx.change_pct >= 0 ? "+" : ""}${Number(idx.change_pct).toFixed(2)}%` : "";
-        const pt  = idx.change_pt  != null ? `${idx.change_pt  >= 0 ? "+" : ""}${Number(idx.change_pt).toFixed(2)} điểm` : "";
-        const ref = registry ? ` ${registry.add(idx.index_code, VS_INDEX_URL[idx.index_code] ?? VS_INDEX_URL.VNINDEX)}` : "";
-        lines.push(`- ${idx.index_code}: ${Number(idx.close).toLocaleString("vi-VN", { minimumFractionDigits: 2 })} ${arrow} ${pt} (${pct}) · phiên ${idx.date}${ref}`);
-      }
-    } else {
-      lines.push("\n## Chỉ số thị trường");
-      lines.push(`- Chưa có dữ liệu chỉ số trong DB (dữ liệu cuối: ${indices?.[0]?.date ?? "không rõ"}, đã quá ${PRICE_MAX_AGE_DAYS} ngày). Không được suy đoán giá trị chỉ số.`);
-    }
-  } catch { /* ignore */ }
-
-  // ── Stock prices ────────────────────────────────────────────────────────────
-  try {
-    const { data: prices } = await sb
-      .from("prices_daily")
-      .select("symbol, date, close")
-      .order("date", { ascending: false })
-      .limit(75);
-
-    const latestDate: Record<string, string> = {};
-    const bySymbol: Record<string, number[]> = {};
-    for (const row of (prices ?? [])) {
-      if (!bySymbol[row.symbol]) {
-        bySymbol[row.symbol] = [];
-        latestDate[row.symbol] = row.date;
-      }
-      if (bySymbol[row.symbol].length < 2) bySymbol[row.symbol].push(Number(row.close));
-    }
-
-    // Only include symbols with fresh data
-    const freshSymbols = Object.keys(bySymbol).filter(sym => daysSince(latestDate[sym]) <= PRICE_MAX_AGE_DAYS);
-
-    if (freshSymbols.length) {
-      const movers = freshSymbols
-        .filter(sym => bySymbol[sym].length === 2)
-        .map(sym => ({ sym, pct: ((bySymbol[sym][0] - bySymbol[sym][1]) / bySymbol[sym][1]) * 100 }))
-        .sort((a, b) => b.pct - a.pct);
-
-      lines.push("\n## Giá VN30");
-      for (const sym of freshSymbols) {
-        const ref = registry ? ` ${registry.add(sym, vsStockUrl(sym))}` : "";
-        lines.push(`- ${sym}: ${bySymbol[sym][0].toLocaleString("vi-VN")} đ · phiên ${latestDate[sym]}${ref}`);
-      }
-      const top5up   = movers.filter(m => m.pct > 0).slice(0, 5);
-      const top5down = movers.filter(m => m.pct < 0).slice(-5).reverse();
-      if (top5up.length)   { lines.push("\n### Top tăng");  for (const m of top5up)   lines.push(`- ${m.sym}: +${m.pct.toFixed(2)}%`); }
-      if (top5down.length) { lines.push("\n### Top giảm");  for (const m of top5down) lines.push(`- ${m.sym}: ${m.pct.toFixed(2)}%`); }
-    } else {
-      const lastDate = prices?.[0]?.date ?? "không rõ";
-      lines.push("\n## Giá VN30");
-      lines.push(`- Chưa có dữ liệu giá trong DB (dữ liệu cuối: ${lastDate}, đã quá ${PRICE_MAX_AGE_DAYS} ngày). Không được suy đoán giá cổ phiếu.`);
-    }
-  } catch { /* ignore */ }
-
-  return lines.join("\n");
-}
+// Price/news context: dùng bản chung ở _shared/market-context.ts
 
 // ─── Source type ─────────────────────────────────────────────────────────────
 
@@ -235,111 +110,29 @@ class SourceRegistry {
   toArray() { return this.list.map((s, i) => ({ index: i + 1, ...s })); }
 }
 
-// ─── Build news context (tool: news_feed) ────────────────────────────────────
-
-async function buildNewsContext(sources?: Source[], registry?: SourceRegistry, targetSyms?: string[], filterSources?: string[]): Promise<string> {
-  try {
-    const since = new Date(Date.now() - 48 * 3600000).toISOString();
-    const baseQuery = () => {
-      let q = sb
-        .from("market_news")
-        .select("title, content_summary, label, impact_score, affected_symbols, published_at, article_url, source")
-        .or("label.is.null,label.neq.trash")
-        .gte("published_at", since);
-      if (filterSources && filterSources.length > 0) q = q.in("source", filterSources);
-      return q;
-    };
-
-    // Fetch symbol-specific news first (if target symbols provided)
-    const symNewsMap = new Map<string, typeof news>();
-    const symNewsIds = new Set<string>();
-    if (targetSyms && targetSyms.length > 0) {
-      await Promise.all(targetSyms.map(async (sym) => {
-        const { data } = await baseQuery()
-          .contains("affected_symbols", [sym])
-          .order("impact_score", { ascending: false, nullsFirst: false })
-          .limit(5);
-        if (data?.length) symNewsMap.set(sym, data);
-      }));
-      for (const rows of symNewsMap.values()) {
-        for (const r of rows) { if (r.article_url) symNewsIds.add(r.article_url); }
-      }
-    }
-
-    // Global top-10 (exclude already-fetched symbol news to avoid duplication)
-    const { data: globalNews } = await baseQuery()
-      .order("impact_score", { ascending: false, nullsFirst: false })
-      .limit(10);
-
-    const news = [...Array.from(symNewsMap.values()).flat()];
-    const seen = new Set(symNewsIds);
-    for (const n of (globalNews ?? [])) {
-      if (!seen.has(n.article_url ?? "")) {
-        news.push(n);
-        seen.add(n.article_url ?? "");
-      }
-    }
-
-    if (!news.length) return "";
-
-    const addItem = (n: any, lines: string[]) => {
-      const syms  = n.affected_symbols?.length ? ` [${n.affected_symbols.slice(0, 3).join(",")}]` : "";
-      const score = n.impact_score != null ? ` [tác động:${n.impact_score}]` : "";
-      const srcLabel = n.source ?? "Báo";
-      const ref = (registry && n.article_url) ? ` ${registry.add(srcLabel, n.article_url)}` : "";
-      lines.push(`- ${n.title}${syms}${score}${ref}`);
-      if (n.content_summary) lines.push(`  ${n.content_summary.substring(0, 120)}`);
-      if (sources && (n.article_url || n.source)) {
-        sources.push({
-          type: "news",
-          title: n.title,
-          url: n.article_url ?? null,
-          date: n.published_at ? n.published_at.substring(0, 10) : undefined,
-          source: n.source ?? undefined,
-        });
-      }
-    };
-
-    const lines: string[] = [];
-
-    // Symbol-specific section
-    if (symNewsMap.size > 0) {
-      lines.push("\n## Tin tức liên quan đến mã phân tích (48h)");
-      for (const [sym, rows] of symNewsMap.entries()) {
-        lines.push(`\n### ${sym}`);
-        for (const n of rows) addItem(n, lines);
-      }
-    }
-
-    // General market news
-    const generalNews = (globalNews ?? []).filter(n => !symNewsIds.has(n.article_url ?? ""));
-    if (generalNews.length > 0) {
-      lines.push("\n## Tin tức thị trường chung (48h)");
-      for (const n of generalNews.slice(0, 10)) addItem(n, lines);
-    }
-
-    return lines.join("\n");
-  } catch { return ""; }
-}
-
 // ─── Build sources for a symbol (deep research) ──────────────────────────────
 
-async function buildSymbolSources(symbol: string, sources: Source[]): Promise<void> {
+// Nguồn cho tool "financials" (BCTC) — tách riêng khỏi cổ tức/insider (tool insider_trades).
+async function buildFinancialSource(symbol: string, sources: Source[]): Promise<void> {
   const sym = symbol.toUpperCase();
   const url = faUrl(sym);
-
-  // Financial reports
   try {
     const { data: fins } = await sb
-      .from("financials_annual")
-      .select("year")
-      .eq("symbol", sym)
-      .order("year", { ascending: false })
+      .from("financial_statements")
+      .select("period")
+      .eq("symbol", sym).eq("period_type", "FY")
+      .order("period", { ascending: false })
       .limit(1);
     if (fins?.length) {
-      sources.push({ type: "financial", title: `Báo cáo tài chính ${sym} (${fins[0].year})`, url, source: "FireAnt" });
+      sources.push({ type: "financial", title: `Báo cáo tài chính ${sym} (${fins[0].period})`, url, source: "FireAnt" });
     }
   } catch { /* ignore */ }
+}
+
+// Nguồn cho tool "insider_trades" (cổ tức + giao dịch nội bộ).
+async function buildInsiderSource(symbol: string, sources: Source[]): Promise<void> {
+  const sym = symbol.toUpperCase();
+  const url = faUrl(sym);
 
   // Dividends
   try {
@@ -367,6 +160,13 @@ async function buildSymbolSources(symbol: string, sources: Source[]): Promise<vo
       sources.push({ type: "insider", title: `Giao dịch nội bộ ${sym} — ${t.insider_name ?? ""} ${t.trade_type === "buy" ? "MUA" : "BÁN"}`, url, source: "FireAnt", date: t.trade_date });
     }
   } catch { /* ignore */ }
+}
+
+async function buildSymbolSources(symbol: string, sources: Source[]): Promise<void> {
+  const sym = symbol.toUpperCase();
+  const url = faUrl(sym);
+
+  await buildFinancialSource(symbol, sources);
 
   // News about this symbol (with article_url — keep original article links)
   try {
@@ -666,7 +466,21 @@ const OPENAI_TOOL_DEFS: Record<string, object> = {
     type: "function",
     function: {
       name: "financials",
-      description: "Lấy báo cáo tài chính 4 năm (doanh thu, LNST, EPS, P/E, ROE...), lịch sử cổ tức và giao dịch insider của một mã cổ phiếu",
+      description: "Lấy báo cáo tài chính IS/BS/CF/chỉ số (Năm + 5 Quý gần nhất) của một mã cổ phiếu",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: "Mã cổ phiếu cần tra cứu, ví dụ: 'VCB'" },
+        },
+        required: ["symbol"],
+      },
+    },
+  },
+  insider_trades: {
+    type: "function",
+    function: {
+      name: "insider_trades",
+      description: "Lấy lịch sử cổ tức và giao dịch mua/bán của lãnh đạo/nội bộ của một mã cổ phiếu",
       parameters: {
         type: "object",
         properties: {
@@ -714,7 +528,7 @@ const OPENAI_TOOL_DEFS: Record<string, object> = {
 
 function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
   const defs: object[] = [];
-  for (const name of ["price_feed", "news_feed", "financials", "value_chain", "portfolio_read"]) {
+  for (const name of ["price_feed", "news_feed", "financials", "insider_trades", "value_chain", "portfolio_read"]) {
     if (enabled.includes(name) && OPENAI_TOOL_DEFS[name]) defs.push(OPENAI_TOOL_DEFS[name]);
   }
   if (hasKb) defs.push(OPENAI_TOOL_DEFS.kb_search);
@@ -737,11 +551,12 @@ async function executeToolCall(
   newsFilter?: string[],
 ): Promise<string> {
   if (name === "price_feed") {
-    return (await buildPriceContext(registry)) || "Không có dữ liệu giá trong hệ thống";
+    const syms: string[] = Array.isArray(args.symbols) ? args.symbols.map(String) : [];
+    return (await buildPriceContext(sb, registry, syms)) || "Không có dữ liệu giá trong hệ thống";
   }
   if (name === "news_feed") {
     const syms: string[] = Array.isArray(args.symbols) ? args.symbols.map(String) : [];
-    const ctx = await buildNewsContext(sources, registry, syms.length ? syms : undefined, newsFilter);
+    const ctx = await buildNewsContext(sb, registry, syms.length ? syms : undefined, newsFilter, sources);
     return ctx || "Không có tin tức trong 48h gần nhất";
   }
   if (name === "financials") {
@@ -750,6 +565,13 @@ async function executeToolCall(
     const ctx = await buildFinancialsContext(sym, registry);
     await buildSymbolSources(sym, sources);
     return ctx || `Không có dữ liệu tài chính cho ${sym} trong hệ thống`;
+  }
+  if (name === "insider_trades") {
+    const sym = String(args.symbol ?? "").toUpperCase();
+    if (!sym) return "Lỗi: thiếu tham số symbol";
+    const ctx = await buildInsiderContext(sym, registry);
+    await buildInsiderSource(sym, sources);
+    return ctx || `Không có dữ liệu cổ tức/giao dịch nội bộ cho ${sym} trong hệ thống`;
   }
   if (name === "value_chain") {
     const sym = String(args.symbol ?? "").toUpperCase();
@@ -809,7 +631,7 @@ async function prefetchToolContext(
     jobs.push(p.then(r => `### ${title}\n${r}`).catch(e => `### ${title}\n(lỗi: ${String(e).slice(0, 80)})`));
 
   if (want.has("price_feed"))
-    add("GIÁ & CHỈ SỐ THỊ TRƯỜNG", executeToolCall("price_feed", {}, registry, sources, userId, kbDocIds, newsFilter));
+    add("GIÁ & CHỈ SỐ THỊ TRƯỜNG", executeToolCall("price_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
   if (want.has("news_feed"))
     add("TIN TỨC (48H)", executeToolCall("news_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
   if (want.has("portfolio_read"))
@@ -817,6 +639,8 @@ async function prefetchToolContext(
   for (const sym of syms) {
     if (want.has("financials"))
       add(`BÁO CÁO TÀI CHÍNH ${sym}`, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
+    if (want.has("insider_trades"))
+      add(`CỔ TỨC & GIAO DỊCH NỘI BỘ ${sym}`, executeToolCall("insider_trades", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
     if (want.has("value_chain"))
       add(`CHUỖI GIÁ TRỊ ${sym}`, executeToolCall("value_chain", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
   }
@@ -954,9 +778,15 @@ Deno.serve(async (req: Request) => {
         const savedSym    = firstLine.startsWith(SYM_PREFIX) ? firstLine.slice(SYM_PREFIX.length).trim() : null;
         const cleanPrompt = savedSym ? rawPrompt.replace(/^__TARGET_SYMBOL__:[^\n]*\n\n?/, "") : rawPrompt;
 
+        // Ưu tiên: mã trong request > mã lưu kiểu cũ trong prompt > target_symbols đã lưu
+        // của agent (UI có gửi kèm, nhưng server phải tự fallback — gọi API trực tiếp /
+        // client cũ không gửi thì agent vẫn chạy đúng cấu hình danh mục).
+        const savedTargets: string[] = ((agent as any).target_symbols ?? [])
+          .map((s: string) => s.toUpperCase().trim()).filter(Boolean);
         const syms: string[] = target_symbols.length > 0
           ? target_symbols
-          : savedSym ? [savedSym] : [];
+          : savedSym ? [savedSym]
+          : savedTargets;
 
         // ── Sources & registry ────────────────────────────────────────────────
 
@@ -1268,12 +1098,14 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
         // ── Pass 2: Validation — strip claims not grounded in source data ─────
         emit({ type: "step", step: "validate", status: "loading", label: "Đang xác minh nguồn dữ liệu..." });
         try {
-          // Collect source data from tool call results in messages array
+          // Nguồn cho validator: context đã prefetch (đường chính) + tool results (đường fallback).
+          // Trước đây chỉ lấy messages role="tool" → đường prefetch có nguồn RỖNG → validator
+          // strip nhầm số liệu thật (hoặc chạy vô ích).
           const toolResults = messages
             .filter(m => m.role === "tool")
             .map(m => (typeof m.content === "string" ? m.content : ""))
             .filter(Boolean);
-          const sourceData = toolResults.join("\n").substring(0, 25000);
+          const sourceData = [prefetchedContext, ...toolResults].filter(Boolean).join("\n").substring(0, 60000);
 
           // Protect [ref:N] tokens from validator by replacing with unique placeholders
           // LLM tends to strip or reformat [ref:N] even when instructed not to
@@ -1285,17 +1117,18 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
           });
 
           const valSystem = `Bạn là công cụ kiểm tra tính xác thực của báo cáo phân tích tài chính.
-Nhiệm vụ duy nhất: nhận OUTPUT và NGUỒN DỮ LIỆU, trả về OUTPUT đã loại bỏ mọi câu chứa con số hoặc thông tin cụ thể KHÔNG xuất hiện trong NGUỒN DỮ LIỆU.
+Nhiệm vụ duy nhất: nhận OUTPUT và NGUỒN DỮ LIỆU, trả về OUTPUT đã loại bỏ những câu BỊA số liệu — tức con số hoàn toàn KHÔNG tồn tại trong NGUỒN DỮ LIỆU.
 
 QUY TẮC:
 1. Giữ nguyên 100% các token dạng REFTOKENxEND — không xóa, không sửa
-2. Xóa toàn bộ câu/mệnh đề chứa số liệu cụ thể (giá, %, tỷ đồng, điểm số) nếu số đó KHÔNG có trong NGUỒN DỮ LIỆU
-3. Giữ nguyên câu phân tích định tính thuần túy (không chứa số cụ thể)
-4. Giữ nguyên cấu trúc Markdown (##, ###, -, **)
-5. Nếu một mục (##, ###) bị xóa hết nội dung → xóa luôn tiêu đề mục đó
-6. KHÔNG thêm nội dung mới, KHÔNG giải thích — chỉ trả về text đã làm sạch
-7. TUYỆT ĐỐI KHÔNG thay đổi bất kỳ dòng nào trong bảng Markdown (dòng bắt đầu bằng |) — kể cả dòng header, dòng separator (|---|), và dòng dữ liệu. Giữ nguyên 100% cấu trúc và nội dung của toàn bộ bảng.
-8. KHÔNG thay thế nội dung ô bảng bằng "---" hay dấu gạch ngang — nếu muốn loại bỏ, xóa cả dòng, không bao giờ thay thế từng ô`;
+2. CHỈ xóa câu/mệnh đề khi CHẮC CHẮN con số trong đó không tồn tại trong NGUỒN DỮ LIỆU. Khi nghi ngờ → GIỮ NGUYÊN.
+3. So khớp số theo GIÁ TRỊ, không theo định dạng: "1.862,08" = "1862.08"; "8,39%" = "8.39%"; "34,65 tỷ USD" = "34.65 tỷ USD"; ngày "3/7/2026" = "2026-07-03"; "15,94 triệu CP" = "KL 15.935.100". Diễn đạt lại câu chữ nhưng số đúng → GIỮ.
+4. Giữ nguyên câu phân tích định tính thuần túy (không chứa số cụ thể)
+5. Giữ nguyên cấu trúc Markdown (##, ###, -, **)
+6. Nếu một mục (##, ###) bị xóa hết nội dung → xóa luôn tiêu đề mục đó
+7. KHÔNG thêm nội dung mới, KHÔNG giải thích — chỉ trả về text đã làm sạch
+8. TUYỆT ĐỐI KHÔNG thay đổi bất kỳ dòng nào trong bảng Markdown (dòng bắt đầu bằng |) — kể cả dòng header, dòng separator (|---|), và dòng dữ liệu. Giữ nguyên 100% cấu trúc và nội dung của toàn bộ bảng.
+9. KHÔNG thay thế nội dung ô bảng bằng "---" hay dấu gạch ngang — nếu muốn loại bỏ, xóa cả dòng, không bao giờ thay thế từng ô`;
 
           const valUser = `NGUỒN DỮ LIỆU:\n${sourceData}\n\nOUTPUT CẦN KIỂM TRA:\n${protectedOutput}`;
 
