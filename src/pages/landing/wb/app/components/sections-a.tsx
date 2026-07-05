@@ -51,7 +51,7 @@ export function TrustStrip() {
                 {/* big number - blue glow shadow matching reference orange glow adapted to blue */}
                 <span style={{
                   fontFamily: "Montserrat, sans-serif",
-                  fontWeight: 400,
+                  fontWeight: 500,
                   fontSize: s.num === "∞" ? 58 : 52,
                   lineHeight: 1,
                   color: "var(--wb-text)",

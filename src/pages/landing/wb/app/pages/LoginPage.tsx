@@ -49,7 +49,7 @@ export function LoginPage() {
     display: "block",
     fontFamily: "Montserrat, sans-serif",
     fontSize: 12.5,
-    fontWeight: 500,
+    fontWeight: 600,
     color: labelFor(f),
     marginBottom: 8,
     letterSpacing: "0.02em",

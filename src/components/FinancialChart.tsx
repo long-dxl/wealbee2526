@@ -152,7 +152,7 @@ export function FinancialChart({
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
           <XAxis 
             dataKey="year" 
-            tick={{ fontSize: 12, fill: '#64748b', fontWeight: 500 }}
+            tick={{ fontSize: 12, fill: '#64748b', fontWeight: 600 }}
             axisLine={{ stroke: '#e2e8f0' }}
             tickLine={false}
             height={50}

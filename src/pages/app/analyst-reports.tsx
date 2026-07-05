@@ -49,7 +49,7 @@ export function AnalystReportsPage({ isDark, addContextCard }: { isDark: boolean
   const cardBg     = isDark ? "#131824" : "#fff";
   const cardShadow = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08), 0 1px 2px rgba(0,0,0,0.04)";
   const fg         = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgSubtle   = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const fgSubtle   = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const divider    = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)";
   const brand      = isDark ? "#4D8FE8" : "#0849AC";
   const inputBg    = isDark ? "#1a2032" : "#fff";

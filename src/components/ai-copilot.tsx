@@ -43,7 +43,7 @@ export function AICopilot({ isOpen, onToggle }: AICopilotProps) {
           </div>
           <div>
             <p style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#1a1a2e", lineHeight: 1.2 }}>BeeAI</p>
-            <p style={{ fontSize: "0.625rem", color: "#0ea5a0", fontWeight: 500 }}>● Online</p>
+            <p style={{ fontSize: "0.625rem", color: "#0ea5a0", fontWeight: 600 }}>● Online</p>
           </div>
         </div>
         <button
@@ -81,7 +81,7 @@ export function AICopilot({ isOpen, onToggle }: AICopilotProps) {
             <button key={q}
               onClick={() => setMessage(q)}
               style={{
-                padding: "5px 10px", borderRadius: 8, fontSize: "0.6875rem", fontWeight: 500,
+                padding: "5px 10px", borderRadius: 8, fontSize: "0.6875rem", fontWeight: 600,
                 border: "1px solid rgba(8,73,172,0.15)", background: "transparent", color: "#0849ac", cursor: "pointer",
               }}
             >

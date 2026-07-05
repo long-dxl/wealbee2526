@@ -212,7 +212,7 @@ export function Layout() {
                 padding: sidebarCollapsed ? "10px 0" : "9px 10px",
                 justifyContent: sidebarCollapsed ? "center" : "flex-start",
                 borderRadius: 9, textDecoration: "none",
-                fontSize: "0.8125rem", fontWeight: 500,
+                fontSize: "0.8125rem", fontWeight: 600,
                 transition: "all 0.15s",
                 ...(isActive ? ACTIVE_STYLE : { color: "#6a7282", background: "transparent" }),
               })}
@@ -235,7 +235,7 @@ export function Layout() {
                 padding: sidebarCollapsed ? "10px 0" : "9px 10px",
                 justifyContent: sidebarCollapsed ? "center" : "flex-start",
                 borderRadius: 9, textDecoration: "none",
-                fontSize: "0.8125rem", fontWeight: 500,
+                fontSize: "0.8125rem", fontWeight: 600,
                 transition: "all 0.15s",
                 marginTop: 2,
                 ...(isActive ? ACTIVE_STYLE : { color: "#6a7282", background: "transparent" }),

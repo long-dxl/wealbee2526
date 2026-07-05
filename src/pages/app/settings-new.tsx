@@ -354,7 +354,7 @@ export function Settings() {
                 {/* Email — readonly, from auth */}
                 <div>
                   <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: subtleColor, marginBottom: 6 }}>
-                    Email <span style={{ fontSize: 11, color: theme.fgDisabled, fontWeight: 400 }}>(không thể thay đổi)</span>
+                    Email <span style={{ fontSize: 11, color: theme.fgDisabled, fontWeight: 500 }}>(không thể thay đổi)</span>
                   </label>
                   <input
                     value={email}
@@ -585,7 +585,7 @@ export function Settings() {
               {/* Account No */}
               <div style={{ marginBottom: 20 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: subtleColor, marginBottom: 6 }}>
-                  Số tài khoản <span style={{ fontWeight: 400, color: theme.fgDisabled }}>(tự động phát hiện nếu để trống)</span>
+                  Số tài khoản <span style={{ fontWeight: 500, color: theme.fgDisabled }}>(tự động phát hiện nếu để trống)</span>
                 </label>
                 <input
                   value={apiForm.accountNo}

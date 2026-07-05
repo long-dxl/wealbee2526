@@ -641,7 +641,7 @@ export function ActionHub({
                     cursor: "pointer", textAlign: "left",
                     transition: "background 120ms ease",
                     fontFamily: "'Montserrat', system-ui, sans-serif",
-                    fontSize: 13, fontWeight: 500, color: t.fg,
+                    fontSize: 13, fontWeight: 600, color: t.fg,
                   }}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccentActive; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.035)"; }}

@@ -149,8 +149,8 @@ const CATS: Category[] = ["Tất cả", "Thị trường", "Tài chính", "Đị
 export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
   const cardBg = isDark ? "#131824" : "#fff";
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgMuted = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.55)";
-  const fgSubtle = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
+  const fgSubtle = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const fgDisabled = isDark ? "rgba(240,242,255,0.30)" : "rgba(26,26,46,0.30)";
   const brand = isDark ? "#4D8FE8" : "#0849AC";
   const inputBg = isDark ? "#131824" : "#fff";
@@ -307,7 +307,7 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
                     <div style={{ width: 14, height: 14, borderRadius: "50%", background: brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <Check size={9} color="#fff" strokeWidth={3} />
                     </div>
-                    <span style={{ fontSize: 11, color: fgSubtle, fontWeight: 500 }}>Wealbee · Tích hợp chính thức</span>
+                    <span style={{ fontSize: 11, color: fgSubtle, fontWeight: 600 }}>Wealbee · Tích hợp chính thức</span>
                   </div>
                 )}
               </div>

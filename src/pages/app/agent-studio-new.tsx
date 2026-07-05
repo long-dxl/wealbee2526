@@ -253,8 +253,8 @@ const POPULAR_STOCKS = ["VCB", "HPG", "FPT", "VIC", "TCB", "ACB", "MWG", "VNM", 
 // ══════════════════════════════════════════════════════════════════════════════
 export function AgentStudio({ onBack, agentId, initialName, initialDescription, initialToolId, isDark = false }: StudioProps) {
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgMuted = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.55)";
-  const fgSubtle = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
+  const fgSubtle = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const fgDisabled = isDark ? "rgba(240,242,255,0.30)" : "rgba(26,26,46,0.35)";
   const brand = isDark ? "#4D8FE8" : "#0849AC";
   const bgApp = isDark ? "#0B0D18" : "#F5F5F7";
@@ -732,7 +732,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
             value={agentDesc}
             onChange={e => { setAgentDesc(e.target.value); setIsSaved(false); }}
             placeholder="Thêm mô tả ngắn cho agent (tùy chọn)"
-            style={{ border: "none", outline: "none", fontSize: 11, fontWeight: 400, color: fgDisabled, background: "transparent", fontFamily: FONT, padding: 0, marginTop: 1 }}
+            style={{ border: "none", outline: "none", fontSize: 11, fontWeight: 500, color: fgDisabled, background: "transparent", fontFamily: FONT, padding: 0, marginTop: 1 }}
           />
         </div>
         <div style={{ flex: 1 }} />
@@ -1044,7 +1044,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                     <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#0068FF", fontWeight: 600, marginBottom: 3 }}>
                       <Settings size={11} strokeWidth={1.5} color="#0068FF" /> Cần kết nối Zalo OA
                     </div>
-                    <div style={{ fontSize: 11, color: "rgba(26,26,46,0.55)", lineHeight: 1.5 }}>Vào <strong>Settings → Kết nối</strong> để liên kết tài khoản Zalo Official Account.</div>
+                    <div style={{ fontSize: 11, color: "#3D3D52", lineHeight: 1.5 }}>Vào <strong>Settings → Kết nối</strong> để liên kết tài khoản Zalo Official Account.</div>
                   </div>
                 )}
               </div>
@@ -1244,7 +1244,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: fgSubtle }}>{agentName.length}/40</span>
               </div>
               <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: fg, marginBottom: 8 }}>
-                Mô tả chức năng <span style={{ fontSize: 12, fontWeight: 500, color: fgSubtle }}>(tùy chọn)</span>
+                Mô tả chức năng <span style={{ fontSize: 12, fontWeight: 600, color: fgSubtle }}>(tùy chọn)</span>
               </label>
               <div style={{ position: "relative" }}>
                 <textarea
@@ -1442,7 +1442,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                               <div onClick={e => e.stopPropagation()} style={{ margin: "0 20px 14px", padding: "12px 14px", borderRadius: 10, background: isDark ? "rgba(255,152,0,0.06)" : "rgba(255,152,0,0.05)", border: "0.5px solid rgba(255,152,0,0.20)" }}>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#FF9500", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
                                   Nguồn tin tức
-                                  <span style={{ fontWeight: 400, color: fgDisabled, textTransform: "none", letterSpacing: 0, marginLeft: 6 }}>
+                                  <span style={{ fontWeight: 500, color: fgDisabled, textTransform: "none", letterSpacing: 0, marginLeft: 6 }}>
                                     {newsSources.length === 0 ? "(tất cả nguồn)" : `(${newsSources.length} nguồn đã chọn)`}
                                   </span>
                                 </div>
@@ -1583,7 +1583,7 @@ function Section({
 }) {
   void id;
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgDisabled = isDark ? "rgba(240,242,255,0.30)" : "rgba(26,26,46,0.40)";
+  const fgDisabled = isDark ? "rgba(240,242,255,0.30)" : "#3D3D52";
   const brand = isDark ? "#4D8FE8" : "#0849AC";
   const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.08)";
   const badgeBg = badgeColor === "gray"

@@ -38,7 +38,7 @@ const DARK_TOKENS = {
 const LIGHT_TOKENS = {
   BG: "#F5F5F7", CARD: "#FFFFFF", CARD2: "#F5F5F7",
   BORDER: "rgba(8,73,172,0.10)", BORDER2: "rgba(8,73,172,0.18)",
-  TEXT: "#1A1A2E", MUTED: "rgba(26,26,46,0.50)", MUTED2: "rgba(26,26,46,0.35)",
+  TEXT: "#1A1A2E", MUTED: "#3D3D52", MUTED2: "rgba(26,26,46,0.35)",
   BLUE: "#0849AC",
   ACCENT: "#0849AC", ACCENT_TEXT: "#0849AC", ACCENT_HL: "rgba(8,73,172,0.06)",
   ACCENT_BAR: "#0849AC", ACCENT_CHART: "#0849AC", ACCENT_TEAL: "#6366F1",
@@ -117,7 +117,7 @@ function InfoRow({ label, value, link }: { label: string; value: string; link?: 
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `0.5px solid ${tk.BORDER}` }}>
       <span style={{ fontSize: 12, color: tk.MUTED, flexShrink: 0 }}>{label}</span>
       {link
-        ? <a href="#" style={{ fontSize: 12, color: tk.BLUE, fontWeight: 500, display: "flex", alignItems: "center", gap: 4, textDecoration: "none" }}>{value}<ExternalLink size={10} /></a>
+        ? <a href="#" style={{ fontSize: 12, color: tk.BLUE, fontWeight: 600, display: "flex", alignItems: "center", gap: 4, textDecoration: "none" }}>{value}<ExternalLink size={10} /></a>
         : <span style={{ fontSize: 12, color: tk.TEXT, fontWeight: 600, textAlign: "right" }}>{value}</span>}
     </div>
   );
@@ -859,7 +859,7 @@ export function TickerDetailPage() {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400, flexDirection: "column", gap: 12, fontFamily: FONT }}>
         <RefreshCw size={22} style={{ color: "#0849AC", animation: "spin 1s linear infinite" }} />
-        <p style={{ color: "rgba(26,26,46,0.55)", fontSize: 14 }}>Đang tải dữ liệu {sym}…</p>
+        <p style={{ color: "#3D3D52", fontSize: 14 }}>Đang tải dữ liệu {sym}…</p>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
@@ -896,7 +896,7 @@ export function TickerDetailPage() {
                 display: "flex", alignItems: "center", gap: 6,
                 background: tk.BACK_BTN_BG, border: `1px solid ${tk.BORDER}`,
                 borderRadius: 8, padding: "6px 14px", color: tk.TEXT, fontSize: 13,
-                cursor: "pointer", fontFamily: FONT, fontWeight: 500, transition: "background 100ms",
+                cursor: "pointer", fontFamily: FONT, fontWeight: 600, transition: "background 100ms",
               }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = tk.BACK_BTN_HOV; }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = tk.BACK_BTN_BG; }}

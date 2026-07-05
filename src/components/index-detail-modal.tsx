@@ -66,7 +66,7 @@ export function IndexDetailModal({
   // theme
   const bg       = isDark ? "#131824" : "#fff";
   const fg       = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
-  const fgSubtle = isDark ? "rgba(240,242,255,0.45)" : "rgba(26,26,46,0.50)";
+  const fgSubtle = isDark ? "rgba(240,242,255,0.45)" : "#3D3D52";
   const divider  = isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.10)";
   const tileBg   = isDark ? "rgba(255,255,255,0.04)" : "rgba(8,73,172,0.035)";
   const grid     = isDark ? "rgba(255,255,255,0.06)" : "rgba(8,73,172,0.07)";

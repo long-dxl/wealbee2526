@@ -24,8 +24,8 @@ export function CreateAgentModal({ open, isDark = false, onCancel, onContinue }:
   if (!open) return null;
 
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgMuted = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.55)";
-  const fgSubtle = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
+  const fgSubtle = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const fgDisabled = isDark ? "rgba(240,242,255,0.30)" : "rgba(26,26,46,0.35)";
   const brand = isDark ? "#4D8FE8" : "#0849AC";
   const bgPanel = isDark ? "#131824" : "#fff";
@@ -66,7 +66,7 @@ export function CreateAgentModal({ open, isDark = false, onCancel, onContinue }:
             <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: fgSubtle }}>{name.length}/40</span>
           </div>
           <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: fg, marginBottom: 8 }}>
-            Mô tả chức năng <span style={{ fontSize: 12, fontWeight: 500, color: fgSubtle }}>(tùy chọn)</span>
+            Mô tả chức năng <span style={{ fontSize: 12, fontWeight: 600, color: fgSubtle }}>(tùy chọn)</span>
           </label>
           <div style={{ position: "relative" }}>
             <textarea

@@ -86,7 +86,7 @@ function normLabel(label: string | null): string {
 function PctBadge({ value }: { value: number }) {
   const isUp = value > 0, isDown = value < 0;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: isUp ? "rgba(52,199,89,0.12)" : isDown ? "rgba(255,59,48,0.12)" : "rgba(0,0,0,0.06)", color: isUp ? "#34C759" : isDown ? "#FF3B30" : "rgba(26,26,46,0.45)", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: isUp ? "rgba(52,199,89,0.12)" : isDown ? "rgba(255,59,48,0.12)" : "rgba(0,0,0,0.06)", color: isUp ? "#34C759" : isDown ? "#FF3B30" : "#3D3D52", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
       {isUp ? "+" : ""}{value.toFixed(2)}%
     </span>
   );
@@ -96,7 +96,7 @@ function MoverPctBadge({ value, isCeil, isFloor }: { value: number; isCeil?: boo
   if (isCeil) return <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: "rgba(124,58,237,0.12)", color: "#7C3AED", fontFamily: "'Montserrat', system-ui, sans-serif" }}>+{value.toFixed(2)}%</span>;
   if (isFloor) return <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: "rgba(6,182,212,0.12)", color: "#06B6D4", fontFamily: "'Montserrat', system-ui, sans-serif" }}>{value.toFixed(2)}%</span>;
   const isUp = value > 0, isDown = value < 0;
-  return <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: isUp ? "rgba(52,199,89,0.12)" : isDown ? "rgba(255,59,48,0.12)" : "rgba(0,0,0,0.06)", color: isUp ? "#34C759" : isDown ? "#FF3B30" : "rgba(26,26,46,0.45)", fontFamily: "'Montserrat', system-ui, sans-serif" }}>{isUp ? "+" : ""}{value.toFixed(2)}%</span>;
+  return <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: isUp ? "rgba(52,199,89,0.12)" : isDown ? "rgba(255,59,48,0.12)" : "rgba(0,0,0,0.06)", color: isUp ? "#34C759" : isDown ? "#FF3B30" : "#3D3D52", fontFamily: "'Montserrat', system-ui, sans-serif" }}>{isUp ? "+" : ""}{value.toFixed(2)}%</span>;
 }
 
 function makeDragHandlers(card: ContextCard) {
@@ -157,7 +157,7 @@ function IndexCard({ idx, isDark, onClick, active }: { idx: IndexState; isDark: 
   const cardBg     = isDark ? "#131824" : "#fff";
   const cardShadow = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08), 0 1px 2px rgba(0,0,0,0.04)";
   const fg         = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgSubtle   = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const fgSubtle   = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
 
   const handleDragStart = (e: React.DragEvent) => {
     const card: ContextCard = { id: `index-${idx.name}`, type: "index", label: idx.name, badge: `${idx.pct >= 0 ? "+" : ""}${idx.pct.toFixed(2)}%`, summary: `${idx.value.toLocaleString("vi-VN")}` };
@@ -236,7 +236,7 @@ interface HighlightResult {
 const tagColors: Record<string, { bg: string; text: string }> = {
   "Tích cực": { bg: "rgba(52,199,89,0.12)", text: "#34C759" },
   "Sự kiện":  { bg: "rgba(8,73,172,0.10)",  text: "#0849AC" },
-  "Trung lập":{ bg: "rgba(26,26,46,0.08)",  text: "rgba(26,26,46,0.60)" },
+  "Trung lập":{ bg: "rgba(26,26,46,0.08)",  text: "#3D3D52" },
   "Cảnh báo": { bg: "rgba(255,59,48,0.10)", text: "#FF3B30" },
 };
 
@@ -470,8 +470,8 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   const cardBg      = isDark ? "#131824" : "#fff";
   const cardShadow  = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08), 0 1px 2px rgba(0,0,0,0.04)";
   const fg          = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgMuted     = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.60)";
-  const fgSubtle    = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const fgMuted     = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
+  const fgSubtle    = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const divider     = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)";
   const brand       = isDark ? "#4D8FE8" : "#0849AC";
   const hoverBg     = isDark ? "#1a2438" : "#E8F0FE";

@@ -254,7 +254,7 @@ export function IntelligenceFeed() {
               border: "1px solid rgba(8,73,172,0.15)",
               background: "#ffffff",
               fontSize: "0.8125rem",
-              fontWeight: 500,
+              fontWeight: 600,
               color: "#0849ac",
               cursor: "pointer",
               outline: "none",
@@ -425,7 +425,7 @@ export function IntelligenceFeed() {
                                 <span style={{
                                   padding: "2px 7px", borderRadius: 4,
                                   background: "rgba(8,73,172,0.07)", color: "#0849ac",
-                                  fontSize: "0.625rem", fontWeight: 500,
+                                  fontSize: "0.625rem", fontWeight: 600,
                                 }}>
                                   {NEWS_TYPE_VI[item.news_type]}
                                 </span>
@@ -518,7 +518,7 @@ export function IntelligenceFeed() {
                                   rel="noopener noreferrer"
                                   style={{
                                     display: "inline-flex", alignItems: "center", gap: 5,
-                                    fontSize: "0.8125rem", fontWeight: 500,
+                                    fontSize: "0.8125rem", fontWeight: 600,
                                     color: "#0849ac", textDecoration: "none",
                                   }}
                                   onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}

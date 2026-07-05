@@ -58,7 +58,7 @@ export function Sidebar({
 
   const FONT = "'Montserrat', system-ui, sans-serif";
   const inactiveText = isDark ? "rgba(240,242,255,0.82)" : "rgba(26,26,46,0.82)";
-  const inactiveIcon = isDark ? "rgba(240,242,255,0.60)" : "rgba(26,26,46,0.55)";
+  const inactiveIcon = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const hoverBg = isDark ? "rgba(255,255,255,0.05)" : "rgba(26,26,46,0.05)";
   const activeBg = isDark ? "rgba(77,143,232,0.14)" : "rgba(8,73,172,0.08)";
 
@@ -127,7 +127,7 @@ export function Sidebar({
                   background: isDark ? "#1e2535" : "#1A1A2E",
                   color: "#fff",
                   fontSize: 12,
-                  fontWeight: 500,
+                  fontWeight: 600,
                   padding: "5px 10px",
                   borderRadius: 7,
                   whiteSpace: "nowrap",
@@ -283,7 +283,7 @@ export function Sidebar({
             gap: 9, width: "100%", height: 36,
             padding: collapsed ? "0" : "0 10px",
             borderRadius: 7, border: "none", background: "transparent",
-            color: inactiveText, cursor: "pointer", fontFamily: FONT, fontSize: 13.5, fontWeight: 500,
+            color: inactiveText, cursor: "pointer", fontFamily: FONT, fontSize: 13.5, fontWeight: 600,
             transition: "background 100ms ease",
           }}
         >
