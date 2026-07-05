@@ -3,6 +3,7 @@ import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, Refre
 import { useTheme } from "../../lib/theme-context";
 import { supabase } from "../../lib/supabase/client";
 import { getPlanAndBeeny, fmtBeeny, PLAN_LIMITS } from "../../lib/plan-limits";
+import { startCheckout } from "../../lib/payment";
 import { useBrokerConfig, type BrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { discoverAccounts } from "../../lib/services/dnse";
 
@@ -111,6 +112,32 @@ export function Settings() {
   const [totalBeeny,   setTotalBeeny]   = useState(0);
   const [balance,      setBalance]      = useState<number | null>(null);
   const [plan,         setPlan]         = useState("free");
+  const [upgrading,    setUpgrading]    = useState<string | null>(null);
+
+  // Quay lại từ SePay: ?payment=success → làm mới gói + báo thành công
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const st = q.get("payment");
+    if (!st) return;
+    if (st === "success") {
+      setTimeout(() => loadBeenyUsage(), 1200);  // IPN cần vài giây cập nhật gói
+      alert("Thanh toán thành công! Gói của bạn đang được nâng cấp (có thể mất vài giây).");
+    } else if (st === "error") {
+      alert("Thanh toán thất bại. Vui lòng thử lại.");
+    }
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+
+  const handleUpgrade = async (pl: string) => {
+    if (pl !== "pro" && pl !== "premium") return;
+    setUpgrading(pl);
+    try {
+      await startCheckout(pl);  // chuyển hướng sang SePay
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+      setUpgrading(null);
+    }
+  };
   const [loadingUsage, setLoadingUsage] = useState(true);
 
   useEffect(() => { loadProfile(); loadBeenyUsage(); }, []);
@@ -734,8 +761,10 @@ export function Settings() {
                         </div>
                       ))}
                     </div>
-                    <button disabled={isCurrent} style={{ width: "100%", padding: "10px 0", borderRadius: 10, border: "none", background: isCurrent ? theme.bgAccent : pl.popular ? theme.brand : theme.bgAccent, color: isCurrent ? subtleColor : pl.popular ? "#fff" : theme.brand, fontSize: 13, fontWeight: 700, cursor: isCurrent ? "default" : "pointer", fontFamily: FONT }}>
-                      {isCurrent ? "Gói hiện tại" : `Nâng cấp ${pl.name}`}
+                    <button disabled={isCurrent || pl.id === "free" || upgrading === pl.id}
+                      onClick={() => handleUpgrade(pl.id)}
+                      style={{ width: "100%", padding: "10px 0", borderRadius: 10, border: "none", background: isCurrent ? theme.bgAccent : pl.popular ? theme.brand : theme.bgAccent, color: isCurrent ? subtleColor : pl.popular ? "#fff" : theme.brand, fontSize: 13, fontWeight: 700, cursor: (isCurrent || pl.id === "free") ? "default" : "pointer", fontFamily: FONT, opacity: upgrading === pl.id ? 0.6 : 1 }}>
+                      {isCurrent ? "Gói hiện tại" : pl.id === "free" ? "Miễn phí" : upgrading === pl.id ? "Đang chuyển…" : `Nâng cấp ${pl.name}`}
                     </button>
                   </div>
                   );
