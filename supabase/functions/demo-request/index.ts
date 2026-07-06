@@ -54,7 +54,11 @@ Deno.serve(async (req) => {
     const approveUrl = `${fnBase}/demo-approve?t=${encodeURIComponent(token)}`;
     const rejectUrl = `${fnBase}/demo-reject?t=${encodeURIComponent(token)}`;
 
-    const adminTo = ADMIN_EMAIL.split(",").map((s) => s.trim()).filter(Boolean);
+    // Admin nhận email duyệt: từ ADMIN_EMAIL (secret) + luôn kèm 2 admin cố định. Dedupe.
+    const ALWAYS_ADMIN = ["longsctn55@gmail.com", "pminh7794@gmail.com"];
+    const adminTo = [...new Set(
+      [...ADMIN_EMAIL.split(","), ...ALWAYS_ADMIN].map((s) => s.trim().toLowerCase()).filter(Boolean),
+    )];
     await Promise.all([
       adminTo.length
         ? sendEmail({ to: adminTo, subject: `🎉 Yêu cầu demo mới — ${lead.ho_ten}`, html: adminNotifyEmail(lead, approveUrl, rejectUrl), replyTo: lead.email })
