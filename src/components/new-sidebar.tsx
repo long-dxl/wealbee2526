@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   House, Inbox, Bot, Plus, LayoutTemplate, Wrench,
   BookOpen, Wallet, Settings, List,
@@ -58,6 +58,18 @@ export function Sidebar({
 }: SidebarProps) {
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [beenyMenuOpen, setBeenyMenuOpen] = useState(false);
+  const badgeRef = useRef<HTMLButtonElement>(null);
+  const [menuPos, setMenuPos] = useState<{ left: number; bottom: number } | null>(null);
+  const toggleBeenyMenu = () => {
+    setBeenyMenuOpen(v => {
+      const next = !v;
+      if (next && badgeRef.current) {
+        const r = badgeRef.current.getBoundingClientRect();
+        setMenuPos({ left: Math.round(r.right + 8), bottom: Math.round(window.innerHeight - r.bottom) });
+      }
+      return next;
+    });
+  };
   const beenyStr = beenyBalance == null ? "…"
     : (() => { const r = Math.round(Math.max(0, beenyBalance) * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); })();
 
@@ -223,11 +235,11 @@ export function Sidebar({
       {/* Gói + Số dư Beeny + thanh % đã dùng → dropdown mở bên PHẢI */}
       {!collapsed && (
         <div style={{ position: "relative", margin: "8px 8px 0" }}>
-          {beenyMenuOpen && (
+          {beenyMenuOpen && menuPos && (
             <>
-              <div onClick={() => setBeenyMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div onClick={() => setBeenyMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
               <div style={{
-                position: "absolute", left: "calc(100% + 8px)", bottom: 0, zIndex: 41, width: 210,
+                position: "fixed", left: menuPos.left, bottom: menuPos.bottom, zIndex: 201, width: 210,
                 background: isDark ? "#1a2032" : "#fff", borderRadius: 12, padding: 5,
                 border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.1)" : "rgba(8,73,172,0.14)"),
                 boxShadow: isDark ? "0 10px 30px rgba(0,0,0,0.5)" : "0 10px 30px rgba(8,73,172,0.16)",
@@ -253,7 +265,8 @@ export function Sidebar({
             </>
           )}
           <button
-            onClick={() => setBeenyMenuOpen(v => !v)}
+            ref={badgeRef}
+            onClick={toggleBeenyMenu}
             title="Gói dịch vụ & số dư Beeny"
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = beenyMenuOpen ? hoverBg : "transparent"; }}

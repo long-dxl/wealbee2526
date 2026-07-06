@@ -10,8 +10,6 @@ import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { ProtectedRoute } from "./protected-route";
 import { supabase } from "../lib/supabase/client";
 import { getPlanAndBeeny, PLAN_LIMITS } from "../lib/plan-limits";
-import { claimTrial } from "../lib/trial";
-import { TrialGrantedModal } from "./TrialGrantedModal";
 import { WALLET_REFRESH } from "../lib/wallet-events";
 import type { ContextCard } from "../types/cards";
 
@@ -62,7 +60,6 @@ function NewLayoutInner() {
   const [beenyPct, setBeenyPct] = useState(0);        // % quota ngày đã dùng (0..1)
   const [beenyBonus, setBeenyBonus] = useState(0);    // Beeny mua thêm (hết hạn 24h)
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
-  const [trialDays, setTrialDays] = useState<number | null>(null);  // >0 = hiện card nhận Pro trial
 
   const fetchWallet = (userId: string) => {
     getPlanAndBeeny(userId).then(({ plan, label, balance, bonus }) => {
@@ -78,13 +75,7 @@ function NewLayoutInner() {
   // Load ngay khi session sẵn sàng (getSession đọc localStorage, không cần network)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        // User cũ đủ điều kiện → nhận Pro trial 7 ngày + hiện card
-        claimTrial().then(r => {
-          if (r.granted) { setTrialDays(r.days ?? 7); fetchWallet(session.user.id); }
-        });
-        fetchWallet(session.user.id);
-      }
+      if (session?.user) fetchWallet(session.user.id);
     });
 
     // Lắng nghe auth thay đổi (login/logout) để cập nhật
@@ -252,10 +243,6 @@ function NewLayoutInner() {
         onCancel={() => setCreateAgentOpen(false)}
         onContinue={handleCreateAgentContinue}
       />
-
-      {trialDays != null && (
-        <TrialGrantedModal days={trialDays} isDark={isDark} onClose={() => setTrialDays(null)} />
-      )}
 
       <Toaster theme={isDark ? "dark" : "light"} position="bottom-right" richColors />
       <style>{`

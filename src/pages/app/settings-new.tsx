@@ -6,6 +6,8 @@ import { supabase } from "../../lib/supabase/client";
 import { getPlanAndBeeny, fmtBeeny, PLAN_LIMITS } from "../../lib/plan-limits";
 import { startCheckout, startPackCheckout } from "../../lib/payment";
 import { logout, deleteAccount } from "../../lib/account";
+import { getTrialAvailable, activateTrial } from "../../lib/trial";
+import { TrialGrantedModal } from "../../components/TrialGrantedModal";
 import { useBrokerConfig, type BrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { discoverAccounts } from "../../lib/services/dnse";
 
@@ -128,6 +130,28 @@ export function Settings() {
   useEffect(() => { const t = setInterval(() => setNowTick(x => x + 1), 30000); return () => clearInterval(t); }, []);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting,     setDeleting]     = useState(false);
+  const [trialAvail,   setTrialAvail]   = useState(false);   // còn lượt kích hoạt Pro trial
+  const [activating,   setActivating]   = useState(false);
+  const [trialModal,   setTrialModal]   = useState<number | null>(null);  // hiện modal chúc mừng sau kích hoạt
+
+  const handleActivateTrial = async () => {
+    setActivating(true);
+    try {
+      const r = await activateTrial();
+      if (r.activated) {
+        setTrialAvail(false);
+        setTrialModal(r.days ?? 7);
+        await loadBeenyUsage();  // làm mới gói → Pro + đếm ngược
+      } else {
+        alert(r.reason === "has_plan" ? "Bạn đang có gói trả phí — không cần dùng thử." : "Bạn đã dùng lượt dùng thử rồi.");
+        setTrialAvail(false);
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActivating(false);
+    }
+  };
 
   const doDeleteAccount = async () => {
     setDeleting(true);
@@ -183,6 +207,7 @@ export function Settings() {
       // Số dư + gói hiện tại + ngày còn lại + bonus
       const { plan: p, balance: bal, bonus: bn, bonusExpiresAt: be, daysLeft: dl } = await getPlanAndBeeny(user.id);
       setPlan(p); setBalance(bal); setDaysLeft(dl); setBonus(bn); setBonusExp(be);
+      setTrialAvail(await getTrialAvailable(user.id));
 
       // Lịch sử tiêu Beeny (mỗi lượt trừ = 1 giao dịch kind='deduct')
       const { data: txs } = await supabase
@@ -811,6 +836,36 @@ export function Settings() {
                 </div>
               </div>
 
+              {/* ── Kích hoạt Pro dùng thử 7 ngày (mỗi TK 1 lần) ── */}
+              {trialAvail && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+                  background: isDark ? "linear-gradient(135deg,rgba(8,73,172,0.22),rgba(77,143,232,0.12))" : "linear-gradient(135deg,#EAF2FF,#F3F8FF)",
+                  border: "1.5px solid " + theme.brand, borderRadius: 16, padding: "18px 22px", marginBottom: 18,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 46, height: 46, borderRadius: 12, background: "linear-gradient(135deg,#0849AC,#4D8FE8)", flexShrink: 0 }}>
+                    <Zap size={24} color="#fff" strokeWidth={2} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: headingColor, fontFamily: FONT }}>Dùng thử Pro miễn phí 7 ngày</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: subtleColor, fontFamily: FONT, marginTop: 3 }}>
+                      100 Beeny/ngày · 5 agent · mở khoá gói Beeny theo ngày. Bấm kích hoạt để bắt đầu đếm ngược 7 ngày — mỗi tài khoản chỉ 1 lần.
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleActivateTrial}
+                    disabled={activating}
+                    style={{
+                      padding: "11px 26px", borderRadius: 10, border: "none",
+                      background: activating ? "rgba(8,73,172,0.5)" : "linear-gradient(135deg,#0849AC,#4D8FE8)",
+                      color: "#fff", fontFamily: FONT, fontSize: 14, fontWeight: 800, cursor: activating ? "default" : "pointer",
+                      boxShadow: "0 6px 18px rgba(8,73,172,0.30)", flexShrink: 0,
+                    }}>
+                    {activating ? "Đang kích hoạt…" : "Kích hoạt ngay"}
+                  </button>
+                </div>
+              )}
+
               {/* ── Plan cards — bắt mắt: icon gradient, viền/nền nổi cho gói phổ biến ── */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16, alignItems: "stretch", paddingTop: 12 }}>
                 {plans.map(pl => {
@@ -925,6 +980,10 @@ export function Settings() {
 
         </div>
       </div>
+
+      {trialModal != null && (
+        <TrialGrantedModal days={trialModal} isDark={isDark} onClose={() => setTrialModal(null)} />
+      )}
 
       {confirmDelete && (
         <div onClick={() => !deleting && setConfirmDelete(false)} style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, fontFamily: FONT }}>
