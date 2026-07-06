@@ -621,6 +621,53 @@ async function executeToolCall(
   return `Tool không được hỗ trợ: ${name}`;
 }
 
+// ─── Bộ lọc cơ học thay validator LLM (0 token) ───────────────────────────────
+// Qua toàn bộ đợt QA 2026-07, validator LLM (pass 2) hầu như KHÔNG BAO GIỜ cần
+// sửa gì — nhưng vẫn tốn ~1 lượt gọi LLM gần full context mỗi lần. Trước khi gọi
+// LLM validator, tự so khớp số trong OUTPUT với số có trong NGUỒN DỮ LIỆU (theo
+// giá trị, chấp nhận sai số làm tròn) — chỉ gọi LLM khi có số thực sự "lạ".
+// Cho phép sót một vài số phái sinh hợp lệ (VD: "tăng 39% trong 5 năm" model tự
+// tính từ 2 số liệu gốc) — ngưỡng rộng tay để ưu tiên không bỏ sót số bịa thật.
+function extractHardNumbers(text: string): Set<string> {
+  let cleaned = text
+    .replace(/\[ref:\d+\]/g, " ")
+    .replace(/^#{1,6}\s*\d+\)/gm, " ")   // "### 1)" tiêu đề mục
+    .replace(/^\s*\d+[.)]\s/gm, " ");     // "1. " / "1) " số thứ tự đầu dòng
+  const out = new Set<string>();
+  const add = (v: number) => {
+    if (Number.isNaN(v)) return;
+    const hasFraction = v % 1 !== 0;
+    const intDigits = Math.trunc(Math.abs(v)).toString().length;
+    if (!hasFraction && intDigits <= 2) return; // số nguyên 1-2 chữ số: khả năng cao đếm/thứ tự
+    out.add(v.toFixed(2));
+  };
+  // Vòng 1: số kiểu VN (chấm ngăn nghìn ≥1 nhóm 3 chữ số, hoặc phẩy thập phân) —
+  // thay bằng khoảng trắng ngay sau khi trích để vòng 2 không đọc nhầm phần đã xử lý.
+  cleaned = cleaned.replace(/-?\d{1,3}(?:\.\d{3})+(?:,\d+)?|-?\d+,\d+/g, (m) => {
+    add(parseFloat(m.replace(/\./g, "").replace(",", ".")));
+    return " ";
+  });
+  // Vòng 2: số thập phân kiểu JS mặc định còn sót lại — market-context.ts tính tỷ lệ
+  // KL/TB20 và %Δ giá bằng .toFixed() (dấu CHẤM thập phân, VD "0.96", "-0.65", "2.06"),
+  // khác định dạng VN dùng ở chỗ khác. Không xử lý riêng thì bộ lọc luôn báo "nghi ngờ" sai.
+  for (const m of cleaned.match(/-?\d+\.\d+/g) ?? []) add(parseFloat(m));
+  return out;
+}
+
+function findUngroundedNumbers(output: string, source: string): string[] {
+  const outNums = extractHardNumbers(output);
+  // So theo GIÁ TRỊ TUYỆT ĐỐI: văn phong tiếng Việt hay bỏ dấu trừ khi đã có từ
+  // "giảm" ("giảm nhẹ 0,23%" thay vì "-0,23%"), so theo dấu sẽ báo sai liên tục.
+  const srcNums = [...extractHardNumbers(source)].map(sv => Math.abs(Number(sv)));
+  const suspicious: string[] = [];
+  for (const s of outNums) {
+    const v = Math.abs(Number(s));
+    const tol = Math.max(0.015, v * 0.005);
+    if (!srcNums.some(sv => Math.abs(sv - v) <= tol)) suspicious.push(s);
+  }
+  return suspicious;
+}
+
 // Nạp sẵn TOÀN BỘ tool đang bật (song song) → 1 khối ngữ cảnh, để gọi LLM đúng 1 lần
 // thay cho tool-loop. Output không đổi vì câu trả lời cuối vẫn thấy đúng ngần ấy dữ liệu.
 async function prefetchToolContext(
@@ -1116,16 +1163,25 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
             .filter(Boolean);
           const sourceData = [prefetchedContext, ...toolResults].filter(Boolean).join("\n").substring(0, 60000);
 
-          // Protect [ref:N] tokens from validator by replacing with unique placeholders
-          // LLM tends to strip or reformat [ref:N] even when instructed not to
-          const refPlaceholders: Record<string, string> = {};
-          const protectedOutput = fullOutput.replace(/\[ref:(\d+)\]/g, (_m, n) => {
-            const ph = `REFTOKEN${n}END`;
-            refPlaceholders[ph] = `[ref:${n}]`;
-            return ph;
-          });
+          // Bộ lọc cơ học: chỉ gọi LLM validator (gần full context, ~1 lượt gọi
+          // nữa) khi có số "lạ" — không khớp gì trong nguồn kể cả sai số làm tròn.
+          const ungrounded = findUngroundedNumbers(fullOutput, sourceData);
+          const needLlmCheck = ungrounded.length > 2;
+          console.log(`[run-agent] validator mechanical check: ${ungrounded.length} số nghi ngờ${ungrounded.length ? " (" + ungrounded.slice(0, 5).join(", ") + ")" : ""} → ${needLlmCheck ? "gọi LLM validator" : "bỏ qua LLM validator"}`);
 
-          const valSystem = `Bạn là công cụ kiểm tra tính xác thực của báo cáo phân tích tài chính.
+          if (!needLlmCheck) {
+            emit({ type: "step", step: "validate", status: "done", label: "Đã xác minh nguồn dữ liệu (kiểm tra nhanh)" });
+          } else {
+            // Protect [ref:N] tokens from validator by replacing with unique placeholders
+            // LLM tends to strip or reformat [ref:N] even when instructed not to
+            const refPlaceholders: Record<string, string> = {};
+            const protectedOutput = fullOutput.replace(/\[ref:(\d+)\]/g, (_m, n) => {
+              const ph = `REFTOKEN${n}END`;
+              refPlaceholders[ph] = `[ref:${n}]`;
+              return ph;
+            });
+
+            const valSystem = `Bạn là công cụ kiểm tra tính xác thực của báo cáo phân tích tài chính.
 Nhiệm vụ duy nhất: nhận OUTPUT và NGUỒN DỮ LIỆU, trả về OUTPUT đã loại bỏ những câu BỊA số liệu — tức con số hoàn toàn KHÔNG tồn tại trong NGUỒN DỮ LIỆU.
 
 QUY TẮC:
@@ -1139,37 +1195,38 @@ QUY TẮC:
 8. TUYỆT ĐỐI KHÔNG thay đổi bất kỳ dòng nào trong bảng Markdown (dòng bắt đầu bằng |) — kể cả dòng header, dòng separator (|---|), và dòng dữ liệu. Giữ nguyên 100% cấu trúc và nội dung của toàn bộ bảng.
 9. KHÔNG thay thế nội dung ô bảng bằng "---" hay dấu gạch ngang — nếu muốn loại bỏ, xóa cả dòng, không bao giờ thay thế từng ô`;
 
-          const valUser = `NGUỒN DỮ LIỆU:\n${sourceData}\n\nOUTPUT CẦN KIỂM TRA:\n${protectedOutput}`;
+            const valUser = `NGUỒN DỮ LIỆU:\n${sourceData}\n\nOUTPUT CẦN KIỂM TRA:\n${protectedOutput}`;
 
-          const valRes = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: "gpt-4.1-mini",
-              messages: [{ role: "system", content: valSystem }, { role: "user", content: valUser }],
-              temperature: 0,
-              max_tokens: 8000,
-            }),
-          });
+            const valRes = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "gpt-4.1-mini",
+                messages: [{ role: "system", content: valSystem }, { role: "user", content: valUser }],
+                temperature: 0,
+                max_tokens: 8000,
+              }),
+            });
 
-          if (valRes.ok) {
-            const valJson = await valRes.json();
-            tokens    += valJson.usage?.total_tokens ?? 0;
-            tokensIn  += valJson.usage?.prompt_tokens ?? 0;
-            tokensOut += valJson.usage?.completion_tokens ?? 0;
-            cachedIn  += valJson.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-            let validated = valJson.choices?.[0]?.message?.content?.trim() ?? "";
-            // Restore [ref:N] tokens from placeholders
-            for (const [ph, ref] of Object.entries(refPlaceholders)) {
-              validated = validated.replaceAll(ph, ref);
+            if (valRes.ok) {
+              const valJson = await valRes.json();
+              tokens    += valJson.usage?.total_tokens ?? 0;
+              tokensIn  += valJson.usage?.prompt_tokens ?? 0;
+              tokensOut += valJson.usage?.completion_tokens ?? 0;
+              cachedIn  += valJson.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+              let validated = valJson.choices?.[0]?.message?.content?.trim() ?? "";
+              // Restore [ref:N] tokens from placeholders
+              for (const [ph, ref] of Object.entries(refPlaceholders)) {
+                validated = validated.replaceAll(ph, ref);
+              }
+              const minLen = Math.max(50, fullOutput.length * 0.10);
+              if (validated && validated.length >= minLen && validated !== fullOutput) {
+                fullOutput = validated;
+                emit({ type: "reset_output", output: fullOutput });
+              }
             }
-            const minLen = Math.max(50, fullOutput.length * 0.10);
-            if (validated && validated.length >= minLen && validated !== fullOutput) {
-              fullOutput = validated;
-              emit({ type: "reset_output", output: fullOutput });
-            }
+            emit({ type: "step", step: "validate", status: "done", label: "Đã xác minh nguồn dữ liệu" });
           }
-          emit({ type: "step", step: "validate", status: "done", label: "Đã xác minh nguồn dữ liệu" });
         } catch {
           emit({ type: "step", step: "validate", status: "done", label: "Xác minh (bỏ qua lỗi)" });
         }

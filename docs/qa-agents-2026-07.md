@@ -44,6 +44,22 @@ Deep Research đọc BCTC chắc tay (tự nghi ngờ lợi nhuận đột biế
 | Lãnh đạo mua CP | 545đ (38.558 in / 3.457 out) | **337đ** (17.704 in / 3.667 out) | **-38% chi phí, -54% input** |
 | Phiên KL đột biến | 292đ (14.462 in / 3.398 out) | 274đ (13.857 in / 3.120 out) | -6% (agent này không bật tool `financials` nên ít bị ảnh hưởng) |
 
+### Bộ lọc cơ học thay validator LLM (0 token)
+
+**Vấn đề:** validator pass 2 gọi lại LLM gần full context để "dò số bịa", nhưng qua 17+ lượt QA **không lượt nào** thực sự cần sửa gì — bước này gần như luôn là chi phí thuần.
+
+**Fix:** thêm `extractHardNumbers()`/`findUngroundedNumbers()` — trích số "cứng" (giá, %, tỷ, x...) từ output, so khớp theo giá trị tuyệt đối (chấp nhận sai số làm tròn) với số có trong `sourceData`, xử lý cả 2 kiểu định dạng trộn lẫn trong hệ thống (VN dùng dấu phẩy thập phân; `market-context.ts` tính tỷ lệ KL/TB20 bằng `.toFixed()` kiểu JS dùng dấu chấm). Chỉ gọi LLM validator khi có > 2 số không khớp gì trong nguồn — ngưỡng rộng tay để chấp nhận vài số phái sinh hợp lệ (VD deep_research tự tính "tăng 39% trong 5 năm" từ 2 số liệu gốc) mà không gọi LLM oan.
+
+**Kết quả đo thực tế (chạy lại HPG/VIC/VCB):**
+
+| Agent | Trước (luôn gọi validator) | Sau | Ghi chú |
+|---|---|---|---|
+| Bản tin buổi sáng | ~150-185đ | **93đ** | Bỏ qua validator — số liệu 100% khớp nguồn |
+| Lãnh đạo mua CP | 337đ | **154đ** (**-72% so với bản gốc 545đ**) | Bỏ qua validator |
+| Phiên KL đột biến | 274-292đ | 290đ (không đổi) | Phát hiện số cần kiểm tra → vẫn gọi validator (đúng thiết kế an toàn, không mất chất lượng) |
+
+Đã kiểm tra lại nội dung 2 lượt "bỏ qua validator" — số liệu vẫn khớp DB, không có dấu hiệu bịa lọt qua.
+
 Chất lượng output **giữ nguyên hoặc tốt hơn** sau khi rút gọn — đọc lại insider_buy sau fix còn tự phát hiện thêm chi tiết tinh vi hơn (VD: giao dịch VINSPEED mua VIC trùng đúng ngày ông Phạm Nhật Vượng bán ra — chưa xuất hiện ở lượt test trước), có thể vì bớt dữ liệu thừa giúp model tập trung hơn vào phần thực sự liên quan.
 
 ## Known issues còn lại (chưa fix — kèm hướng xử lý)
