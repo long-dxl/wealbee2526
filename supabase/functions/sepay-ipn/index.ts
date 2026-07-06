@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
 
   // Tìm đơn theo order_invoice_number (= payment_orders.memo) còn pending
   const { data: rows } = await sb.from("payment_orders")
-    .select("id, user_id, plan, amount, status").eq("memo", inv).limit(1);
+    .select("id, user_id, plan, amount, status, kind, period, beeny").eq("memo", inv).limit(1);
   if (!rows?.length) return json({ success: true, skipped: "no-order" });
   const o = rows[0];
   if (o.status === "paid") return json({ success: true, skipped: "already-paid" });
@@ -43,17 +43,38 @@ Deno.serve(async (req) => {
   if (amount > 0 && amount < o.amount)
     return json({ success: true, skipped: "amount-low", need: o.amount, got: amount });
 
-  const plan = o.plan;
   const nowIso = new Date().toISOString();
   const todayVN = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+  await sb.from("payment_orders").update({ status: "paid", paid_at: nowIso, sepay_id: txId || null }).eq("id", o.id);
 
-  // Gia hạn CỘNG DỒN: từ mốc muộn hơn giữa (hôm nay) và (hạn còn lại) + 30 ngày.
+  // ── Gói Beeny theo ngày (pack): cộng bonus, hết hạn sau 24h ──
+  if (o.kind === "pack") {
+    const add = Number(o.beeny ?? 0);
+    const { data: w } = await sb.from("user_credits").select("bonus_balance, bonus_expires_at").eq("user_id", o.user_id).limit(1);
+    const cur = w?.[0];
+    const curBonus = (cur?.bonus_expires_at && Date.parse(cur.bonus_expires_at) > Date.now()) ? Number(cur.bonus_balance ?? 0) : 0;
+    const newBonus = curBonus + add;
+    const bonusExp = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+    if (cur) {
+      await sb.from("user_credits").update({ bonus_balance: newBonus, bonus_expires_at: bonusExp, updated_at: nowIso }).eq("user_id", o.user_id);
+    } else {
+      await sb.from("user_credits").insert({ user_id: o.user_id, plan: "pro", balance: 0, bonus_balance: newBonus, bonus_expires_at: bonusExp, last_refill_date: todayVN });
+    }
+    await sb.from("credit_transactions").insert({
+      user_id: o.user_id, delta: add, balance_after: newBonus, kind: "adjust",
+      note: `Mua ${add} Beeny (hết hạn 24h) qua SePay (${o.amount}đ)`,
+    });
+    return json({ success: true, pack: add });
+  }
+
+  // ── Nâng/gia hạn gói: cộng dồn theo kỳ (30 ngày / 365 ngày) ──
+  const plan = o.plan;
+  const days = o.period === "year" ? 365 : 30;
   const { data: prof } = await sb.from("user_profiles").select("plan_expires_at").eq("user_id", o.user_id).limit(1);
   const curExp = prof?.[0]?.plan_expires_at ? Date.parse(prof[0].plan_expires_at) : 0;
   const base = Math.max(Date.now(), Number.isFinite(curExp) ? curExp : 0);
-  const expires = new Date(base + 30 * 86400 * 1000).toISOString();
+  const expires = new Date(base + days * 86400 * 1000).toISOString();
 
-  await sb.from("payment_orders").update({ status: "paid", paid_at: nowIso, sepay_id: txId || null }).eq("id", o.id);
   await sb.from("user_profiles").update({ plan, plan_expires_at: expires }).eq("user_id", o.user_id);
 
   const cap = PLAN_CAP[plan] ?? 20;
@@ -65,8 +86,8 @@ Deno.serve(async (req) => {
   }
   await sb.from("credit_transactions").insert({
     user_id: o.user_id, delta: cap, balance_after: cap, kind: "adjust",
-    note: `Nâng gói ${plan.toUpperCase()} qua SePay (${o.amount}đ)`,
+    note: `Nâng gói ${plan.toUpperCase()} ${o.period === "year" ? "1 năm" : "1 tháng"} qua SePay (${o.amount}đ)`,
   });
 
-  return json({ success: true, upgraded: plan });
+  return json({ success: true, upgraded: plan, days });
 });

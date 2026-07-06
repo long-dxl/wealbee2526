@@ -113,34 +113,43 @@ def get_wallet(sb, user_id: str) -> dict:
         _log(sb, user_id, delta, daily, "refill", note=f"reset ngày ({plan})")
         w["balance"] = daily
         w["last_refill_date"] = today
+    # Bonus (Beeny mua thêm) — dọn nếu hết hạn 24h
+    bonus = float(w.get("bonus_balance") or 0)
+    if w.get("bonus_expires_at") and _is_expired(w["bonus_expires_at"]):
+        bonus = 0
+        sb.table("user_credits").update({"bonus_balance": 0, "bonus_expires_at": None}).eq("user_id", user_id).execute()
+    w["bonus"] = bonus
     return w
 
 
 def has_credits(sb, user_id: str) -> tuple[bool, float]:
-    """(còn Beeny để chạy?, balance hiện tại) — gọi TRƯỚC khi chạy."""
+    """(còn Beeny để chạy? = balance ngày + bonus, tổng hiện tại) — gọi TRƯỚC khi chạy."""
     try:
         w = get_wallet(sb, user_id)
-        return float(w["balance"]) > 0, float(w["balance"])
+        total = float(w["balance"]) + float(w.get("bonus") or 0)
+        return total > 0, total
     except Exception:
         return True, -1  # lỗi hạ tầng ví → không chặn người dùng
 
 
 def deduct(sb, user_id: str, tokens_in: int, tokens_out: int, note: str = "", cached_in: int = 0) -> dict:
-    """Trừ Beeny theo phí thật SAU khi chạy xong. Cho phép âm nhẹ (lượt đang chạy dở).
-    cached_in = token input phục vụ từ cache (tính 10% giá)."""
+    """Trừ Beeny theo phí thật SAU khi chạy xong. Tiêu BONUS trước (hết hạn 24h) rồi balance ngày."""
     n = beeny_for(tokens_in, tokens_out, cached_in)
     if n <= 0:
         return {"credits_used": 0, "balance": None}
     try:
         w = get_wallet(sb, user_id)
-        new_bal = round(float(w["balance"]) - n, 4)
+        bonus = float(w.get("bonus") or 0)
+        from_bonus = min(n, bonus)
+        new_bonus = round(bonus - from_bonus, 4)
+        new_bal = round(float(w["balance"]) - (n - from_bonus), 4)
         sb.table("user_credits").update({
-            "balance": new_bal,
+            "balance": new_bal, "bonus_balance": new_bonus,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }).eq("user_id", user_id).execute()
-        _log(sb, user_id, -n, new_bal, "deduct", tokens_in, tokens_out,
+        _log(sb, user_id, -n, new_bal + new_bonus, "deduct", tokens_in, tokens_out,
              round(cost_vnd(tokens_in, tokens_out, cached_in), 2), note)
-        return {"credits_used": n, "balance": new_bal}
+        return {"credits_used": n, "balance": new_bal + new_bonus}
     except Exception as e:
         print(f"    [!] trừ Beeny lỗi: {str(e)[:120]}")
         return {"credits_used": n, "balance": None}

@@ -9,7 +9,7 @@ import { CreateAgentModal } from "./CreateAgentModal";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { ProtectedRoute } from "./protected-route";
 import { supabase } from "../lib/supabase/client";
-import { getPlanAndBeeny } from "../lib/plan-limits";
+import { getPlanAndBeeny, PLAN_LIMITS } from "../lib/plan-limits";
 import { claimTrial } from "../lib/trial";
 import { TrialGrantedModal } from "./TrialGrantedModal";
 import { WALLET_REFRESH } from "../lib/wallet-events";
@@ -36,6 +36,7 @@ tickers:         "/app/tickers",
   inbox:           "/app/inbox",
   reports:         "/app/reports",
   "settings-billing": "/app/settings?tab=billing",
+  "settings-usage":   "/app/settings?tab=usage",
   agents:          "/app/agents",
   "agent-studio":  "/app/agent-studio",
   "create-agent":  "/app/agent-studio",
@@ -58,13 +59,19 @@ function NewLayoutInner() {
   const [hubContextCards, setHubContextCards] = useState<ContextCard[]>([]);
   const [planLabel, setPlanLabel] = useState("Free");
   const [beenyBalance, setBeenyBalance] = useState<number | null>(null);
+  const [beenyPct, setBeenyPct] = useState(0);        // % quota ngày đã dùng (0..1)
+  const [beenyBonus, setBeenyBonus] = useState(0);    // Beeny mua thêm (hết hạn 24h)
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const [trialDays, setTrialDays] = useState<number | null>(null);  // >0 = hiện card nhận Pro trial
 
   const fetchWallet = (userId: string) => {
-    getPlanAndBeeny(userId).then(({ label, balance }) => {
+    getPlanAndBeeny(userId).then(({ plan, label, balance, bonus }) => {
       setPlanLabel(label);
       setBeenyBalance(balance);
+      setBeenyBonus(bonus ?? 0);
+      const daily = PLAN_LIMITS[plan]?.daily ?? 10;
+      const dailyBal = Math.max(0, (balance ?? 0) - (bonus ?? 0));
+      setBeenyPct(Math.min(1, Math.max(0, (daily - dailyBal) / daily)));
     });
   };
 
@@ -157,6 +164,8 @@ function NewLayoutInner() {
         hasAgentRunning={false}
         planLabel={planLabel}
         beenyBalance={beenyBalance}
+        beenyPct={beenyPct}
+        beenyBonus={beenyBonus}
         isDark={isDark}
         theme={theme}
       />

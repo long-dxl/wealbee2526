@@ -64,14 +64,14 @@ export async function getBeenyBalance(userId: string): Promise<number | null> {
   return Number(data[0].balance);
 }
 
-/** Gói + số dư + ngày còn lại. Gọi RPC sync_wallet → RESET ví nếu sang ngày mới + hạ gói
- *  hết hạn, nên số dư luôn tươi ngay khi mở app (không cần chạy agent trước). */
-export async function getPlanAndBeeny(_userId: string): Promise<{ plan: string; label: string; balance: number | null; daysLeft: number | null }> {
+/** Gói + số dư (tổng = ngày + bonus) + bonus + ngày còn lại. Gọi RPC sync_wallet → RESET ví
+ *  nếu sang ngày mới + hạ gói hết hạn + dọn bonus hết hạn → số dư luôn tươi khi mở app. */
+export async function getPlanAndBeeny(_userId: string): Promise<{ plan: string; label: string; balance: number | null; bonus: number; bonusExpiresAt: string | null; daysLeft: number | null }> {
   const { data, error } = await supabase.rpc("sync_wallet");
   if (!error && data) {
-    const r = data as { plan: string; balance: number; days_left: number | null };
+    const r = data as { plan: string; balance: number; bonus: number; total: number; days_left: number | null; bonus_expires_at: string | null };
     const plan = normPlan(r.plan);
-    return { plan, label: PLAN_LIMITS[plan].label, balance: Number(r.balance), daysLeft: r.days_left ?? null };
+    return { plan, label: PLAN_LIMITS[plan].label, balance: Number(r.total ?? r.balance), bonus: Number(r.bonus ?? 0), bonusExpiresAt: r.bonus_expires_at ?? null, daysLeft: r.days_left ?? null };
   }
   // fallback: đọc trực tiếp nếu RPC lỗi
   const [profRes, balance] = await Promise.all([
@@ -85,5 +85,5 @@ export async function getPlanAndBeeny(_userId: string): Promise<{ plan: string; 
     const ms = Date.parse(row.plan_expires_at) - Date.now();
     if (ms < 0) plan = "free"; else daysLeft = Math.ceil(ms / 86400000);
   }
-  return { plan, label: PLAN_LIMITS[plan].label, balance, daysLeft };
+  return { plan, label: PLAN_LIMITS[plan].label, balance, bonus: 0, bonusExpiresAt: null, daysLeft };
 }

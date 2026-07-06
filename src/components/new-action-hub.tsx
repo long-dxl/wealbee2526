@@ -6,8 +6,6 @@ import {
 import { ContextCard, CardType, DRAG_CARD_MIME, cardTypeQuestions } from "../types/cards";
 import { lightTheme, type Theme } from "../lib/theme-context";
 import { sendChatMessage, type ToolStep } from "../lib/supabase/bee-ai";
-import { supabase } from "../lib/supabase/client";
-import { getBeenyBalance, fmtBeeny } from "../lib/plan-limits";
 import { notifyWalletChanged } from "../lib/wallet-events";
 import { MdContent } from "./MdContent";
 
@@ -165,18 +163,6 @@ export function ActionHub({
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const cancelRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Số dư Beeny (refresh khi mở panel + sau mỗi lượt trả lời xong)
-  const [beenyBalance, setBeenyBalance] = useState<number | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user || cancelled) return;
-      getBeenyBalance(user.id).then(b => { if (!cancelled) setBeenyBalance(b); });
-    });
-    return () => { cancelled = true; };
-  }, [open, isTyping]);
 
   const toggleCot = (idx: number) => {
     setMessages(prev => prev.map((m, i) =>
@@ -478,35 +464,23 @@ export function ActionHub({
             Action Hub
           </span>
 
-          {beenyBalance != null && (
-            <span title="Số dư Beeny — mỗi lượt phân tích trừ theo phí thật (gpt-5-mini)"
-              style={{
-                display: "flex", alignItems: "center", gap: 4, padding: "3px 9px",
-                borderRadius: 99, background: t.bgAccent, color: t.brand,
-                fontSize: 11, fontWeight: 700, flexShrink: 0,
-                fontFamily: "'Montserrat', system-ui, sans-serif",
-              }}>
-              🐝 {fmtBeeny(beenyBalance)} Beeny
-            </span>
-          )}
-
-          {!isAtDefault && (
-            <button
-              onClick={() => onWidthChange(DEFAULT_WIDTH)}
-              title={`Reset về ${DEFAULT_WIDTH}px`}
-              style={{
-                display: "flex", alignItems: "center", gap: 4, padding: "3px 8px",
-                borderRadius: 6, border: "0.5px solid " + t.borderStrong,
-                background: t.bgAccent, cursor: "pointer",
-                color: t.brand, fontSize: 11, fontWeight: 700,
-                fontFamily: "'Montserrat', system-ui, sans-serif", flexShrink: 0,
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccentActive; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccent; }}
-            >
-              <RotateCcw size={11} strokeWidth={2} /> Reset
-            </button>
-          )}
+          {/* Reset độ rộng — luôn hiện; mờ đi khi đang ở mặc định */}
+          <button
+            onClick={() => onWidthChange(DEFAULT_WIDTH)}
+            disabled={isAtDefault}
+            title={`Reset độ rộng về ${DEFAULT_WIDTH}px`}
+            style={{
+              display: "flex", alignItems: "center", gap: 4, padding: "3px 8px",
+              borderRadius: 6, border: "0.5px solid " + t.borderStrong,
+              background: t.bgAccent, cursor: isAtDefault ? "default" : "pointer",
+              color: t.brand, fontSize: 11, fontWeight: 700, opacity: isAtDefault ? 0.45 : 1,
+              fontFamily: "'Montserrat', system-ui, sans-serif", flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { if (!isAtDefault) (e.currentTarget as HTMLElement).style.background = t.bgAccentActive; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccent; }}
+          >
+            <RotateCcw size={11} strokeWidth={2} /> Reset
+          </button>
 
           <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: t.fgSubtle, padding: 4, borderRadius: 6, display: "flex", alignItems: "center" }} title="Đóng">
             <PanelRightClose size={18} strokeWidth={1.5} />

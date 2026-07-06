@@ -60,14 +60,13 @@ function isExpired(iso?: string | null): boolean {
   return Number.isFinite(t) && t < Date.now();
 }
 
-/** Lấy ví + lazy refill (tạo mới = tặng đầy trần). */
-export async function getWallet(sb: any, userId: string): Promise<{ plan: string; balance: number }> {
+/** Lấy ví: reset ngày + dọn bonus hết hạn. Trả balance (ngày) + bonus (đang hiệu lực). */
+export async function getWallet(sb: any, userId: string): Promise<{ plan: string; balance: number; bonus: number }> {
   let plan = "free";
   try {
     const { data: pr } = await sb.from("user_profiles").select("plan, plan_expires_at").eq("user_id", userId).limit(1);
     if (pr?.length) {
       plan = normPlan(pr[0].plan);
-      // Hết hạn trial/gói → hạ về free
       if (plan !== "free" && isExpired(pr[0].plan_expires_at)) {
         plan = "free";
         try { await sb.from("user_profiles").update({ plan: "free", plan_expires_at: null }).eq("user_id", userId); } catch (_e) { /* */ }
@@ -81,46 +80,51 @@ export async function getWallet(sb: any, userId: string): Promise<{ plan: string
   if (!rows?.length) {
     await sb.from("user_credits").insert({ user_id: userId, plan, balance: cfg.daily, last_refill_date: today });
     await log(sb, userId, cfg.daily, cfg.daily, "signup", undefined, undefined, undefined, `tạo ví (${plan})`);
-    return { plan, balance: cfg.daily };
+    return { plan, balance: cfg.daily, bonus: 0 };
   }
   const w = rows[0];
   let balance = Number(w.balance);
   if (w.last_refill_date !== today) {
-    // Sang ngày mới → RESET về daily quota (không cộng dồn)
-    balance = cfg.daily;
-    await sb.from("user_credits").update({
-      balance, last_refill_date: today, plan, updated_at: new Date().toISOString(),
-    }).eq("user_id", userId);
+    balance = cfg.daily;  // sang ngày mới → RESET về daily quota
+    await sb.from("user_credits").update({ balance, last_refill_date: today, plan, updated_at: new Date().toISOString() }).eq("user_id", userId);
     await log(sb, userId, balance - Number(w.balance), balance, "refill", undefined, undefined, undefined, `reset ngày (${plan})`);
   }
-  return { plan, balance };
+  // Bonus (Beeny mua thêm) — dọn nếu hết hạn 24h
+  let bonus = Number(w.bonus_balance ?? 0);
+  if (w.bonus_expires_at && isExpired(w.bonus_expires_at)) {
+    bonus = 0;
+    try { await sb.from("user_credits").update({ bonus_balance: 0, bonus_expires_at: null }).eq("user_id", userId); } catch (_e) { /* */ }
+  }
+  return { plan, balance, bonus };
 }
 
-/** Còn Beeny để chạy? (gọi TRƯỚC khi chạy). Lỗi hạ tầng ví → không chặn. */
+/** Còn Beeny để chạy? (tổng = balance ngày + bonus). Lỗi hạ tầng → không chặn. */
 export async function hasCredits(sb: any, userId: string): Promise<{ ok: boolean; balance: number }> {
   try {
     const w = await getWallet(sb, userId);
-    return { ok: w.balance > 0, balance: w.balance };
+    const total = w.balance + w.bonus;
+    return { ok: total > 0, balance: total };
   } catch (_e) {
     return { ok: true, balance: -1 };
   }
 }
 
-/** Trừ Beeny theo phí thật SAU khi chạy (cho phép âm nhẹ với lượt đang dở).
- *  cachedIn = token input phục vụ từ cache (tính 10% giá). */
+/** Trừ Beeny theo phí thật SAU khi chạy. Tiêu BONUS trước (hết hạn 24h), rồi balance ngày. */
 export async function deduct(sb: any, userId: string, tokensIn: number, tokensOut: number,
                              note = "", cachedIn = 0): Promise<{ credits_used: number; balance: number | null }> {
   const n = beenyFor(tokensIn, tokensOut, cachedIn);
   if (n <= 0) return { credits_used: 0, balance: null };
   try {
     const w = await getWallet(sb, userId);
-    const newBal = Math.round((w.balance - n) * 10000) / 10000;
+    const fromBonus = Math.min(n, w.bonus);
+    const newBonus = Math.round((w.bonus - fromBonus) * 10000) / 10000;
+    const newBal = Math.round((w.balance - (n - fromBonus)) * 10000) / 10000;
     await sb.from("user_credits").update({
-      balance: newBal, updated_at: new Date().toISOString(),
+      balance: newBal, bonus_balance: newBonus, updated_at: new Date().toISOString(),
     }).eq("user_id", userId);
-    await log(sb, userId, -n, newBal, "deduct", tokensIn, tokensOut,
+    await log(sb, userId, -n, newBal + newBonus, "deduct", tokensIn, tokensOut,
               Math.round(costVnd(tokensIn, tokensOut, cachedIn) * 100) / 100, note);
-    return { credits_used: n, balance: newBal };
+    return { credits_used: n, balance: newBal + newBonus };  // tổng còn lại
   } catch (_e) {
     return { credits_used: n, balance: null };
   }

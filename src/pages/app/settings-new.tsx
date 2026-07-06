@@ -1,23 +1,24 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Link2, Unlink, Eye, EyeOff } from "lucide-react";
+import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Link2, Unlink, Eye, EyeOff, Wallet, Sparkles, Zap, Crown } from "lucide-react";
 import { useTheme } from "../../lib/theme-context";
 import { supabase } from "../../lib/supabase/client";
 import { getPlanAndBeeny, fmtBeeny, PLAN_LIMITS } from "../../lib/plan-limits";
-import { startCheckout } from "../../lib/payment";
+import { startCheckout, startPackCheckout } from "../../lib/payment";
 import { logout, deleteAccount } from "../../lib/account";
 import { useBrokerConfig, type BrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { discoverAccounts } from "../../lib/services/dnse";
 
-type SettingsSection = "profile" | "notifications" | "appearance" | "privacy" | "billing" | "api";
+type SettingsSection = "profile" | "notifications" | "appearance" | "privacy" | "usage" | "billing" | "api";
 
 const sidebarItems = [
-  { id: "profile"       as SettingsSection, label: "Hồ sơ",          icon: User       },
-  { id: "notifications" as SettingsSection, label: "Thông báo",       icon: Bell       },
-  { id: "appearance"    as SettingsSection, label: "Giao diện",       icon: Moon       },
-  { id: "privacy"       as SettingsSection, label: "Quyền riêng tư",  icon: Shield     },
-  { id: "billing"       as SettingsSection, label: "Gói dịch vụ",     icon: CreditCard },
-  { id: "api"           as SettingsSection, label: "Kết nối API",      icon: Link2      },
+  { id: "profile"       as SettingsSection, label: "Hồ sơ",              icon: User       },
+  { id: "notifications" as SettingsSection, label: "Thông báo",          icon: Bell       },
+  { id: "appearance"    as SettingsSection, label: "Giao diện",          icon: Moon       },
+  { id: "privacy"       as SettingsSection, label: "Quyền riêng tư",     icon: Shield     },
+  { id: "usage"         as SettingsSection, label: "Số dư & tiêu dùng",  icon: Wallet     },
+  { id: "billing"       as SettingsSection, label: "Gói dịch vụ",        icon: Sparkles   },
+  { id: "api"           as SettingsSection, label: "Kết nối API",         icon: Link2      },
 ];
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -44,7 +45,7 @@ export function Settings() {
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
   const [section,  setSection]  = useState<SettingsSection>(
-    (["profile","notifications","appearance","privacy","billing","api"].includes(initialTab ?? "") ? initialTab : "profile") as SettingsSection);
+    (["profile","notifications","appearance","privacy","usage","billing","api"].includes(initialTab ?? "") ? initialTab : "profile") as SettingsSection);
   const [language, setLanguage] = useState("vi");
 
   // ── Broker / API connection ────────────────────────────────────────────────
@@ -120,6 +121,11 @@ export function Settings() {
   const [daysLeft,     setDaysLeft]     = useState<number | null>(null);
   const [upgrading,    setUpgrading]    = useState<string | null>(null);
   const [billingYear,  setBillingYear]  = useState(false);  // false=tháng, true=năm
+  const [bonus,        setBonus]        = useState(0);       // Beeny mua thêm (hết hạn 24h)
+  const [bonusExp,     setBonusExp]     = useState<string | null>(null);
+  const [buyingPack,   setBuyingPack]   = useState<string | null>(null);
+  const [, setNowTick] = useState(0);  // ép re-render mỗi 30s để đếm ngược bonus
+  useEffect(() => { const t = setInterval(() => setNowTick(x => x + 1), 30000); return () => clearInterval(t); }, []);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting,     setDeleting]     = useState(false);
 
@@ -147,10 +153,20 @@ export function Settings() {
     if (pl !== "pro" && pl !== "premium") return;
     setUpgrading(pl);
     try {
-      await startCheckout(pl);  // chuyển hướng sang SePay
+      await startCheckout(pl, billingYear ? "year" : "month");  // chuyển hướng SePay đúng kỳ hạn
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
       setUpgrading(null);
+    }
+  };
+
+  const handleBuyPack = async (packId: string) => {
+    setBuyingPack(packId);
+    try {
+      await startPackCheckout(packId);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+      setBuyingPack(null);
     }
   };
   const [loadingUsage, setLoadingUsage] = useState(true);
@@ -164,9 +180,9 @@ export function Settings() {
       if (!user) return;
       const since = new Date(Date.now() - 30 * 86400000).toISOString();
 
-      // Số dư + gói hiện tại + ngày còn lại
-      const { plan: p, balance: bal, daysLeft: dl } = await getPlanAndBeeny(user.id);
-      setPlan(p); setBalance(bal); setDaysLeft(dl);
+      // Số dư + gói hiện tại + ngày còn lại + bonus
+      const { plan: p, balance: bal, bonus: bn, bonusExpiresAt: be, daysLeft: dl } = await getPlanAndBeeny(user.id);
+      setPlan(p); setBalance(bal); setDaysLeft(dl); setBonus(bn); setBonusExp(be);
 
       // Lịch sử tiêu Beeny (mỗi lượt trừ = 1 giao dịch kind='deduct')
       const { data: txs } = await supabase
@@ -659,7 +675,7 @@ export function Settings() {
           )}
 
           {/* ── Billing ──────────────────────────────────────────────────────── */}
-          {section === "billing" && (
+          {section === "usage" && (
             <div>
               {/* ── Token usage widget ── */}
               <div style={{ background: cardBg, borderRadius: 14, padding: 20, marginBottom: 20, boxShadow: cardShadow, border: "0.5px solid " + borderColor }}>
@@ -679,6 +695,27 @@ export function Settings() {
                   </button>
                 </div>
 
+                {/* Banner Beeny mua thêm — đếm ngược tới lúc hết hạn/biến mất */}
+                {bonus > 0 && bonusExp && (() => {
+                  const ms = Date.parse(bonusExp) - Date.now();
+                  const hh = Math.max(0, Math.floor(ms / 3600000));
+                  const mm = Math.max(0, Math.floor((ms % 3600000) / 60000));
+                  return (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", marginBottom: 16, borderRadius: 10,
+                      background: isDark ? "rgba(245,197,24,0.10)" : "rgba(184,134,11,0.08)", border: "0.5px solid " + (isDark ? "rgba(245,197,24,0.25)" : "rgba(184,134,11,0.22)") }}>
+                      <span style={{ fontSize: 18 }}>⏳</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: isDark ? "#F5C518" : "#8a6100", fontFamily: FONT }}>
+                          Bạn có +{fmtBeeny(bonus)} Beeny mua thêm
+                        </div>
+                        <div style={{ fontSize: 12, color: subtleColor, fontFamily: FONT, marginTop: 1 }}>
+                          Sẽ biến mất sau <b style={{ color: headingColor }}>{hh > 0 ? `${hh} giờ ` : ""}{mm} phút</b> (dùng phần này trước quota ngày)
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {loadingUsage ? (
                   <div style={{ height: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <RefreshCw size={20} color={subtleColor} strokeWidth={1.5} style={{ animation: "spin 1s linear infinite" }} />
@@ -688,7 +725,8 @@ export function Settings() {
                     {/* Số dư + tiêu dùng — nền neutral, chỉ số dư nhấn màu brand */}
                     <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
                       {[
-                        { label: "Số dư hiện tại", value: balance == null ? "…" : fmtBeeny(balance), sub: `Beeny · reset ${PLAN_LIMITS[plan]?.daily ?? 10}/ngày`, accent: true },
+                        { label: "Số dư hiện tại", value: balance == null ? "…" : fmtBeeny(balance),
+                          sub: bonus > 0 ? `gồm +${fmtBeeny(bonus)} mua thêm (còn ${bonusExp ? Math.max(0, Math.ceil((Date.parse(bonusExp) - Date.now()) / 3600000)) : 0}h)` : `Beeny · reset ${PLAN_LIMITS[plan]?.daily ?? 10}/ngày`, accent: true },
                         { label: "Đã tiêu 30 ngày", value: fmtBeeny(totalBeeny), sub: "Beeny" },
                         { label: "Trung bình / ngày", value: fmtBeeny(totalBeeny / 30), sub: "Beeny/ngày" },
                         { label: "Số lần chạy", value: String(usageLog.length), sub: "lần (30 ngày)" },
@@ -752,9 +790,15 @@ export function Settings() {
                   </>
                 )}
               </div>
+            </div>
+          )}
 
-              {/* ── Toggle Tháng / Năm ── */}
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+          {section === "billing" && (
+            <div>
+              {/* ── Tiêu đề + Toggle Tháng / Năm ── */}
+              <div style={{ textAlign: "center", marginBottom: 18 }}>
+                <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 800, color: headingColor, fontFamily: FONT }}>Chọn gói phù hợp với bạn</h2>
+                <p style={{ margin: "0 0 16px", fontSize: 13, color: subtleColor, fontFamily: FONT }}>Nâng cấp bất cứ lúc nào · huỷ bất cứ lúc nào</p>
                 <div style={{ display: "inline-flex", background: isDark ? "rgba(255,255,255,0.05)" : "rgba(8,73,172,0.05)", borderRadius: 10, padding: 3, gap: 2 }}>
                   {[{ k: false, l: "Hàng tháng" }, { k: true, l: "Hàng năm" }].map(o => (
                     <button key={String(o.k)} onClick={() => setBillingYear(o.k)}
@@ -767,51 +811,115 @@ export function Settings() {
                 </div>
               </div>
 
-              {/* ── Plan cards — cùng độ rộng, tối giản màu ── */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14, alignItems: "stretch" }}>
+              {/* ── Plan cards — bắt mắt: icon gradient, viền/nền nổi cho gói phổ biến ── */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16, alignItems: "stretch", paddingTop: 12 }}>
                 {plans.map(pl => {
                   const isCurrent = pl.id === plan;
                   const price = billingYear ? pl.priceY : pl.priceM;
+                  const meta = {
+                    free:    { Icon: Sparkles, grad: "linear-gradient(135deg,#94a3b8,#64748b)", solo: "#64748b" },
+                    pro:     { Icon: Zap,      grad: "linear-gradient(135deg,#0849AC,#4D8FE8)", solo: theme.brand },
+                    premium: { Icon: Crown,    grad: "linear-gradient(135deg,#B8860B,#E0A93B)", solo: "#B8860B" },
+                  }[pl.id] ?? { Icon: Sparkles, grad: "", solo: theme.brand };
+                  const highlight = pl.popular; // gói nổi bật
                   return (
-                  <div key={pl.id} style={{
-                    background: cardBg, borderRadius: 14, padding: "22px 20px", position: "relative",
-                    display: "flex", flexDirection: "column", minWidth: 0,
-                    border: (isCurrent || pl.popular) ? "1.5px solid " + theme.brand : "0.5px solid " + borderColor,
-                    boxShadow: cardShadow,
-                  }}>
-                    {(pl.popular || isCurrent) && (
-                      <span style={{ position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap",
-                        background: isCurrent ? headingColor : theme.brand, color: cardBg, fontSize: 10, fontWeight: 800, letterSpacing: "0.04em",
-                        padding: "3px 12px", borderRadius: 99, fontFamily: FONT }}>
-                        {isCurrent ? "GÓI HIỆN TẠI" : "PHỔ BIẾN"}
+                  <div key={pl.id}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-4px)"; (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 12px 32px rgba(0,0,0,0.5)" : "0 12px 32px rgba(8,73,172,0.16)"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = highlight ? (isDark ? "0 8px 28px rgba(8,73,172,0.35)" : "0 8px 28px rgba(8,73,172,0.14)") : cardShadow; }}
+                    style={{
+                      background: cardBg, borderRadius: 16, padding: "26px 22px 22px", position: "relative", overflow: "hidden",
+                      display: "flex", flexDirection: "column", minWidth: 0,
+                      border: (isCurrent || highlight) ? "1.5px solid " + theme.brand : "1px solid " + borderColor,
+                      boxShadow: highlight ? (isDark ? "0 8px 28px rgba(8,73,172,0.35)" : "0 8px 28px rgba(8,73,172,0.14)") : cardShadow,
+                      transition: "transform 180ms ease, box-shadow 180ms ease",
+                    }}>
+                    {/* Thanh gradient trên đỉnh */}
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 4, background: meta.grad }} />
+                    {/* Badge */}
+                    {(highlight || isCurrent) && (
+                      <span style={{ position: "absolute", top: 14, right: 14, whiteSpace: "nowrap",
+                        background: isCurrent ? (isDark ? "rgba(52,199,89,0.16)" : "rgba(52,199,89,0.12)") : (isDark ? "rgba(77,143,232,0.16)" : "rgba(8,73,172,0.09)"),
+                        color: isCurrent ? "#1a7f37" : theme.brand, fontSize: 10, fontWeight: 800, letterSpacing: "0.03em",
+                        padding: "4px 10px", borderRadius: 99, fontFamily: FONT }}>
+                        {isCurrent ? "ĐANG DÙNG" : "PHỔ BIẾN"}
                       </span>
                     )}
-                    <div style={{ fontSize: 17, fontWeight: 800, color: headingColor, marginBottom: 6, fontFamily: FONT }}>{pl.name}</div>
-                    <div style={{ marginBottom: 18, display: "flex", alignItems: "baseline", gap: 5, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 24, fontWeight: 800, color: headingColor, fontFamily: FONT }}>{price}</span>
-                      {pl.id !== "free" && <span style={{ fontSize: 13, color: subtleColor }}>/{billingYear ? "năm" : "tháng"}</span>}
+
+                    {/* Icon + tên */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: 11, background: meta.grad, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: `0 4px 12px ${meta.solo}44` }}>
+                        <meta.Icon size={19} color="#fff" strokeWidth={2} />
+                      </div>
+                      <span style={{ fontSize: 18, fontWeight: 800, color: headingColor, fontFamily: FONT }}>{pl.name}</span>
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 9, marginBottom: 20, flex: 1 }}>
+
+                    {/* Giá */}
+                    <div style={{ marginBottom: 18, display: "flex", alignItems: "baseline", gap: 5, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 27, fontWeight: 800, color: headingColor, fontFamily: FONT, letterSpacing: "-0.5px" }}>{price}</span>
+                      {pl.id !== "free" && <span style={{ fontSize: 13, fontWeight: 600, color: subtleColor }}>/{billingYear ? "năm" : "tháng"}</span>}
+                    </div>
+
+                    <div style={{ height: "0.5px", background: borderColor, marginBottom: 16 }} />
+
+                    {/* Tính năng */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 11, marginBottom: 22, flex: 1 }}>
                       {pl.features.map(f => (
-                        <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                          <Check size={14} color={theme.brand} strokeWidth={2.5} style={{ marginTop: 2, flexShrink: 0 }} />
-                          <span style={{ fontSize: 12.5, color: labelColor, fontFamily: FONT }}>{f}</span>
+                        <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                          <div style={{ width: 18, height: 18, borderRadius: "50%", background: `${meta.solo}1f`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                            <Check size={12} color={meta.solo} strokeWidth={3} />
+                          </div>
+                          <span style={{ fontSize: 13, color: labelColor, fontFamily: FONT, lineHeight: 1.4 }}>{f}</span>
                         </div>
                       ))}
                     </div>
+
                     <button disabled={isCurrent || pl.id === "free" || upgrading === pl.id}
                       onClick={() => handleUpgrade(pl.id)}
-                      style={{ width: "100%", padding: "11px 0", borderRadius: 10, fontSize: 13, fontWeight: 700, fontFamily: FONT, marginTop: "auto",
+                      style={{ width: "100%", padding: "12px 0", borderRadius: 11, fontSize: 13.5, fontWeight: 700, fontFamily: FONT, marginTop: "auto",
                         cursor: (isCurrent || pl.id === "free") ? "default" : "pointer", opacity: upgrading === pl.id ? 0.6 : 1,
-                        border: pl.popular && !isCurrent ? "none" : "1px solid " + borderColor,
-                        background: pl.popular && !isCurrent ? theme.brand : "transparent",
-                        color: pl.popular && !isCurrent ? "#fff" : isCurrent ? subtleColor : headingColor }}>
-                      {isCurrent ? "Đang dùng" : pl.id === "free" ? "Miễn phí" : upgrading === pl.id ? "Đang chuyển…" : "Nâng cấp"}
+                        border: highlight && !isCurrent ? "none" : "1px solid " + (isCurrent ? borderColor : meta.solo + "66"),
+                        background: highlight && !isCurrent ? meta.grad : "transparent",
+                        color: highlight && !isCurrent ? "#fff" : isCurrent ? subtleColor : meta.solo }}>
+                      {isCurrent ? "Đang dùng" : pl.id === "free" ? "Miễn phí" : upgrading === pl.id ? "Đang chuyển…" : `Nâng cấp ${pl.name}`}
                     </button>
                   </div>
                   );
                 })}
               </div>
+
+              {/* ── Gói Beeny theo ngày (chỉ Pro/Premium) ── */}
+              {(plan === "pro" || plan === "premium") && (
+                <div style={{ marginTop: 30 }}>
+                  <div style={{ textAlign: "center", marginBottom: 16 }}>
+                    <h3 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 800, color: headingColor, fontFamily: FONT }}>Mua thêm Beeny cho hôm nay</h3>
+                    <p style={{ margin: 0, fontSize: 12.5, color: subtleColor, fontFamily: FONT }}>Cần thêm dung lượng? Nạp nhanh · <b style={{ color: headingColor }}>hết hạn sau 24 giờ</b> · mỗi loại 1 lần/ngày</p>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 14 }}>
+                    {[
+                      { id: "pack_5k",  beeny: 120, price: "5.000đ",  raw: 5000 },
+                      { id: "pack_10k", beeny: 250, price: "10.000đ", raw: 10000, best: true },
+                      { id: "pack_20k", beeny: 500, price: "20.000đ", raw: 20000 },
+                    ].map(pk => (
+                      <div key={pk.id} style={{
+                        background: cardBg, borderRadius: 14, padding: "18px 16px", position: "relative", textAlign: "center",
+                        border: pk.best ? "1.5px solid " + theme.brand : "1px solid " + borderColor, boxShadow: cardShadow,
+                      }}>
+                        {pk.best && <span style={{ position: "absolute", top: -9, left: "50%", transform: "translateX(-50%)", background: theme.brand, color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "3px 9px", borderRadius: 99, whiteSpace: "nowrap" }}>ĐÁNG MUA</span>}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 24, fontWeight: 800, color: isDark ? "#F5C518" : "#B8860B", fontFamily: FONT }}>+{pk.beeny}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: subtleColor, fontFamily: FONT }}>Beeny</span>
+                        </div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: headingColor, fontFamily: FONT, marginBottom: 14 }}>{pk.price}</div>
+                        <button onClick={() => handleBuyPack(pk.id)} disabled={buyingPack === pk.id}
+                          style={{ width: "100%", padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: 700, fontFamily: FONT, cursor: "pointer", opacity: buyingPack === pk.id ? 0.6 : 1,
+                            border: pk.best ? "none" : "1px solid " + borderColor, background: pk.best ? theme.brand : "transparent", color: pk.best ? "#fff" : headingColor }}>
+                          {buyingPack === pk.id ? "Đang chuyển…" : "Mua ngay"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
