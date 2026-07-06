@@ -634,15 +634,13 @@ function extractHardNumbers(text: string): Set<string> {
     .replace(/^#{1,6}\s*\d+\)/gm, " ")   // "### 1)" tiêu đề mục
     .replace(/^\s*\d+[.)]\s/gm, " ");     // "1. " / "1) " số thứ tự đầu dòng
   const out = new Set<string>();
-  const add = (v: number) => {
-    if (Number.isNaN(v)) return;
-    const hasFraction = v % 1 !== 0;
-    const intDigits = Math.trunc(Math.abs(v)).toString().length;
-    if (!hasFraction && intDigits <= 2) return; // số nguyên 1-2 chữ số: khả năng cao đếm/thứ tự
-    out.add(v.toFixed(2));
-  };
-  // Vòng 1: số kiểu VN (chấm ngăn nghìn ≥1 nhóm 3 chữ số, hoặc phẩy thập phân) —
-  // thay bằng khoảng trắng ngay sau khi trích để vòng 2 không đọc nhầm phần đã xử lý.
+  const add = (v: number) => { if (!Number.isNaN(v)) out.add(v.toFixed(2)); };
+  // Vòng 1: số kiểu VN (chấm ngăn nghìn ≥1 nhóm 3 chữ số, hoặc phẩy thập phân).
+  // Nhánh nhóm-nghìn luôn khớp ≥4 chữ số nguyên; nhánh phẩy-thập-phân luôn có dấu
+  // phẩy tường minh trong text gốc — cả 2 đều chắc chắn là số liệu thật, không cần
+  // lọc thêm "số nhỏ = đếm/thứ tự" (số thứ tự/đếm đã bị dọn ở bước tiền xử lý trên;
+  // lọc thêm theo GIÁ TRỊ sau parse từng gây lỗi: "5,00%" parse ra tròn 5.0 →
+  // bị loại nhầm dù text gốc ghi rõ dạng thập phân).
   cleaned = cleaned.replace(/-?\d{1,3}(?:\.\d{3})+(?:,\d+)?|-?\d+,\d+/g, (m) => {
     add(parseFloat(m.replace(/\./g, "").replace(",", ".")));
     return " ";

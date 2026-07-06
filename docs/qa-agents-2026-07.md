@@ -54,11 +54,17 @@ Deep Research đọc BCTC chắc tay (tự nghi ngờ lợi nhuận đột biế
 
 | Agent | Trước (luôn gọi validator) | Sau | Ghi chú |
 |---|---|---|---|
-| Bản tin buổi sáng | ~150-185đ | **93đ** | Bỏ qua validator — số liệu 100% khớp nguồn |
-| Lãnh đạo mua CP | 337đ | **154đ** (**-72% so với bản gốc 545đ**) | Bỏ qua validator |
-| Phiên KL đột biến | 274-292đ | 290đ (không đổi) | Phát hiện số cần kiểm tra → vẫn gọi validator (đúng thiết kế an toàn, không mất chất lượng) |
+| Bản tin buổi sáng | ~150-185đ | **93-94đ** | Bỏ qua validator — số liệu 100% khớp nguồn |
+| Lãnh đạo mua CP | 337đ | **154-155đ** (**-72% so với bản gốc 545đ**) | Bỏ qua validator |
+| Phiên KL đột biến | 274-292đ | **130đ** (**-53%**) | Bỏ qua validator (sau khi sửa thêm — xem dưới) |
 
-Đã kiểm tra lại nội dung 2 lượt "bỏ qua validator" — số liệu vẫn khớp DB, không có dấu hiệu bịa lọt qua.
+**Kiểm tra lại phát hiện thêm 2 lỗi trong bộ lọc (được yêu cầu soát lại sau khi báo cáo lần đầu):**
+1. **Trộn định dạng số** — `market-context.ts` tính tỷ lệ KL/TB20 và %Δ giá bằng `.toFixed()` (dấu CHẤM thập phân kiểu JS: "0.96", "-0.65"), khác với phần còn lại của hệ thống dùng định dạng VN (dấu phẩy). Bộ lọc ban đầu chỉ nhận dạng kiểu VN → luôn báo "nghi ngờ" sai với mọi số tỷ lệ KL, khiến volume_spike (agent dùng nhiều số dạng này nhất) không được hưởng lợi gì dù cơ chế đã chạy. Fix: trích số theo 2 vòng, vòng 1 bắt định dạng VN rồi xóa khỏi text, vòng 2 bắt phần thập phân JS còn sót lại.
+2. **Số tròn viết dạng thập phân bị lọc nhầm thành số đếm/thứ tự** — bộ lọc gốc kiểm tra "số có phần thập phân hay không" bằng cách xét GIÁ TRỊ sau khi parse (`v % 1 !== 0`), nhưng một số tròn viết tường minh dạng thập phân (VD "5,00%") parse ra đúng 5.0 nên bị hiểu nhầm là số đếm/thứ tự và bỏ qua — làm giảm độ nhạy phát hiện số bịa tình cờ tròn. Fix: bỏ hẳn điều kiện lọc theo giá trị (đã chứng minh là code chết — cấu trúc regex đảm bảo chỉ khớp số thật, không bao giờ khớp số đếm/thứ tự trần).
+
+Đã viết bộ test độc lập 14 trường hợp (regex, format trộn, dấu trừ bị bỏ, số tròn, số bịa) — 14/14 pass trước khi deploy lại. Sau khi sửa, volume_spike (agent bị ảnh hưởng nặng nhất bởi 2 lỗi trên) mới thực sự được bỏ qua validator, giảm thêm từ ~290đ xuống 130đ.
+
+Đã kiểm tra lại nội dung các lượt "bỏ qua validator" — số liệu vẫn khớp DB, không có dấu hiệu bịa lọt qua.
 
 Chất lượng output **giữ nguyên hoặc tốt hơn** sau khi rút gọn — đọc lại insider_buy sau fix còn tự phát hiện thêm chi tiết tinh vi hơn (VD: giao dịch VINSPEED mua VIC trùng đúng ngày ông Phạm Nhật Vượng bán ra — chưa xuất hiện ở lượt test trước), có thể vì bớt dữ liệu thừa giúp model tập trung hơn vào phần thực sự liên quan.
 
