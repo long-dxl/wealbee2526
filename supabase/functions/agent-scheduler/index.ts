@@ -103,13 +103,13 @@ class SourceRegistry {
 
 // Tool "financials" (BCTC) — dùng chung module financialReport() (Năm + 5 Quý gần
 // nhất), thay cho query financials_annual cũ (đông cứng, khác số với tầng mới).
-async function buildFinancialsContext(symbol: string, registry: SourceRegistry): Promise<string> {
+async function buildFinancialsContext(symbol: string, registry: SourceRegistry, depth: "full" | "brief" = "full"): Promise<string> {
   const sym = symbol.toUpperCase();
   const lines: string[] = [`\n## Tài chính: ${sym}`];
   try {
     const { data: tk } = await sb.from("tickers").select("company_type").eq("symbol", sym).single();
     const ctype = tk?.company_type ?? "normal";
-    const report = await financialReport(sb, sym, ctype);
+    const report = await financialReport(sb, sym, ctype, depth);
     if (report.trim()) {
       const ref = ` ${registry.add("BCTC", faUrl(sym))}`;
       lines.push(`### BCTC (${TYPE_LABEL[ctype] ?? ctype})${ref}`);
@@ -213,7 +213,8 @@ async function runAgent(agent: Record<string, unknown>): Promise<void> {
 
     let financialsCtx = "";
     if (syms.length > 0 && tools.some(t => ["financials","pe"].includes(t))) {
-      const parts = await Promise.all(syms.map(s => buildFinancialsContext(s, registry)));
+      const depth: "full" | "brief" = ["insider_buy", "volume_spike"].includes(agent.template_id as string) ? "brief" : "full";
+      const parts = await Promise.all(syms.map(s => buildFinancialsContext(s, registry, depth)));
       financialsCtx = parts.filter(Boolean).join("\n\n");
     }
 

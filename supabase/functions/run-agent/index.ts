@@ -42,15 +42,16 @@ const CORS = {
 
 // ─── Build financials context for a specific symbol ──────────────────────────
 
-async function buildFinancialsContext(symbol: string, registry?: SourceRegistry): Promise<string> {
+async function buildFinancialsContext(symbol: string, registry?: SourceRegistry, depth: "full" | "brief" = "full"): Promise<string> {
   const sym  = symbol.toUpperCase();
   const lines: string[] = [`\n## Dữ liệu tài chính: ${sym}`];
 
-  // Báo cáo tài chính: IS/BS/CF + chỉ số RIÊNG theo loại hình (Năm + 5 Quý gần nhất)
+  // Báo cáo tài chính: IS/BS/CF + chỉ số RIÊNG theo loại hình (Năm + 5 Quý gần nhất,
+  // hoặc rút gọn 2 kỳ cho template không cần phân tích BCTC sâu — xem financial-report.ts)
   try {
     const { data: tk } = await sb.from("tickers").select("company_type").eq("symbol", sym).single();
     const ctype = tk?.company_type ?? "normal";
-    const report = await financialReport(sb, sym, ctype);
+    const report = await financialReport(sb, sym, ctype, depth);
     if (report.trim()) {
       const ref = registry ? ` ${registry.add("BCTC", faUrl(sym))}` : "";
       lines.push(`\n### Báo cáo tài chính (${TYPE_LABEL[ctype] ?? ctype})${ref}`);
@@ -549,6 +550,7 @@ async function executeToolCall(
   userId: string,
   kbDocIds: string[],
   newsFilter?: string[],
+  financialsDepth: "full" | "brief" = "full",
 ): Promise<string> {
   if (name === "price_feed") {
     const syms: string[] = Array.isArray(args.symbols) ? args.symbols.map(String) : [];
@@ -562,7 +564,7 @@ async function executeToolCall(
   if (name === "financials") {
     const sym = String(args.symbol ?? "").toUpperCase();
     if (!sym) return "Lỗi: thiếu tham số symbol";
-    const ctx = await buildFinancialsContext(sym, registry);
+    const ctx = await buildFinancialsContext(sym, registry, financialsDepth);
     await buildSymbolSources(sym, sources);
     return ctx || `Không có dữ liệu tài chính cho ${sym} trong hệ thống`;
   }
@@ -624,6 +626,7 @@ async function executeToolCall(
 async function prefetchToolContext(
   toolNames: string[], syms: string[], registry: SourceRegistry, sources: Source[],
   userId: string, kbDocIds: string[], newsFilter?: string[], kbQuery?: string,
+  financialsDepth: "full" | "brief" = "full",
 ): Promise<string> {
   const want = new Set(toolNames);
   const jobs: Promise<string>[] = [];
@@ -638,7 +641,7 @@ async function prefetchToolContext(
     add("DANH MỤC ĐẦU TƯ", executeToolCall("portfolio_read", {}, registry, sources, userId, kbDocIds, newsFilter));
   for (const sym of syms) {
     if (want.has("financials"))
-      add(`BÁO CÁO TÀI CHÍNH ${sym}`, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
+      add(`BÁO CÁO TÀI CHÍNH ${sym}`, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter, financialsDepth));
     if (want.has("insider_trades"))
       add(`CỔ TỨC & GIAO DỊCH NỘI BỘ ${sym}`, executeToolCall("insider_trades", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
     if (want.has("value_chain"))
@@ -816,6 +819,11 @@ Deno.serve(async (req: Request) => {
         // → OUTPUT KHÔNG ĐỔI; chỉ bỏ các vòng "chọn tool" vốn chỉ tốn token, không tạo chữ.
         const fetchToolNames: string[] = (toolDefs as any[])
           .map(t => t.function?.name).filter(Boolean);
+        // insider_buy/volume_spike chỉ kể chuyện 1 giao dịch/1 phiên — không cần BCTC
+        // đầy đủ 5 năm+5 quý như Deep Research. Brief giảm ~70% context financials
+        // (xem financial-report.ts) mà không đổi chất lượng output (đã QA riêng).
+        const BRIEF_FINANCIALS_TEMPLATES = new Set(["insider_buy", "volume_spike"]);
+        const financialsDepth: "full" | "brief" = BRIEF_FINANCIALS_TEMPLATES.has(agent.template_id) ? "brief" : "full";
         let prefetchedContext = "";
         if (fetchToolNames.length > 0) {
           emit({ type: "step", step: "prefetch", status: "loading", label: "Đang lấy dữ liệu (giá, tin tức, tài chính)..." });
@@ -823,6 +831,7 @@ Deno.serve(async (req: Request) => {
             fetchToolNames, syms, registry, sources, user.id, kbDocIds,
             (agent as any).news_sources ?? undefined,
             syms.length ? syms.join(" ") : cleanPrompt.slice(0, 200),
+            financialsDepth,
           );
           emit({ type: "step", step: "prefetch", status: "done", label: "Đã lấy đủ dữ liệu" });
         }

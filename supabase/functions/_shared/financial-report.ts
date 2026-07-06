@@ -83,13 +83,32 @@ function buildStatementTable(rows: FSRow[], priority: string[], periods: string[
   return out;
 }
 
+// Item bắt buộc phải nạp cho chế độ "brief" (insider_buy/volume_spike): chỉ dòng
+// doanh thu/lợi nhuận trọng yếu, KHÔNG toàn bộ P&L chi tiết — đủ để kể chuyện tăng
+// trưởng gần nhất mà không kéo theo cả bảng IS 5 năm không dùng đến.
+const BRIEF_IS_ITEMS = [
+  "BANK_NII", "BANK_TOI", "BANK_PROVISION",
+  "IS_REVENUE", "IS_GROSS_PROFIT", "IS_PRETAX", "IS_NET_PROFIT", "IS_NET_PROFIT_PARENT",
+];
+// Chỉ số cốt lõi cho "brief" — bỏ các chỉ số vòng quay/thanh khoản chi tiết, giữ lại
+// đúng những gì insider_buy/volume_spike thực sự trích trong bài viết (ROE, biên LN, tăng trưởng).
+const CORE_RATIOS: Record<string, string[]> = {
+  normal: ["ROE", "GROSS_MARGIN", "NET_MARGIN", "DEBT_TO_EQUITY", "REVENUE_GROWTH", "NET_PROFIT_GROWTH"],
+  bank: ["NIM", "CIR", "NPL", "ROE", "REVENUE_GROWTH", "NET_PROFIT_GROWTH"],
+  securities: ["MARGIN_TO_EQUITY", "ROE", "NET_MARGIN", "REVENUE_GROWTH", "NET_PROFIT_GROWTH"],
+  insurance: ["COMBINED_RATIO", "ROE", "NET_MARGIN", "REVENUE_GROWTH", "NET_PROFIT_GROWTH"],
+};
+
 /**
  * Dựng 4 bảng IS/BS/CF/Chỉ số (theo loại hình) + KQKD quý gần nhất cho 1 mã.
  * @param sb     Supabase client (service role)
  * @param sym    Mã đã uppercase
  * @param ctype  company_type (normal|bank|securities|insurance)
+ * @param depth  "full" (Deep Research — 5 năm + 5 quý đầy đủ) hoặc "brief"
+ *               (insider_buy/volume_spike — chỉ cần bối cảnh cơ bản, không cần
+ *               phân tích BCTC sâu). Brief giảm ~70% kích thước context.
  */
-export async function financialReport(sb: any, sym: string, ctype: string): Promise<string> {
+export async function financialReport(sb: any, sym: string, ctype: string, depth: "full" | "brief" = "full"): Promise<string> {
   const lines: string[] = [];
   const type = RATIO_SET[ctype] ? ctype : "normal";
 
@@ -123,6 +142,74 @@ export async function financialReport(sb: any, sym: string, ctype: string): Prom
       }
     }
   } catch { /* skip */ }
+
+  if (depth === "brief") {
+    // KQKD 2 năm gần nhất (chỉ dòng doanh thu/lợi nhuận trọng yếu)
+    try {
+      const { data: fs } = await sb
+        .from("financial_statements")
+        .select("period, item_code, item_label_vi, value")
+        .eq("symbol", sym).eq("period_type", "FY").eq("statement", "IS")
+        .in("item_code", BRIEF_IS_ITEMS)
+        .order("period", { ascending: false });
+      if (fs?.length) {
+        const fy = [...new Set((fs as any[]).map(r => r.period))].sort().reverse().slice(0, 2).sort();
+        const rows: FSRow[] = (fs as any[]).filter(r => fy.includes(r.period)).map(r => ({ ...r, statement: "IS" }));
+        const isT = buildStatementTable(rows, BRIEF_IS_ITEMS, fy);
+        if (isT.length) { lines.push(`\n### 1) KQKD 2 năm gần nhất (tóm tắt)`); lines.push(...isT); }
+      }
+    } catch { /* skip */ }
+
+    // KQKD quý gần nhất so cùng kỳ năm trước (YoY) — đúng 2 quý, không rolling 5 quý
+    try {
+      const { data: qAll } = await sb
+        .from("financial_statements")
+        .select("period")
+        .eq("symbol", sym).eq("period_type", "QUARTER").eq("statement", "IS")
+        .order("period", { ascending: false }).limit(20);
+      const latestQ = qAll?.length
+        ? [...new Set((qAll as any[]).map(r => r.period))].sort((a, b) => quarterSortKey(b) - quarterSortKey(a))[0]
+        : null;
+      if (latestQ) {
+        const m = latestQ.match(/^Q([1-4])\/(\d{4})$/);
+        const sameQLastYear = m ? `Q${m[1]}/${Number(m[2]) - 1}` : null;
+        const qPeriods = [sameQLastYear, latestQ].filter(Boolean) as string[];
+        const { data: fsq } = await sb
+          .from("financial_statements")
+          .select("period, item_code, item_label_vi, value")
+          .eq("symbol", sym).eq("period_type", "QUARTER").eq("statement", "IS")
+          .in("item_code", BRIEF_IS_ITEMS)
+          .in("period", qPeriods);
+        if (fsq?.length) {
+          const rows: FSRow[] = (fsq as any[]).map(r => ({ ...r, statement: "IS" }));
+          const sortedQ = qPeriods.sort((a, b) => quarterSortKey(a) - quarterSortKey(b));
+          const isQ = buildStatementTable(rows, BRIEF_IS_ITEMS, sortedQ);
+          if (isQ.length) { lines.push(`\n### 2) KQKD quý gần nhất so cùng kỳ (YoY)`); lines.push(...isQ); }
+        }
+      }
+    } catch { /* skip */ }
+
+    // Chỉ số cốt lõi — chỉ FY gần nhất, không bảng đa kỳ
+    try {
+      const { data: rt } = await sb
+        .from("financial_ratios")
+        .select("period, ratio_code, value, unit")
+        .eq("symbol", sym).eq("period_type", "FY")
+        .in("ratio_code", CORE_RATIOS[type])
+        .order("period", { ascending: false })
+        .limit(CORE_RATIOS[type].length);
+      if (rt?.length) {
+        const latestPeriod = (rt as any[])[0]?.period;
+        const rows = (rt as any[]).filter(r => r.period === latestPeriod);
+        if (rows.length) {
+          lines.push(`\n### 3) Chỉ số tài chính cốt lõi (${TYPE_LABEL[type]}) · FY ${latestPeriod}`);
+          for (const r of rows) lines.push(`- ${RATIO_LABEL[r.ratio_code] ?? r.ratio_code}: ${fmtRatioVal(r.ratio_code, r.value, r.unit)}`);
+        }
+      }
+    } catch { /* skip */ }
+
+    return lines.join("\n");
+  }
 
   // IS / BS / CF theo năm
   try {
