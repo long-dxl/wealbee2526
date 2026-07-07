@@ -585,7 +585,7 @@ async function executeToolCall(
       const { data } = await sb.from("stocks").select("sector_name").eq("symbol", sym).single();
       sectorName = data?.sector_name ?? undefined;
     } catch { /* skip */ }
-    const ctx = await valueChainReport(sb, sym, sectorName);
+    const ctx = await valueChainReport(sb, sym, sectorName, registry);
     return ctx || `Ngành của ${sym} chưa gắn sơ đồ chuỗi giá trị hàng hóa.`;
   }
   if (name === "portfolio_read") {

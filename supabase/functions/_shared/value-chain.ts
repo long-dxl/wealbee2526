@@ -141,24 +141,64 @@ async function fetchYahoo(ticker: string): Promise<Quote | null> {
 const fmtNum = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 const fmtPct = (p: number | null) => p == null ? "n/a" : `${p >= 0 ? "+" : ""}${p.toFixed(1)}%`;
 
-// Trả map id → {now, ytd, yoy, link} (chuỗi hiển thị). No-feed → cần web_search.
-async function priceCells(ids: string[]): Promise<Record<string, { now: string; ytd: string; yoy: string; link: string }>> {
+// ── (A) Web search Brave cho hàng hóa KHÔNG có feed Yahoo (than cốc/thép XD/urea/cước biển…) ──
+const BRAVE_KEY = Deno.env.get("BRAVE_SEARCH_API_KEY") ?? "";
+const NOFEED_QUERY: Record<string, string> = {
+  GIA_THAN_COC:  "coking coal price today USD per tonne",
+  GIA_THEP_XD:   "giá thép xây dựng Việt Nam hôm nay đồng/kg",
+  GIA_URE:       "giá phân urea Việt Nam hôm nay đồng/kg",
+  GIA_CUOC_BIEN: "Drewry world container index freight rate this week",
+  GIA_SUA:       "whole milk powder price GDT USD per tonne",
+  GIA_NHUA_HAT:  "PVC resin price USD per tonne this week",
+  GIA_CAO_SU:    "natural rubber price today USD per kg",
+};
+async function braveTop(query: string): Promise<{ snippet: string; url: string; domain: string } | null> {
+  if (!BRAVE_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=3&freshness=pw`,
+      { headers: { Accept: "application/json", "X-Subscription-Token": BRAVE_KEY } },
+    );
+    if (!res.ok) return null;
+    const r = (await res.json())?.web?.results?.[0];
+    if (!r?.url) return null;
+    return {
+      snippet: (r.description || r.title || "").replace(/\s+/g, " ").slice(0, 160),
+      url: r.url, domain: new URL(r.url).hostname.replace("www.", ""),
+    };
+  } catch { return null; }
+}
+
+// (B) registry để đăng ký nguồn → [ref:N] click được (run-agent truyền vào; bee-ai-chat để trống).
+interface Reg { add(name: string, url: string): string }
+interface Cell { now: string; ytd: string; yoy: string; link: string; label: string }
+
+// Feed→Yahoo (giá+YTD+YoY); no-feed→Brave web_search (snippet+link) nếu có BRAVE_SEARCH_API_KEY.
+async function priceCells(ids: string[]): Promise<Record<string, Cell>> {
   const uniq = [...new Set(ids)];
-  const out: Record<string, { now: string; ytd: string; yoy: string; link: string }> = {};
+  const out: Record<string, Cell> = {};
   await Promise.all(uniq.map(async (id) => {
+    const m = COMMODITY[id];
     const yf = YAHOO[id];
-    if (!yf) { out[id] = { now: "cần web_search", ytd: "cần web_search", yoy: "cần web_search", link: "web_search chuyên ngành" }; return; }
-    const q = await fetchYahoo(yf);
-    out[id] = q
-      ? { now: `**${fmtNum(q.price)}**${q.dayPct != null ? ` (${fmtPct(q.dayPct)})` : ""} · ${q.date}`,
-          ytd: `${fmtPct(q.ytdPct)} (từ ${q.ytdFrom})`, yoy: `${fmtPct(q.yoyPct)} (từ ${q.yoyFrom})`,
-          link: `https://finance.yahoo.com/quote/${encodeURIComponent(yf)}` }
-      : { now: "n/a", ytd: "n/a", yoy: "n/a", link: `https://finance.yahoo.com/quote/${encodeURIComponent(yf)}` };
+    if (yf) {
+      const q = await fetchYahoo(yf);
+      const link = `https://finance.yahoo.com/quote/${encodeURIComponent(yf)}`;
+      out[id] = q
+        ? { now: `**${fmtNum(q.price)}**${q.dayPct != null ? ` (${fmtPct(q.dayPct)})` : ""} · ${q.date}`,
+            ytd: `${fmtPct(q.ytdPct)} (từ ${q.ytdFrom})`, yoy: `${fmtPct(q.yoyPct)} (từ ${q.yoyFrom})`,
+            link, label: `${m?.name ?? id} (Yahoo Finance)` }
+        : { now: "n/a", ytd: "n/a", yoy: "n/a", link, label: `${m?.name ?? id} (Yahoo Finance)` };
+      return;
+    }
+    const bt = await braveTop(NOFEED_QUERY[id] ?? `giá ${m?.name ?? id} hôm nay`);
+    out[id] = bt
+      ? { now: bt.snippet || "(xem nguồn)", ytd: "—", yoy: "—", link: bt.url, label: `${m?.name ?? id} (${bt.domain})` }
+      : { now: "cần web_search", ytd: "—", yoy: "—", link: "", label: `${m?.name ?? id}` };
   }));
   return out;
 }
 
-async function chainLines(sym: string, sector: string): Promise<string[]> {
+async function chainLines(sym: string, sector: string, registry?: Reg): Promise<string[]> {
   const c = SECTOR_CHAIN[sector];
   if (!c) return [];
   const peers = Object.entries(TICKER_SECTOR).filter(([t, s]) => s === sector && t !== sym).map(([t]) => t);
@@ -168,7 +208,9 @@ async function chainLines(sym: string, sector: string): Promise<string[]> {
 
   const row = (m: Commodity, id: string) => {
     const p = prices[id];
-    return `| ${m.name} | ${m.unit} | ${p?.now ?? "n/a"} | ${p?.ytd ?? "n/a"} | ${p?.yoy ?? "n/a"} | ${p?.link ?? m.source} |`;
+    const ref = (registry && p?.link) ? ` ${registry.add(p.label, p.link)}` : "";
+    const src = p?.link || m.source;
+    return `| ${m.name} | ${m.unit} | ${p?.now ?? "n/a"}${ref} | ${p?.ytd ?? "n/a"} | ${p?.yoy ?? "n/a"} | ${src} |`;
   };
   if (c.inputs.length) {
     out.push(`\n### ⬇️ ĐẦU VÀO (chi phí — giá tăng làm GIẢM biên lợi nhuận)`);
@@ -184,7 +226,7 @@ async function chainLines(sym: string, sector: string): Promise<string[]> {
     out.push(`\n### 🌐 YẾU TỐ VĨ MÔ tác động`);
     for (const d of c.macro) out.push(`- **${d.factor}** (${d.sign === "+" ? "thuận chiều ↑" : "ngược chiều ↓"}): ${d.mechanism}`);
   }
-  out.push(`\n> Cơ chế biên LN: chi phí đầu vào ↑ → biên ↓; giá đầu ra ↑ → LN ↑. So sánh %YTD/%YoY để biết xu hướng: input GIẢM + output TĂNG = biên nở (tốt). Cột "cần web_search" (than cốc/thép xây dựng nội địa/urea/cước biển) hãy dùng tool web_search nguồn chuyên ngành (VSA/Trading Economics) để bổ sung số.`);
+  out.push(`\n> Cơ chế biên LN: chi phí đầu vào ↑ → biên ↓; giá đầu ra ↑ → LN ↑. So sánh %YTD/%YoY: input GIẢM + output TĂNG = biên nở (tốt). Mỗi con số có [ref:N] nguồn click được ở cột Giá.`);
   return out;
 }
 
@@ -226,9 +268,9 @@ export function valueChainFrame(symbol: string, appSectorName?: string): string 
 }
 
 /** Báo cáo chuỗi giá trị + GIÁ THẬT cho 1 mã. Trả "" nếu ngành không gắn chuỗi hàng hóa (vd ngân hàng/CN tech). */
-export async function valueChainReport(_sb: unknown, symbol: string, appSectorName?: string): Promise<string> {
+export async function valueChainReport(_sb: unknown, symbol: string, appSectorName?: string, registry?: Reg): Promise<string> {
   const sym = symbol.toUpperCase().trim();
   const sector = resolveSector(sym, appSectorName);
   if (!sector) return "";
-  return (await chainLines(sym, sector)).join("\n");
+  return (await chainLines(sym, sector, registry)).join("\n");
 }
