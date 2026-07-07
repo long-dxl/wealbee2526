@@ -1,7 +1,7 @@
 /**
  * TickerDetailPage — Trang chi tiết mã cổ phiếu
  * UI theo template wealbee-platform-main/TickerDetail.tsx
- * Data thật từ Supabase: prices_daily, tickers, financials_annual,
+ * Data thật từ Supabase: prices_daily, tickers, financial_statements, financial_ratios,
  *   dividends, insider_transactions, market_news, market_indices
  */
 

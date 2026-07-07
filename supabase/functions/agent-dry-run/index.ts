@@ -7,7 +7,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { financialReport, TYPE_LABEL } from "../_shared/financial-report.ts";
+import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
 
 const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
@@ -42,7 +42,7 @@ async function buildFinancialsContext(symbol: string, registry: SourceRegistry):
   const sym = symbol.toUpperCase();
   const lines: string[] = [`\n## Dữ liệu tài chính: ${sym}`];
 
-  // Báo cáo tài chính chi tiết: IS/BS/CF + chỉ số RIÊNG theo loại hình + KQKD quý gần nhất
+  // Báo cáo tài chính: IS/BS/CF + chỉ số RIÊNG theo loại hình (Năm + 5 Quý gần nhất)
   try {
     const { data: tk } = await sb.from("tickers").select("company_type").eq("symbol", sym).single();
     const ctype = tk?.company_type ?? "normal";
@@ -53,45 +53,6 @@ async function buildFinancialsContext(symbol: string, registry: SourceRegistry):
       lines.push(report);
     } else {
       lines.push(`\n*Không có số liệu tài chính chi tiết cho ${sym} trong hệ thống. Không được tự ước tính các chỉ số tài chính.*`);
-    }
-  } catch { /* ignore */ }
-
-  try {
-    const { data: divs } = await sb
-      .from("dividends")
-      .select("ex_date,dividend_type,amount,payment_date")
-      .eq("symbol", sym)
-      .order("ex_date", { ascending: false })
-      .limit(6);
-
-    if (divs?.length) {
-      const ref = registry.add("Cổ tức", faUrl(sym));
-      lines.push(`\n### Lịch sử cổ tức ${ref}`);
-      for (const d of divs) {
-        const typeLabel = d.dividend_type === "cash" ? "tiền mặt" : "cổ phiếu";
-        const amtLabel  = d.dividend_type === "cash"
-          ? `${Number(d.amount).toLocaleString("vi-VN")} đ/CP`
-          : `${(Number(d.amount) * 100).toFixed(1)}%`;
-        lines.push(`- ${d.ex_date}: ${typeLabel} ${amtLabel}${d.payment_date ? ` (thanh toán ${d.payment_date})` : ""}`);
-      }
-    }
-  } catch { /* ignore */ }
-
-  try {
-    const { data: ins } = await sb
-      .from("insider_transactions")
-      .select("trade_date,insider_name,trade_type,volume")
-      .eq("symbol", sym)
-      .order("trade_date", { ascending: false })
-      .limit(8);
-
-    if (ins?.length) {
-      const ref = registry.add("Insider", faUrl(sym));
-      lines.push(`\n### Giao dịch nội bộ gần đây ${ref}`);
-      for (const t of ins) {
-        const vol = t.volume ? `${Number(t.volume).toLocaleString("vi-VN")} CP` : "";
-        lines.push(`- ${t.trade_date}: ${t.insider_name} **${t.trade_type === "buy" ? "MUA" : "BÁN"}** ${vol}`);
-      }
     }
   } catch { /* ignore */ }
 
@@ -121,6 +82,24 @@ async function buildFinancialsContext(symbol: string, registry: SourceRegistry):
   } catch { /* ignore */ }
 
   return lines.length > 1 ? lines.join("\n") : `\nKhông có dữ liệu tài chính cho ${sym} trong DB.`;
+}
+
+// ── Build insider context (tool: insider_trades) — cổ tức + giao dịch nội bộ ──
+
+async function buildInsiderContext(symbol: string, registry: SourceRegistry): Promise<string> {
+  const sym = symbol.toUpperCase();
+  const lines: string[] = [`\n## Cổ tức & Giao dịch nội bộ: ${sym}`];
+
+  const report = await insiderReport(sb, sym);
+  if (report.trim()) {
+    const ref = registry.add("Nội bộ", faUrl(sym));
+    lines.push(`${ref}`);
+    lines.push(report);
+  } else {
+    lines.push(`\n*Không có dữ liệu cổ tức/giao dịch nội bộ cho ${sym}.*`);
+  }
+
+  return lines.length > 1 ? lines.join("\n") : "";
 }
 
 // ── Anti-hallucination grounding rules (identical to run-agent) ───────────────
@@ -327,6 +306,7 @@ async function runDeepResearchDry(
   rawSystemPrompt: string,
   targetSymbol: string,
   model: string,
+  tools?: string[],
 ): Promise<{ output: string; tokensUsed: number; refs: Array<{ index: number; label: string; url: string }> }> {
   const sym = targetSymbol.toUpperCase();
 
@@ -337,9 +317,12 @@ async function runDeepResearchDry(
     ? rawSystemPrompt.replace(/^__TARGET_SYMBOL__:[^\n]*\n\n?/, "").trim()
     : rawSystemPrompt.trim();
 
-  // Fetch real data from DB
+  // Fetch real data from DB — gate theo `tools` giống hệt run-agent, để "Chạy thử"
+  // phản ánh đúng những gì "Chạy ngay" sẽ làm (trước đây gọi vô điều kiện, không gate).
   const registry = new SourceRegistry();
-  const financialsCtx = await buildFinancialsContext(sym, registry);
+  const enabledTools = tools ?? [];
+  const financialsCtx = enabledTools.includes("financials") ? await buildFinancialsContext(sym, registry) : "";
+  const insiderCtx = enabledTools.includes("insider_trades") ? await buildInsiderContext(sym, registry) : "";
 
   // Build grounded system prompt (same pattern as run-agent)
   const groundedSystemPrompt = cleanPrompt + GROUNDING_RULES + `
@@ -348,7 +331,7 @@ async function runDeepResearchDry(
 NGUỒN DỮ LIỆU XÁC NHẬN — CHỈ DÙNG CÁC SỐ LIỆU NÀY
 Ngày phân tích: ${new Date().toLocaleDateString("vi-VN", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Ho_Chi_Minh" })}
 ═══════════════════════════════════════
-${financialsCtx}
+${financialsCtx}${insiderCtx}
 ═══════════════════════════════════════
 HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PHẦN TRÊN
 ═══════════════════════════════════════`;
@@ -487,7 +470,7 @@ Deno.serve(async (req) => {
     const prompt = systemPrompt ?? "Bạn là chuyên gia phân tích chứng khoán Việt Nam. Phân tích mã __TARGET_SYMBOL__.";
     const t0 = Date.now();
     try {
-      const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDeepResearchDry(prompt, targetSymbol, gptModel);
+      const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDeepResearchDry(prompt, targetSymbol, gptModel, tools);
       await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
       const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử deep_research", cachedIn);
       return new Response(JSON.stringify({ output, tokensUsed, targetSymbol, refs, ...charge }), {
