@@ -115,7 +115,18 @@ def parse_detail(session: requests.Session, item: dict) -> dict | None:
     og = soup.select_one('meta[property="og:title"]')
     title = (og.get("content").strip() if (og and og.get("content")) else item["title"]) or item["title"]
 
-    return {**item, "pdf_url": pdf, "title": title}
+    # Ngày ĐĂNG chuẩn: trang chi tiết có "Ngày phát hành: <b>DD/MM/YYYY</b>" — dùng làm report_date
+    # (đáng tin hơn regex ngày trong thân PDF, vốn hay bắt nhầm ngày trong nội dung).
+    publish_date = None
+    mpd = re.search(r"[Nn]g[àa]y\s+ph[áa]t\s+h[àa]nh\s*:?\s*(\d{1,2})/(\d{1,2})/(20\d{2})",
+                    soup.get_text(" ", strip=True))
+    if mpd:
+        try:
+            publish_date = datetime(int(mpd.group(3)), int(mpd.group(2)), int(mpd.group(1))).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+
+    return {**item, "pdf_url": pdf, "title": title, "publish_date": publish_date}
 
 
 def extract_pdf_text(session: requests.Session, pdf_url: str) -> str:
@@ -222,8 +233,9 @@ def extract_metadata(item: dict, text: str) -> dict:
             firm = label
             break
 
-    # ── Ngày báo cáo: parser đa-định-dạng VN (DD/MM/YYYY, ngày..tháng..năm, tháng tên) ──
-    report_date = parse_report_date(text)
+    # ── Ngày báo cáo: ƯU TIÊN "Ngày phát hành" từ trang chi tiết (chuẩn), sau đó mới
+    #    tới parser đa-định-dạng VN trên thân PDF (fallback, hay bắt nhầm ngày nội dung) ──
+    report_date = item.get("publish_date") or parse_report_date(text)
 
     return {"ticker": ticker, "recommendation": reco, "target_price": target,
             "source_firm": firm, "report_date": report_date}
