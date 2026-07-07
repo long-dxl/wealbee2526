@@ -19,22 +19,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: SSH vào VM → pull + cài deps + restart
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: 35.224.47.153
-          username: pminh7794
-          key: ${{ secrets.VM_SSH_KEY }}
-          command_timeout: 10m
-          script: |
-            set -e
-            echo "▶ Pull code mới nhất (origin/main)…"
-            sudo -u wealbee git -C /opt/wealbee fetch --all --prune
-            sudo -u wealbee git -C /opt/wealbee reset --hard origin/main
-            echo "▶ Commit hiện tại:"; sudo -u wealbee git -C /opt/wealbee log --oneline -1
-            echo "▶ Cài đặt dependencies (nếu có thay đổi)…"
-            sudo -u wealbee /opt/wealbee/.venv/bin/pip install -q -r /opt/wealbee/kg-stock-vn/requirements.txt
-            echo "▶ Restart services…"
-            sudo systemctl restart wealbee-brain wealbee-scheduler
-            sleep 3
-            echo "▶ Trạng thái:"
-            sudo systemctl is-active wealbee-brain wealbee-scheduler
+        env:
+          VM_SSH_KEY_B64: ${{ secrets.VM_SSH_KEY_B64 }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          echo "$VM_SSH_KEY_B64" | base64 -d > ~/.ssh/vm_key
+          chmod 600 ~/.ssh/vm_key
+          ssh -i ~/.ssh/vm_key -o StrictHostKeyChecking=no -o ConnectTimeout=25 \
+            pminh7794@35.224.47.153 'bash -s' <<'EOF'
+          set -e
+          echo "▶ Pull code mới nhất (origin/main)…"
+          sudo -u wealbee git -C /opt/wealbee fetch --all --prune
+          sudo -u wealbee git -C /opt/wealbee reset --hard origin/main
+          echo "▶ Commit hiện tại:"; sudo -u wealbee git -C /opt/wealbee log --oneline -1
+          echo "▶ Cài đặt dependencies (nếu có thay đổi)…"
+          sudo -u wealbee /opt/wealbee/.venv/bin/pip install -q -r /opt/wealbee/kg-stock-vn/requirements.txt
+          echo "▶ Restart services…"
+          sudo systemctl restart wealbee-brain wealbee-scheduler
+          sleep 3
+          echo "▶ Trạng thái:"
+          sudo systemctl is-active wealbee-brain wealbee-scheduler
+          EOF
