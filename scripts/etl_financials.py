@@ -36,6 +36,15 @@ def _positional():
 ONLY = _positional()
 YEARS_SHOW = {2024, 2025}   # in dry-run cho gọn
 
+def period_end(period, period_type):
+    """Ngày kết thúc kỳ (để cột period_end sort/range đúng ở DB). FY→31/12, QUÝ→cuối quý."""
+    if period_type == "FY":
+        return f"{period}-12-31"
+    if period_type == "QUARTER":
+        q, y = period[1], period.split("/")[1]
+        return f"{y}-{ {'1':'03-31','2':'06-30','3':'09-30','4':'12-31'}[q] }"
+    return period  # CURRENT/TTM: period đã là ngày
+
 def find_file(sym):
     """Tên file có kèm ngày xuất (HOSE _27_06_2026, HNX _04_07_2026...) -> glob theo mã."""
     fs = glob.glob(os.path.join(DIR, f"{sym}_*.xlsx"))
@@ -72,6 +81,9 @@ MAP = {
    "BS_TOTAL_ASSETS":   ["TỔNG CỘNG TÀI SẢN"],
    "BS_CURRENT_LIAB":   ["Nợ ngắn hạn"],
    "BS_TOTAL_DEBT":     ["NỢ PHẢI TRẢ"],
+   "BS_NCI":            ["Lợi ích cổ đông không kiểm soát","Lợi ích của cổ đông thiểu số"],  # để tách VCSH mẹ
+   "BS_BORROW_ST":      ["Vay và nợ thuê tài chính ngắn hạn","Vay ngắn hạn"],                # nợ vay CÓ LÃI (D/E chuẩn)
+   "BS_BORROW_LT":      ["Vay và nợ thuê tài chính dài hạn","Vay dài hạn"],
   },
   "CF": {
    "CF_OPERATING":    ["Lưu chuyển tiền tệ ròng từ các hoạt động sản xuất kinh doanh"],
@@ -111,6 +123,7 @@ MAP = {
    "BANK_PAPER":       ["Phát hành giấy tờ có giá"],
    "BANK_GOV_DEBT":    ["Các khoản nợ chính phủ và NHNN Việt Nam"],
    "BS_TOTAL_DEBT":    ["TỔNG NỢ PHẢI TRẢ"],
+   "BS_NCI":           ["Lợi ích cổ đông không kiểm soát","Lợi ích của cổ đông thiểu số"],
   },
   "CF": {
    "CF_OPERATING": ["Lưu chuyển tiền thuần từ các hoạt động sản xuất kinh doanh"],
@@ -147,6 +160,9 @@ MAP = {
    "BS_CURRENT_LIAB":   ["Nợ phải trả ngắn hạn", "Nợ ngắn hạn"],
    "BS_TOTAL_DEBT":     ["NỢ PHẢI TRẢ"],
    "SEC_MARGIN_LOANS":  ["Các khoản cho vay"],
+   "BS_NCI":            ["Lợi ích cổ đông không kiểm soát","Lợi ích của cổ đông thiểu số"],
+   "BS_BORROW_ST":      ["Vay và nợ thuê tài chính ngắn hạn","Vay ngắn hạn"],
+   "BS_BORROW_LT":      ["Vay và nợ thuê tài chính dài hạn","Vay dài hạn"],
   },
   "CF": {
    "CF_OPERATING": ["Lưu chuyển thuần từ hoạt động kinh doanh"],
@@ -176,6 +192,7 @@ MAP = {
    "BS_TOTAL_ASSETS":   ["TỔNG CỘNG TÀI SẢN"],
    "BS_CURRENT_LIAB":   ["Nợ ngắn hạn", "Nợ phải trả ngắn hạn"],
    "BS_TOTAL_DEBT":     ["NỢ PHẢI TRẢ"],
+   "BS_NCI":            ["Lợi ích cổ đông không kiểm soát","Lợi ích của cổ đông thiểu số"],
   },
   "CF": {
    "CF_OPERATING": ["Lưu chuyển tiền thuần từ hoạt động kinh doanh"],
@@ -284,9 +301,21 @@ def build_statement_rows(sym, ctype, facts, labels):
     for yr in years:
         ta = val(facts,"BS","BS_TOTAL_ASSETS",yr); td = val(facts,"BS","BS_TOTAL_DEBT",yr)
         if ta is not None and td is not None:
+            eq_tot = ta - td
             rows.append(dict(symbol=sym,company_type=ctype,statement="BS",period=str(yr),
                 period_type="FY",item_code="BS_EQUITY",item_label_vi="(derived) TTS - Nợ PT",
-                value=round(ta-td,2),is_derived=True))
+                value=round(eq_tot,2),is_derived=True))
+            # VCSH cổ đông MẸ = VCSH tổng − lợi ích cổ đông thiểu số (NCI) → dùng cho ROE chuẩn
+            nci = val(facts,"BS","BS_NCI",yr) or 0
+            rows.append(dict(symbol=sym,company_type=ctype,statement="BS",period=str(yr),
+                period_type="FY",item_code="BS_EQUITY_PARENT",item_label_vi="(derived) VCSH cổ đông mẹ",
+                value=round(eq_tot-nci,2),is_derived=True))
+        # Nợ vay CÓ LÃI = vay NH + vay DH (D/E tài chính, tách khỏi tổng nợ phải trả)
+        bst = val(facts,"BS","BS_BORROW_ST",yr); blt = val(facts,"BS","BS_BORROW_LT",yr)
+        if bst is not None or blt is not None:
+            rows.append(dict(symbol=sym,company_type=ctype,statement="BS",period=str(yr),
+                period_type="FY",item_code="BS_INTEREST_DEBT",item_label_vi="(derived) Nợ vay NH+DH",
+                value=round((bst or 0)+(blt or 0),2),is_derived=True))
         # IS_OPERATING_PROFIT = direct (CK) else LNTT - (other_income - other_expense)
         direct = val(facts,"IS","IS_OPERATING_DIRECT",yr)
         pretax = val(facts,"IS","IS_PRETAX",yr)
@@ -321,21 +350,39 @@ def build_ratio_rows(sym, ctype, facts):
     for yr in years:
         ta = g("BS","BS_TOTAL_ASSETS",yr); td = g("BS","BS_TOTAL_DEBT",yr)
         eq = (ta-td) if (ta is not None and td is not None) else None
+        nci = g("BS","BS_NCI",yr) or 0
+        eq_par = (eq - nci) if eq is not None else None          # VCSH cổ đông MẸ (cho ROE)
+        _bst=g("BS","BS_BORROW_ST",yr); _blt=g("BS","BS_BORROW_LT",yr)   # nợ vay có lãi (D/E, ROIC)
+        idebt = ((_bst or 0)+(_blt or 0)) if (_bst is not None or _blt is not None) else None
         npp = g("IS","IS_NET_PROFIT_PARENT",yr) or g("IS","IS_NET_PROFIT",yr)
+        net_tot = g("IS","IS_NET_PROFIT",yr)                     # LNST tổng (gồm NCI) cho ROA
         rev = g("IS","IS_REVENUE",yr) or g("IS","BANK_TOI",yr)   # bank revenue = TOI
         pretax = g("IS","IS_PRETAX",yr); inte = g("IS","IS_INTEREST_EXPENSE",yr)
         ebit = (pretax + abs(inte)) if (pretax is not None and inte is not None) else None
-        R = {}
-        R["ROE"]            = (div(npp,eq), "pct")
-        R["ROA"]            = (div(npp,ta), "pct")
-        R["DEBT_TO_EQUITY"] = (div(td,eq), "x")
+        # Bình quân đầu-cuối kỳ (chuẩn quốc tế cho ROE/ROA); thiếu kỳ trước → dùng cuối kỳ
+        ta_p = g("BS","BS_TOTAL_ASSETS",yr-1); td_p = g("BS","BS_TOTAL_DEBT",yr-1)
+        eq_p = (ta_p-td_p) if (ta_p is not None and td_p is not None) else None
+        eqpar_p = (eq_p - (g("BS","BS_NCI",yr-1) or 0)) if eq_p is not None else None
+        eqpar_avg = ((eq_par+eqpar_p)/2) if (eq_par is not None and eqpar_p is not None) else eq_par
+        ta_avg = ((ta+ta_p)/2) if (ta is not None and ta_p is not None) else ta
+        rev_ok = (rev is not None and rev > 0)   # biên LN vô nghĩa nếu DT ≤0
+        R = {}; flagged = {}   # flagged[code]=na_reason -> emit dòng NULL để ghi đè số rác cũ
+        R["ROE"]            = (div(npp,eqpar_avg), "pct")   # LN cổ đông mẹ / VCSH mẹ BÌNH QUÂN
+        R["ROA"]            = (div(net_tot,ta_avg), "pct")  # LNST tổng / TTS BÌNH QUÂN (khớp tầng)
+        R["DEBT_TO_EQUITY"] = (div(td,eq), "x")             # Nợ PHẢI TRẢ / VCSH (cơ cấu vốn)
+        if idebt is not None and eq:                        # Nợ VAY có lãi / VCSH (đòn bẩy tài chính)
+            R["DEBT_TO_EQUITY_IB"] = (div(idebt,eq), "x")
         R["NET_MARGIN"]     = (div(npp,rev), "pct")
         R["ASSET_TURNOVER"] = (div(rev,ta), "x")
-        # Tăng trưởng YoY
+        # Tăng trưởng YoY chỉ có nghĩa khi gốc DƯƠNG; gốc ≤0 → đảo dấu vô nghĩa → NULL+lý do
         rev_p=g("IS","IS_REVENUE",yr-1) or g("IS","BANK_TOI",yr-1)
         npp_p=g("IS","IS_NET_PROFIT_PARENT",yr-1) or g("IS","IS_NET_PROFIT",yr-1)
-        if rev_p and rev is not None: R["REVENUE_GROWTH"]=(div(rev-rev_p,rev_p),"pct")
-        if npp_p and npp is not None: R["NET_PROFIT_GROWTH"]=(div(npp-npp_p,npp_p),"pct")
+        if rev is not None and rev_p is not None:
+            if rev_p > 0: R["REVENUE_GROWTH"]=(div(rev-rev_p,rev_p),"pct")
+            else: flagged["REVENUE_GROWTH"]="negative_base"
+        if npp is not None and npp_p is not None:
+            if npp_p > 0: R["NET_PROFIT_GROWTH"]=(div(npp-npp_p,npp_p),"pct")
+            else: flagged["NET_PROFIT_GROWTH"]="negative_base"
         epsd=g("IS","IS_EPS_DILUTED",yr)
         if epsd: R["EPS_DILUTED"]=(round(epsd,0),"vnd")
         # ROIC (phi tài chính): NOPAT / vốn đầu tư
@@ -343,7 +390,8 @@ def build_ratio_rows(sym, ctype, facts):
             nit=g("IS","IS_NET_PROFIT",yr)
             taxrate=min(max((pretax-nit)/pretax,0),0.4) if (nit is not None and pretax) else 0
             cash=g("BS","BS_CASH",yr) or 0
-            ic=(td+eq-cash) if (td is not None and eq is not None) else None
+            cap_debt = idebt if idebt is not None else td       # vốn đầu tư = nợ VAY + VCSH - tiền
+            ic=(cap_debt+eq-cash) if (cap_debt is not None and eq is not None) else None
             R["ROIC"]=(div(ebit*(1-taxrate),ic),"pct")
         gp = g("IS","IS_GROSS_PROFIT",yr)
         R["GROSS_MARGIN"]   = (div(gp,rev), "pct")
@@ -403,10 +451,35 @@ def build_ratio_rows(sym, ctype, facts):
             if claim is not None and prem: R["CLAIM_RATIO"]=(div(abs(claim),prem),"pct")
             # Combined ratio = 1 - LN thuần nghiệp vụ / phí thuần (>100% = lỗ nghiệp vụ)
             if uw is not None and prem: R["COMBINED_RATIO"]=(round(1-uw/prem,4),"pct")
+        # ── Guard mẫu số: ratio trên VCSH≤0 / DT≤0 là KHÔNG XÁC ĐỊNH → NULL+lý do ──
+        if eqpar_avg is not None and eqpar_avg <= 0 and "ROE" in R:
+            R["ROE"]=(None,"pct"); flagged["ROE"]="negative_equity"
+        if eq is not None and eq <= 0 and "ROIC" in R:
+            R["ROIC"]=(None,"pct"); flagged["ROIC"]="negative_equity"
+        if rev is not None and not rev_ok:
+            for c in ("NET_MARGIN","GROSS_MARGIN","OPERATING_MARGIN"):
+                if c in R: R[c]=(None,"pct"); flagged[c]="non_positive_revenue"
+        # Cap biên LN "không đại diện": DT dương nhưng quá nhỏ so với LN (holdco, LN từ tài chính)
+        for c in ("NET_MARGIN","OPERATING_MARGIN"):
+            v=R.get(c,(None,))[0]
+            if v is not None and abs(v)>2:   # >200% → DT không đại diện cho quy mô LN
+                R[c]=(None,"pct"); flagged[c]="revenue_not_representative"
+        gv=R.get("GROSS_MARGIN",(None,))[0]
+        if gv is not None and (gv>1.05 or gv<-1):   # LN gộp không thể vượt DT
+            R["GROSS_MARGIN"]=(None,"pct"); flagged["GROSS_MARGIN"]="data_anomaly"
+        # ROE/ROIC |>300%| = mẫu số gần 0 (VCSH kiệt / net-cash IC bé) → artifact, không phải suất sinh lời thật
+        for c in ("ROE","ROIC"):
+            v=R.get(c,(None,))[0]
+            if v is not None and abs(v)>3:
+                R[c]=(None,"pct"); flagged[c]="outlier_small_denominator"
         for code,(v,unit) in R.items():
             if v is None: continue
             out.append(dict(symbol=sym,company_type=ctype,period=str(yr),period_type="FY",
-                ratio_code=code,value=v,unit=unit,formula_version="v1"))
+                ratio_code=code,value=v,unit=unit,formula_version="v1",na_reason=None))
+        # Emit dòng NULL cho ratio bị gắn cờ (ghi đè giá trị rác đã lưu trước đó)
+        for code,reason in flagged.items():
+            out.append(dict(symbol=sym,company_type=ctype,period=str(yr),period_type="FY",
+                ratio_code=code,value=None,unit="pct",formula_version="v1",na_reason=reason))
     return out
 
 # ─── Tickers helpers (đăng ký mã mới cho sàn HNX/UPCOM) ──────────────────────
@@ -477,6 +550,8 @@ def main():
                     if rs: print(f"  [{yr}] "+"  ".join(f"{k}={v}" for k,v in sorted(rs.items())))
         except Exception as e:
             print(f"  FAIL {s}: {e}")
+    for r in all_stmt: r["period_end"] = period_end(r["period"], r["period_type"])
+    for r in all_ratio: r["period_end"] = period_end(r["period"], r["period_type"])
     print(f"\nTỔNG: statements={len(all_stmt)}  ratios={len(all_ratio)}  | phân loại={bytype}")
     if not WRITE:
         print("\n[DRY-RUN] chưa ghi. Thêm --write (sau khi apply migration).")

@@ -141,12 +141,13 @@ def main():
            "PB":(div(mcap,f["equity"]),"x"),
            "PS":(div(mcap, rev_ttm or f["revenue"]),"x"),
            "BVPS":(round(f["equity"]/shares,0) if (f["equity"] and shares) else None,"vnd"),
-           "FCF_YIELD":(div(f["fcf"]*1e9 if f["fcf"] else None,mcap),"pct") if f["fcf"] else (None,None),
+           "FCF_YIELD":(div(f["fcf"],mcap),"pct") if f["fcf"] else (None,None),  # CF_FCF đã là VND, cùng đơn vị mcap → KHÔNG nhân 1e9
            "DIVIDEND_YIELD":(div(divs.get(s),price) if divs.get(s) else None,"pct")}
         for code,(val,unit) in R.items():
             if val is None: continue
             out.append(dict(symbol=s,company_type=ctmap.get(s) or "normal",period=ASOF,
-                period_type="CURRENT",ratio_code=code,value=val,unit=unit,formula_version="v1"))
+                period_type="CURRENT",ratio_code=code,value=val,unit=unit,formula_version="v1",
+                period_end=ASOF))   # CURRENT: period = period_end = ngày chốt
         if not ALL and len(syms)<=6:
             print(f"  {s}: giá={round(price)} PE(TTM)={R['PE'][0]} PE(FY{f['fy']})={R['PE_FY'][0]} PB={R['PB'][0]} PS={R['PS'][0]} BVPS={R['BVPS'][0]} ttm_np={round((np_ttm or 0)/1e9)}tỷ")
     print(f"\nTỔNG: {len(out)} ratio rows | thiếu giá/fin: {len(miss)} {miss[:10]}")
