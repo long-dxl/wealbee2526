@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import {
   TrendingUp, FileText, Calculator, Newspaper, Globe,
-  Activity, GitBranch, Search, Check, ChevronRight,
+  Activity, GitBranch, Search, Check, ChevronRight, Users,
 } from "lucide-react";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 
@@ -44,16 +44,29 @@ export const tools: Tool[] = [
   },
   {
     id: "financials",
-    name: "BCTC & Nội bộ",
-    oneliner: "Báo cáo tài chính, giao dịch nội bộ và lịch sử cổ tức theo quý/năm",
-    longDescription: "Báo cáo kết quả kinh doanh, bảng cân đối kế toán, lưu chuyển tiền tệ 5 năm gần nhất theo đúng 4 loại hình doanh nghiệp, cùng giao dịch nội bộ và lịch sử cổ tức.",
+    name: "BCTC",
+    oneliner: "Phân tích sâu như Analyst: IS/BS/CF + chỉ số riêng theo 4 loại hình doanh nghiệp",
+    longDescription: "Báo cáo kết quả kinh doanh, bảng cân đối kế toán, lưu chuyển tiền tệ theo cả Năm và 5 Quý gần nhất, kèm chỉ số tài chính RIÊNG theo 4 loại hình (ngân hàng: NIM/CIR/NPL; chứng khoán: margin/VCSH; bảo hiểm: combined ratio; doanh nghiệp thường: ROE/ROA/biên LN).",
     category: "Tài chính",
     icon: FileText,
     backendToolId: "financials",
     breakdown: [
-      { title: "Báo cáo tài chính", desc: "BCKQKD, BCĐKT, LCTTT theo quý/năm, chỉ số riêng theo 4 loại hình doanh nghiệp (ngân hàng, chứng khoán, bảo hiểm, doanh nghiệp thường)." },
-      { title: "Giao dịch nội bộ", desc: "Theo dõi giao dịch mua/bán của ban lãnh đạo, người nội bộ và cổ đông lớn." },
-      { title: "Lịch sử cổ tức", desc: "Lịch sử chi trả cổ tức và tỷ suất cổ tức theo giá hiện tại." },
+      { title: "BCTC theo năm", desc: "Doanh thu, LNST, EPS, ROE… 5 năm gần nhất." },
+      { title: "BCTC 5 quý gần nhất", desc: "So sánh YoY theo quý." },
+      { title: "Chỉ số theo loại hình", desc: "Ngân hàng (NIM/CIR/NPL), chứng khoán, bảo hiểm, doanh nghiệp thường." },
+    ],
+  },
+  {
+    id: "insider-trades",
+    name: "Cổ tức & Giao dịch nội bộ",
+    oneliner: "Lịch sử chi trả cổ tức và giao dịch mua/bán của lãnh đạo, cổ đông nội bộ",
+    longDescription: "Lịch sử chi trả cổ tức (tiền mặt/cổ phiếu) và giao dịch mua/bán của ban lãnh đạo, người nội bộ, cổ đông lớn — dữ liệu tự làm mới hằng ngày cho toàn bộ mã niêm yết.",
+    category: "Tài chính",
+    icon: Users,
+    backendToolId: "insider_trades",
+    breakdown: [
+      { title: "Lịch sử cổ tức", desc: "Chi trả cổ tức tiền mặt/cổ phiếu và tỷ suất theo giá hiện tại." },
+      { title: "Giao dịch nội bộ", desc: "Mua/bán của ban lãnh đạo, người nội bộ và cổ đông lớn (MUA/BÁN)." },
     ],
   },
   {

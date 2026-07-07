@@ -24,5 +24,9 @@ CRON_TZ=Asia/Ho_Chi_Minh
 # Script tự bỏ qua ngoài giờ/lễ/cuối tuần (is_in_session). Phục vụ Top tăng/giảm + heatmap ngành.
 */15 9-11,13-14 * * 1-5 cd __APP__/toolcrawldata && __VENV__/bin/python seed_prices_dnse.py --intraday >> /var/log/wealbee/prices.log 2>&1
 
+# ── CỔ TỨC + GIAO DỊCH NỘI BỘ (VCI) cho TOÀN BỘ mã active trong `tickers`: 1 lần/ngày 16:30 ──
+# seed_financials.py tự đọc mã từ bảng tickers (không cần bảo trì tay); đã bỏ financials_annual.
+30 16 * * *  cd __APP__/toolcrawldata && __VENV__/bin/python seed_financials.py >> /var/log/wealbee/financials.log 2>&1
+
 # Lưu ý: agent theo lịch của NGƯỜI DÙNG do scheduler_local.py (systemd wealbee-scheduler)
 #        tự chạy — KHÔNG đặt ở cron này.
