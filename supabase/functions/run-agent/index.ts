@@ -11,6 +11,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { valueChainReport } from "../_shared/value-chain.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
+import { zaloSend } from "../_shared/zalo.ts";
 import { buildPriceContext, buildNewsContext, faUrl } from "../_shared/market-context.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
@@ -19,6 +20,7 @@ const OPENAI_API_KEY    = Deno.env.get("OPENAI_API_KEY")!;
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const RESEND_API_KEY    = Deno.env.get("RESEND_API_KEY") ?? "";
 const EMAIL_FROM        = Deno.env.get("EMAIL_FROM") ?? "Wealbee <no-reply@wealbee.com>";
+const APP_URL           = Deno.env.get("APP_URL") ?? "https://wealbee.com";
 
 // Studio model ID → { provider, apiModel }
 // Chuẩn hóa toàn hệ thống: mọi lựa chọn model đều chạy gpt-4.1-mini
@@ -724,6 +726,36 @@ function inferImpactScore(output: string, templateId: string): number {
   return Math.min(8, Math.max(-8, net));
 }
 
+// Định dạng output cho Zalo: bỏ markdown/html, giữ chú thích [N], kèm link chi tiết + nguồn. ≤2000 ký tự.
+function buildZaloMessage(
+  agentName: string, title: string, output: string,
+  detailUrl: string, refs: { index: number; label?: string; url: string }[],
+): string {
+  let plain = output
+    .replace(/```[\s\S]*?```/g, "")           // code blocks
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")      // images
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")   // [text](url) → text
+    .replace(/\[ref:(\d+)\]/g, "[$1]")         // giữ chú thích số → [N]
+    .replace(/<[^>]+>/g, "")                    // html tags
+    .replace(/[*_#>`]/g, "")                    // md symbols
+    .replace(/[ \t]+\n/g, "\n")                 // bỏ khoảng trắng cuối dòng
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const header = `🐝 ${agentName}\n${title}\n\n`;
+  const link = detailUrl ? `\n\n🔗 Xem chi tiết: ${detailUrl}` : "";
+  // Nguồn (tối đa 5, URL để Zalo tự nhận link)
+  const uniq = refs.filter((r, i, a) => r.url && a.findIndex(x => x.url === r.url) === i).slice(0, 5);
+  const srcBlock = uniq.length
+    ? `\n\n📎 Nguồn:\n${uniq.map(r => `[${r.index}] ${r.url}`).join("\n")}`
+    : "";
+  const tail = link + srcBlock;
+
+  const budget = 2000 - header.length - tail.length;
+  if (plain.length > budget) plain = plain.slice(0, Math.max(0, budget - 1)).trimEnd() + "…";
+  return header + plain + tail;
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -1320,6 +1352,22 @@ QUY TẮC:
             emit({ type: "step", step: "email_send", status: "error", label: `Lỗi gửi email: ${String(emailErr)}` });
           }
         }
+
+        // ── Đẩy thông báo Zalo (nếu user đã liên kết + bật cảnh báo) ──
+        try {
+          const { data: zl } = await sb.from("zalo_links")
+            .select("chat_id, notify_alert").eq("user_id", user.id).limit(1);
+          const link = zl?.[0];
+          if (link?.chat_id && link.notify_alert) {
+            emit({ type: "step", step: "zalo_send", status: "loading", label: "Đang gửi Zalo..." });
+            const detailUrl = brief?.id ? `${APP_URL}/app/inbox?brief=${brief.id}` : "";
+            const r = await zaloSend(String(link.chat_id), buildZaloMessage(agent.name ?? "Agent", title, fullOutput, detailUrl, regArray));
+            emit({ type: "step", step: "zalo_send", status: r.ok ? "done" : "error", label: r.ok ? "Đã gửi Zalo" : `Lỗi Zalo: ${r.error ?? ""}` });
+          }
+        } catch (zErr) {
+          console.error("Zalo send failed:", zErr);
+        }
+
         // Emit registry (numbered refs) + sources list (reuse already-deduplicated arrays)
         if (regArray.length > 0) {
           emit({ type: "ref_registry", refs: regArray });

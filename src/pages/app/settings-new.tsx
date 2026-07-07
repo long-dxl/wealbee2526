@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Link2, Unlink, Eye, EyeOff, Wallet, Sparkles, Zap, Crown } from "lucide-react";
+import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Link2, Unlink, Eye, EyeOff, Wallet, Sparkles, Zap, Crown, MessageCircle, Copy } from "lucide-react";
 import { useTheme } from "../../lib/theme-context";
 import { supabase } from "../../lib/supabase/client";
 import { getPlanAndBeeny, fmtBeeny, PLAN_LIMITS } from "../../lib/plan-limits";
 import { startCheckout, startPackCheckout } from "../../lib/payment";
 import { logout, deleteAccount } from "../../lib/account";
 import { getTrialAvailable, activateTrial } from "../../lib/trial";
+import { getZaloLink, genZaloCode, setZaloNotify, unlinkZalo, sendZaloTest, ZALO_BOT_LINK, ZALO_BOT_QR, type ZaloLink } from "../../lib/zalo";
 import { TrialGrantedModal } from "../../components/TrialGrantedModal";
 import { useBrokerConfig, type BrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { discoverAccounts } from "../../lib/services/dnse";
@@ -157,6 +158,46 @@ export function Settings() {
     setDeleting(true);
     try { await deleteAccount(); }
     catch (e) { alert(e instanceof Error ? e.message : String(e)); setDeleting(false); }
+  };
+
+  // ── Kết nối Zalo ──
+  const [zaloLink,   setZaloLink]   = useState<ZaloLink | null>(null);
+  const [zaloCode,   setZaloCode]   = useState<string | null>(null);
+  const [zaloBusy,   setZaloBusy]   = useState(false);
+  const [zaloCopied, setZaloCopied] = useState(false);
+  const [zaloTest,   setZaloTest]   = useState<string | null>(null);
+
+  const loadZalo = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) setZaloLink(await getZaloLink(user.id));
+  };
+  useEffect(() => { loadZalo(); }, []);
+
+  const handleGenZaloCode = async () => {
+    setZaloBusy(true); setZaloTest(null);
+    try { setZaloCode(await genZaloCode()); }
+    catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+    finally { setZaloBusy(false); }
+  };
+  const handleUnlinkZalo = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setZaloBusy(true);
+    try { await unlinkZalo(user.id); setZaloLink(null); setZaloCode(null); setZaloTest(null); }
+    catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+    finally { setZaloBusy(false); }
+  };
+  const handleZaloNotify = async (patch: Partial<{ notify_digest: boolean; notify_alert: boolean }>) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !zaloLink) return;
+    setZaloLink({ ...zaloLink, notifyDigest: patch.notify_digest ?? zaloLink.notifyDigest, notifyAlert: patch.notify_alert ?? zaloLink.notifyAlert });
+    try { await setZaloNotify(user.id, patch); } catch (e) { alert(e instanceof Error ? e.message : String(e)); loadZalo(); }
+  };
+  const handleZaloTest = async () => {
+    setZaloBusy(true); setZaloTest(null);
+    const r = await sendZaloTest();
+    setZaloTest(r.ok ? "✅ Đã gửi! Kiểm tra Zalo của bạn." : "❌ " + (r.error ?? "Lỗi"));
+    setZaloBusy(false);
   };
 
   // Quay lại từ SePay: ?payment=success → làm mới gói + báo thành công
@@ -475,6 +516,107 @@ export function Settings() {
                   />
                 </div>
               ))}
+
+              {/* ── Kết nối Zalo ── */}
+              <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid " + borderColor }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 9, background: "#0068FF", flexShrink: 0 }}>
+                    <MessageCircle size={18} color="#fff" strokeWidth={2} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: headingColor }}>Kết nối Zalo</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: subtleColor }}>Nhận digest &amp; cảnh báo ngay trên Zalo</div>
+                  </div>
+                </div>
+
+                {zaloLink ? (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, background: isDark ? "rgba(0,104,255,0.10)" : "rgba(0,104,255,0.06)", border: "1px solid rgba(0,104,255,0.25)", borderRadius: 10, padding: "10px 14px" }}>
+                      <Check size={16} color="#0068FF" strokeWidth={2.5} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: headingColor }}>
+                        Đã kết nối{zaloLink.displayName ? " · " + zaloLink.displayName : ""}
+                      </span>
+                    </div>
+                    {[
+                      { k: "notify_digest" as const, on: zaloLink.notifyDigest, label: "Digest hằng ngày", desc: "Tóm tắt thị trường & agent mỗi ngày" },
+                      { k: "notify_alert"  as const, on: zaloLink.notifyAlert,  label: "Cảnh báo",        desc: "Biến động giá, tin quan trọng" },
+                    ].map(t => (
+                      <div key={t.k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "0.5px solid " + borderColor }}>
+                        <div>
+                          <div style={{ fontSize: 13.5, fontWeight: 600, color: headingColor }}>{t.label}</div>
+                          <div style={{ fontSize: 12.5, color: subtleColor }}>{t.desc}</div>
+                        </div>
+                        <Toggle checked={t.on} onChange={v => handleZaloNotify({ [t.k]: v })} />
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "center", flexWrap: "wrap" }}>
+                      <button onClick={handleZaloTest} disabled={zaloBusy}
+                        style={{ padding: "8px 16px", borderRadius: 9, border: "1px solid " + borderColor, background: "transparent", color: headingColor, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
+                        Gửi tin thử
+                      </button>
+                      <button onClick={handleUnlinkZalo} disabled={zaloBusy}
+                        style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "transparent", color: "#c0392b", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT, display: "flex", alignItems: "center", gap: 6 }}>
+                        <Unlink size={14} /> Huỷ kết nối
+                      </button>
+                      {zaloTest && <span style={{ fontSize: 12.5, fontWeight: 600, color: subtleColor }}>{zaloTest}</span>}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 12 }}>
+                    {!zaloCode ? (
+                      <button onClick={handleGenZaloCode} disabled={zaloBusy}
+                        style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#0068FF", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT, boxShadow: "0 4px 14px rgba(0,104,255,0.28)" }}>
+                        {zaloBusy ? "Đang tạo mã…" : "Kết nối Zalo"}
+                      </button>
+                    ) : (
+                      <div style={{ background: isDark ? "rgba(0,104,255,0.08)" : "rgba(0,104,255,0.05)", border: "1px solid rgba(0,104,255,0.25)", borderRadius: 12, padding: 16, display: "flex", gap: 18, flexWrap: "wrap", alignItems: "flex-start" }}>
+                        {/* Trái: hướng dẫn + mã */}
+                        <div style={{ flex: 1, minWidth: 240 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: headingColor, marginBottom: 8 }}>
+                            Bước 1 — Mở Bot Wealbee trên Zalo
+                          </div>
+                          <a href={ZALO_BOT_LINK} target="_blank" rel="noreferrer"
+                            style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 9, background: "#0068FF", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: FONT, boxShadow: "0 4px 12px rgba(0,104,255,0.25)" }}>
+                            <MessageCircle size={15} /> Mở Bot Wealbee
+                          </a>
+                          <div style={{ fontSize: 12, color: subtleColor, marginTop: 5 }}>Trên máy tính: quét QR bên phải bằng điện thoại →</div>
+
+                          <div style={{ fontSize: 13, fontWeight: 700, color: headingColor, margin: "14px 0 8px" }}>
+                            Bước 2 — Gửi mã này cho bot <span style={{ fontWeight: 600, color: subtleColor }}>(hết hạn 15 phút)</span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ flex: 1, fontFamily: "monospace", fontSize: 26, fontWeight: 800, letterSpacing: "0.18em", color: "#0068FF", textAlign: "center", background: cardBg, borderRadius: 10, padding: "10px 0", border: "1px dashed rgba(0,104,255,0.4)" }}>
+                              {zaloCode}
+                            </div>
+                            <button onClick={() => { navigator.clipboard.writeText(zaloCode); setZaloCopied(true); setTimeout(() => setZaloCopied(false), 1500); }}
+                              title="Sao chép"
+                              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, borderRadius: 10, border: "1px solid " + borderColor, background: "transparent", cursor: "pointer", color: headingColor }}>
+                              {zaloCopied ? <Check size={18} color="#1a7a3a" /> : <Copy size={18} />}
+                            </button>
+                          </div>
+                          <div style={{ display: "flex", gap: 14, marginTop: 12, alignItems: "center" }}>
+                            <button onClick={loadZalo}
+                              style={{ padding: "8px 16px", borderRadius: 9, border: "1px solid " + borderColor, background: "transparent", color: headingColor, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT, display: "flex", alignItems: "center", gap: 6 }}>
+                              <RefreshCw size={14} /> Đã gửi, kiểm tra
+                            </button>
+                            <button onClick={handleGenZaloCode} disabled={zaloBusy}
+                              style={{ padding: "8px 6px", border: "none", background: "transparent", color: subtleColor, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>
+                              Tạo mã mới
+                            </button>
+                          </div>
+                        </div>
+                        {/* Phải: QR */}
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                          <div style={{ background: "#fff", borderRadius: 10, padding: 8, border: "1px solid " + borderColor }}>
+                            <img src={ZALO_BOT_QR} alt="QR Bot Wealbee" width={140} height={140} style={{ display: "block" }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: subtleColor, textAlign: "center", maxWidth: 150 }}>Quét bằng camera Zalo để mở bot</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

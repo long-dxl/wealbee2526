@@ -468,6 +468,7 @@ export function ActionHub({
             Action Hub
           </span>
 
+          {/* Đoạn chat mới (từ PR #4) */}
           <button
             onClick={handleNewChat}
             disabled={messages.length === 0 && contextCards.length === 0}
