@@ -131,9 +131,32 @@ export function MarketPulse({
       const dateStr = new Date(latestRow.date).toLocaleDateString("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit" });
       if (!cancelled) setLastDate(dateStr);
 
-      const { data: prices } = await supabase
-        .from("prices_daily").select("symbol,open,close,volume").eq("date", latestRow.date);
-      if (!prices || cancelled) return;
+      // Cửa sổ 10 ngày thay vì đúng 1 ngày global mới nhất: job realtime trong
+      // phiên chỉ cập nhật HÔM NAY cho VN30 ∪ portfolio (~30 mã), không phủ hết
+      // mọi mã mọi sàn — nếu ép theo đúng 1 ngày global, mã nào (đặc biệt toàn
+      // bộ HNX/UPCOM) chưa có dữ liệu hôm nay sẽ bị loại hẳn khỏi danh sách.
+      // Mỗi mã tự lấy DÒNG MỚI NHẤT CỦA RIÊNG NÓ trong cửa sổ này.
+      const windowCutoff = (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 10);
+        return d.toISOString().slice(0, 10);
+      })();
+      // Tiebreaker phụ (id) bắt buộc: hàng nghìn dòng trùng "date" mỗi ngày,
+      // chỉ order theo date thì Postgres không đảm bảo thứ tự ổn định giữa các
+      // trang .range() → có thể làm rớt hẳn 1 dòng của 1 mã ở ranh giới trang.
+      const rows: any[] = [];
+      for (let from = 0; from < 16000; from += 1000) {
+        const { data } = await supabase.from("prices_daily").select("symbol,date,open,close,volume")
+          .gte("date", windowCutoff).order("date", { ascending: false }).order("id", { ascending: false }).range(from, from + 999);
+        if (!data?.length) break;
+        rows.push(...data);
+        if (data.length < 1000) break;
+      }
+      if (!rows.length || cancelled) return;
+
+      const latestBySym = new Map<string, any>();
+      for (const r of rows) if (!latestBySym.has(r.symbol)) latestBySym.set(r.symbol, r); // rows đã sort date desc
+      const prices = [...latestBySym.values()];
 
       // Filter to only symbols in price data to avoid Supabase 1000-row default limit missing VN30 symbols
       const priceSymbols = prices.map((p: any) => p.symbol);
