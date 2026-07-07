@@ -1,32 +1,81 @@
 /**
- * dashboard-highlight — Tổng hợp điểm nổi bật từ briefs của user.
- * Kết quả được cache vào bảng dashboard_highlights.
- * Chỉ gọi LLM khi có brief mới hơn lần tổng hợp cuối.
+ * dashboard-highlight — Điểm nổi bật + Ý nghĩa với danh mục + Cần theo dõi.
+ *
+ * THIẾT KẾ: KHÔNG gọi LLM. Toàn bộ dựa trên dữ liệu đã được 1 pipeline riêng
+ * (news-scoring job) chấm điểm sẵn trong `market_news` (label, impact_score,
+ * news_type, affected_symbols) — đọc lại hoàn toàn miễn phí, và nhanh hơn hẳn
+ * so với chờ round-trip LLM (vài trăm ms so với 2-5s).
+ *
+ * Cân bằng chiều +/- khi xếp hạng (pickBalanced) và lọc trùng tiêu đề
+ * (dedupeByTitle, kể cả loại trùng giữa "Điểm nổi bật" và "Cần theo dõi") để
+ * tránh 1 câu chuyện chiếm nhiều suất hiển thị hoặc chỉ thấy 1 chiều rủi ro.
  *
  * POST (authenticated)
- * Body: { market: { gainers, losers, indices }, force?: boolean }
  * Response: {
- *   headlines, deep_summary, deep_brief_id,
- *   portfolio_impacts, watchlist_items,
- *   brief_refs, from_briefs, from_cache, generated_at
+ *   highlights: { title, source_name, source_url, impact_score, symbols, published_at }[]
+ *   portfolio_insights: { symbol, price, pct, insight, insight_source, source_url, insight_at }[]
+ *   watchlist: { title, source_name, source_url, impact_score, news_type, published_at }[]
+ *   generated_at
  * }
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY")!;
-const SUPABASE_URL   = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Service-role client (bypasses RLS) để ghi cache
 const sbAdmin = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-interface Headline { text: string; source_name: string; source_url: string; symbols: string[]; }
+const MACRO_TYPES = ["vi_mo", "vi_mo_dn", "thi_truong", "phap_ly"];
+const NEWS_WINDOW_DAYS = 14;   // cửa sổ tin tức cho insight/watchlist — "không có tin mới thì giữ tin gần nhất"
+const HIGHLIGHT_WINDOW_H = 48; // điểm nổi bật: tin trong 48h gần nhất
+const PRICE_WINDOW_DAYS = 10;
+
+interface NewsRow {
+  title: string; source: string | null; article_url: string | null;
+  impact_score: number | null; news_type: string | null;
+  affected_symbols: string[] | null; published_at: string | null; created_at: string;
+}
+
+// Loại tin trùng tiêu đề (crawl trùng từ nhiều nguồn/nhiều lượt) — giữ dòng có
+// published_at sớm nhất (tin gốc), tránh 1 câu chuyện chiếm nhiều suất hiển thị.
+function dedupeByTitle(rows: NewsRow[]): NewsRow[] {
+  const byKey = new Map<string, NewsRow>();
+  for (const r of rows) {
+    const key = r.title.trim().toLowerCase();
+    const existing = byKey.get(key);
+    if (!existing) { byKey.set(key, r); continue; }
+    const rTime = new Date(r.published_at ?? r.created_at).getTime();
+    const eTime = new Date(existing.published_at ?? existing.created_at).getTime();
+    if (rTime < eTime) byKey.set(key, r);
+  }
+  return [...byKey.values()];
+}
+
+// Chọn top-N cân bằng 2 chiều tích cực/tiêu cực (không để 1 chiều chiếm hết chỉ
+// vì tình cờ |impact_score| lớn hơn) — chuyên gia tài chính cần thấy cả rủi ro
+// lẫn cơ hội, không chỉ chiều nào "ồn ào" hơn hôm đó.
+function pickBalanced(rows: NewsRow[], n: number): NewsRow[] {
+  const pos = rows.filter(r => (r.impact_score ?? 0) > 0).sort((a, b) => (b.impact_score ?? 0) - (a.impact_score ?? 0));
+  const neg = rows.filter(r => (r.impact_score ?? 0) < 0).sort((a, b) => (a.impact_score ?? 0) - (b.impact_score ?? 0));
+  const zero = rows.filter(r => (r.impact_score ?? 0) === 0);
+
+  const half = Math.floor(n / 2);
+  const picked: NewsRow[] = [...pos.slice(0, half), ...neg.slice(0, n - half)];
+  if (picked.length < n) {
+    const used = new Set(picked);
+    const rest = [...pos, ...neg, ...zero]
+      .filter(r => !used.has(r))
+      .sort((a, b) => Math.abs(b.impact_score ?? 0) - Math.abs(a.impact_score ?? 0));
+    picked.push(...rest.slice(0, n - picked.length));
+  }
+  return picked.sort((a, b) => Math.abs(b.impact_score ?? 0) - Math.abs(a.impact_score ?? 0)).slice(0, n);
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -35,293 +84,126 @@ Deno.serve(async (req: Request) => {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...CORS, "Content-Type": "application/json" } });
 
-  const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
-    global: { headers: { Authorization: authHeader } },
-  });
-
+  const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { global: { headers: { Authorization: authHeader } } });
   const { data: { user }, error: authErr } = await sb.auth.getUser();
   if (authErr || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...CORS, "Content-Type": "application/json" } });
 
-  let body: { market?: { gainers?: any[]; losers?: any[]; indices?: any[] }; force?: boolean } = {};
-  try { body = await req.json(); } catch { /* ignore */ }
-  const market = body.market ?? {};
-  const force = body.force === true;
-
-  const ok = (data: object) =>
-    new Response(JSON.stringify(data), { headers: { ...CORS, "Content-Type": "application/json" } });
+  const ok = (data: object) => new Response(JSON.stringify(data), { headers: { ...CORS, "Content-Type": "application/json" } });
 
   try {
-    const since = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
+    const now = Date.now();
+    const newsWindowIso = new Date(now - NEWS_WINDOW_DAYS * 24 * 3600_000).toISOString();
+    const highlightWindowIso = new Date(now - HIGHLIGHT_WINDOW_H * 3600_000).toISOString();
+    const priceWindowStr = new Date(now - PRICE_WINDOW_DAYS * 24 * 3600_000).toISOString().slice(0, 10);
 
-    // ── 1. Tìm brief mới nhất của user ──────────────────────────────────────
-    const { data: latestBriefRow } = await sbAdmin
-      .from("briefs")
-      .select("created_at")
-      .eq("user_id", user.id)
-      .gte("created_at", since)
-      .in("type", ["daily_digest", "deep_research"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+    const { data: holdings } = await sbAdmin.from("portfolio_holdings").select("symbol").eq("user_id", user.id);
+    const portfolioSymbols = [...new Set((holdings ?? []).map((h: any) => h.symbol as string))];
 
-    const latestBriefAt = latestBriefRow?.created_at ?? null;
-
-    // ── 2. Kiểm tra cache ────────────────────────────────────────────────────
-    if (!force && latestBriefAt) {
-      const { data: cached } = await sbAdmin
-        .from("dashboard_highlights")
-        .select("data, latest_brief_at, generated_at")
-        .eq("user_id", user.id)
-        .single();
-
-      if (cached && cached.latest_brief_at === latestBriefAt) {
-        // Cache còn hợp lệ — trả về ngay, không gọi LLM
-        return ok({ ...cached.data, from_cache: true });
-      }
-    }
-
-    // ── 3. Load briefs để tổng hợp ──────────────────────────────────────────
-    const [briefsRes, holdingsRes] = await Promise.all([
-      sbAdmin
-        .from("briefs")
-        .select("id, title, summary, content, type, tickers, sources, created_at")
-        .eq("user_id", user.id)
-        .gte("created_at", since)
-        .in("type", ["daily_digest", "deep_research"])
-        .order("created_at", { ascending: false })
-        .limit(8),
-      sbAdmin
-        .from("portfolio_holdings")
-        .select("symbol")
-        .eq("user_id", user.id),
+    const [priceRes, portfolioNewsRes, reportsRes, highlightNewsRes, macroNewsRes] = await Promise.all([
+      portfolioSymbols.length
+        ? sbAdmin.from("prices_daily").select("symbol,date,close")
+            .in("symbol", portfolioSymbols).gte("date", priceWindowStr)
+            .order("date", { ascending: false }).order("id", { ascending: false })
+        : Promise.resolve({ data: [] as any[] }),
+      // 1 query cho TẤT CẢ mã danh mục (tránh N+1) — overlaps = affected_symbols giao với danh mục
+      portfolioSymbols.length
+        ? sbAdmin.from("market_news").select("title,source,article_url,impact_score,news_type,affected_symbols,published_at,created_at")
+            .neq("label", "trash").not("label", "is", null)
+            .overlaps("affected_symbols", portfolioSymbols)
+            .gte("created_at", newsWindowIso)
+            .order("created_at", { ascending: false }).limit(200)
+        : Promise.resolve({ data: [] as any[] }),
+      portfolioSymbols.length
+        ? sbAdmin.from("analyst_reports").select("ticker,title,source_firm,recommendation,target_price,report_date,pdf_url")
+            .in("ticker", portfolioSymbols).order("report_date", { ascending: false, nullsFirst: false }).limit(100)
+        : Promise.resolve({ data: [] as any[] }),
+      sbAdmin.from("market_news").select("title,source,article_url,impact_score,news_type,affected_symbols,published_at,created_at")
+        .neq("label", "trash").not("label", "is", null)
+        .gte("created_at", highlightWindowIso)
+        .order("created_at", { ascending: false }).limit(200),
+      sbAdmin.from("market_news").select("title,source,article_url,impact_score,news_type,affected_symbols,published_at,created_at")
+        .neq("label", "trash").not("label", "is", null)
+        .in("news_type", MACRO_TYPES)
+        .gte("created_at", highlightWindowIso)
+        .order("created_at", { ascending: false }).limit(200),
     ]);
 
-    const briefs = briefsRes.data ?? [];
-    const portfolioSymbols = (holdingsRes.data ?? []).map((h: any) => h.symbol as string);
-
-    if (!briefs.length) {
-      const result = {
-        headlines: [],
-        deep_summary: null,
-        deep_brief_id: null,
-        portfolio_impacts: buildMarketImpacts(market),
-        watchlist_items: buildWatchlist(market),
-        brief_refs: [],
-        from_briefs: false,
-        from_cache: false,
-        generated_at: new Date().toISOString(),
-      };
-      return ok(result);
+    // ── Giá % hôm nay mỗi mã (mỗi mã tự lấy 2 ngày gần nhất của riêng nó) ──
+    const bySym: Record<string, any[]> = {};
+    (priceRes.data ?? []).forEach((p: any) => (bySym[p.symbol] ??= []).push(p));
+    const priceMap: Record<string, { price: number; pct: number }> = {};
+    for (const sym of Object.keys(bySym)) {
+      const rows = bySym[sym];
+      const latest = rows[0], prev = rows[1];
+      const pct = prev && Number(prev.close) > 0 ? ((Number(latest.close) - Number(prev.close)) / Number(prev.close)) * 100 : 0;
+      priceMap[sym] = { price: Number(latest.close), pct };
     }
 
-    // ── 4. Parse daily_digest → headlines ────────────────────────────────────
-    const headlines: Headline[] = [];
-    let digestBrief: any = null;
-    let deepBrief: any = null;
-
-    for (const b of briefs) {
-      if (b.type === "daily_digest" && !digestBrief) {
-        digestBrief = b;
-        try {
-          const parsed = JSON.parse(b.content ?? "{}");
-          for (const s of (parsed.sections ?? [])) {
-            if (s.type !== "news_card") continue;
-            if (!s.url) continue;
-            const title: string = s.title ?? s.headline ?? "";
-            // Bỏ qua company profile: title bắt đầu bằng "- " hoặc chứa "Hoạt động KD"
-            if (!title || /^[-–—]\s/.test(title) || title.includes("Hoạt động KD")) continue;
-            headlines.push({
-              text: title,
-              source_name: s.source ?? "",
-              source_url: s.url ?? "",
-              symbols: Array.isArray(s.affected_symbols) ? s.affected_symbols : [],
-            });
-            if (headlines.length >= 4) break;
-          }
-        } catch { /* ignore */ }
+    // ── Insight mỗi mã: ưu tiên tin CHUYÊN BIỆT cho đúng mã đó (ít mã được gắn
+    // cùng lúc) trước, impact_score chỉ dùng để xếp hạng NỘI BỘ trong từng nhóm
+    // — tránh tin vĩ mô gắn hàng chục mã cùng lúc (impact_score cao, nhưng
+    // không hề "riêng" cho mã này) luôn thắng và đè lên tin chuyên biệt mới
+    // hơn/liên quan hơn. Fallback: báo cáo phân tích gần nhất.
+    const SPECIFIC_MAX_SYMBOLS = 2;
+    const newsBySym: Record<string, NewsRow[]> = {};
+    dedupeByTitle(portfolioNewsRes.data ?? []).forEach((n: NewsRow) => {
+      for (const s of n.affected_symbols ?? []) {
+        if (portfolioSymbols.includes(s)) (newsBySym[s] ??= []).push(n);
       }
-      if (b.type === "deep_research" && !deepBrief) {
-        deepBrief = b;
-      }
-    }
+    });
+    const reportBySym: Record<string, any> = {};
+    (reportsRes.data ?? []).forEach((r: any) => { if (!reportBySym[r.ticker]) reportBySym[r.ticker] = r; }); // đã order desc report_date
 
-    // ── 5. Extract deep_research summary ─────────────────────────────────────
-    let deepSummary: string | null = null;
-    if (deepBrief) {
-      const rawContent = deepBrief.content ?? "";
-
-      const stripMd = (s: string) => s
-        .replace(/\*\*([^*]+)\*\*/g, "$1")
-        .replace(/\*([^*]+)\*/g, "$1")
-        .replace(/\[ref:\d+\]/g, "")
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-        .trim();
-
-      const isGarbage = (s: string) =>
-        !s || s.length < 25 ||
-        /^(Hoạt động KD:|VCB -|HPG -|FPT -|- BCTC|Báo cáo tài chính|Giá cổ phiếu)/.test(s) ||
-        /không phải tư vấn đầu tư|tư vấn đầu tư theo Luật/i.test(s) ||
-        /^"/.test(s) ||    // quoted disclaimer
-        s.includes("| ") || // markdown table
-        s.endsWith(":");   // incomplete label
-
-      // Thử 1: section "### Tóm tắt" trong content
-      const sectionMatch = rawContent.match(/###\s*(?:\d+\.\s*)?(?:Tóm tắt|Executive Summary)[^\n]*\n+([\s\S]{30,400}?)(?=\n###|\n##|$)/i);
-      if (sectionMatch) {
-        const candidate = stripMd(sectionMatch[1])
-          .replace(/^[-•]\s*/gm, "")
-          .replace(/\n+/g, " ")
-          .trim()
-          .slice(0, 260);
-        if (!isGarbage(candidate)) deepSummary = candidate;
-      }
-
-      // Thử 2: summary column — chỉ dùng nếu không có "- " prefix và sạch
-      if (!deepSummary && deepBrief.summary) {
-        const candidate = stripMd(deepBrief.summary)
-          .replace(/^[-•]\s*/, "")
-          .trim();
-        if (!isGarbage(candidate)) deepSummary = candidate.slice(0, 260);
-      }
-
-      // Thử 3: câu văn đầu tiên có nghĩa trong content (không phải list/table/header)
-      if (!deepSummary) {
-        const lines = rawContent.split("\n");
-        for (const line of lines) {
-          const clean = stripMd(line.trim());
-          if (
-            clean.length > 40 &&
-            !clean.startsWith("#") &&
-            !clean.startsWith("-") &&
-            !clean.startsWith("|") &&
-            !clean.startsWith("*") &&
-            !isGarbage(clean) &&
-            clean.includes(" ") // phải là câu hoàn chỉnh
-          ) {
-            // Lấy đến hết câu đầu tiên (dấu chấm)
-            const firstSentenceEnd = clean.search(/[.!?]/);
-            deepSummary = firstSentenceEnd > 20
-              ? clean.slice(0, firstSentenceEnd + 1)
-              : clean.slice(0, 240);
-            break;
-          }
+    const portfolioInsights = portfolioSymbols.map(sym => {
+      const price = priceMap[sym] ?? { price: 0, pct: 0 };
+      const newsForSym = (newsBySym[sym] ?? []).slice().sort((a, b) => {
+        const aSpecific = (a.affected_symbols?.length ?? 99) <= SPECIFIC_MAX_SYMBOLS;
+        const bSpecific = (b.affected_symbols?.length ?? 99) <= SPECIFIC_MAX_SYMBOLS;
+        if (aSpecific !== bSpecific) return aSpecific ? -1 : 1; // tin chuyên biệt luôn ưu tiên trước
+        return Math.abs(b.impact_score ?? 0) - Math.abs(a.impact_score ?? 0);
+      });
+      const topNews = newsForSym[0];
+      let insight: string | null = null, insightSource: string | null = null, sourceUrl: string | null = null, insightAt: string | null = null;
+      if (topNews) {
+        insight = topNews.title;
+        insightSource = topNews.source;
+        sourceUrl = topNews.article_url;
+        insightAt = topNews.published_at ?? topNews.created_at;
+      } else {
+        const rep = reportBySym[sym];
+        if (rep) {
+          insight = rep.title ?? (rep.recommendation && rep.target_price
+            ? `Khuyến nghị ${rep.recommendation}, giá mục tiêu ${Number(rep.target_price).toLocaleString("vi-VN")}đ`
+            : null);
+          insightSource = rep.source_firm ?? "Báo cáo phân tích";
+          sourceUrl = rep.pdf_url ?? null;
+          insightAt = rep.report_date;
         }
       }
-    }
+      return { symbol: sym, price: price.price, pct: price.pct, insight, insight_source: insightSource, source_url: sourceUrl, insight_at: insightAt };
+    }).sort((a, b) => b.pct - a.pct);
 
-    // ── 6. LLM: portfolio_impacts + watchlist_items + deep_summary (nếu cần) ──
-    const headlineCtx = headlines.map(h => `- ${h.text}`).join("\n");
-    const marketCtx = [
-      ...(market.indices ?? []).map((i: any) => `${i.name}: ${i.value?.toLocaleString?.("vi-VN") ?? i.value} (${i.pct >= 0 ? "+" : ""}${i.pct?.toFixed?.(2) ?? ""}%)`),
-      ...(market.gainers ?? []).slice(0, 3).map((g: any) => `Tăng: ${g.symbol} +${g.pct?.toFixed?.(2) ?? ""}%`),
-      ...(market.losers ?? []).slice(0, 3).map((l: any) => `Giảm: ${l.symbol} ${l.pct?.toFixed?.(2) ?? ""}%`),
-    ].join("\n");
-    const portfolioCtx = portfolioSymbols.length
-      ? `Danh mục người dùng: ${portfolioSymbols.join(", ")}`
-      : "Chưa có danh mục";
+    // ── Điểm nổi bật: top tin tác động lớn 48h gần nhất, cân bằng tích cực/tiêu cực, lọc trùng ──
+    const highlightCandidates = dedupeByTitle(highlightNewsRes.data ?? []);
+    const highlights = pickBalanced(highlightCandidates, 4).map((n: NewsRow) => ({
+      title: n.title, source_name: n.source, source_url: n.article_url,
+      impact_score: n.impact_score, symbols: n.affected_symbols ?? [], published_at: n.published_at ?? n.created_at,
+    }));
+    const highlightTitles = new Set(highlights.map(h => h.title.trim().toLowerCase()));
 
-    // Cắt đoạn đầu brief để LLM tóm tắt nếu extraction thủ công không ra kết quả sạch
-    const deepContentCtx = deepBrief
-      ? (deepBrief.content ?? "").slice(0, 1200)
-      : null;
-    const needLlmDeepSummary = !deepSummary && !!deepContentCtx;
-
-    const systemPrompt = `Bạn là AI phân tích tài chính Việt Nam. Dựa vào dữ liệu bên dưới, hãy sinh JSON với các mục:
-1. "portfolio_impacts": mảng 2-3 string — ý nghĩa của tin tức/phân tích với danh mục người dùng
-2. "watchlist_items": mảng 2-3 string — điểm cần theo dõi (rủi ro, sự kiện sắp tới)${needLlmDeepSummary ? `
-3. "deep_summary": string — tóm tắt 1-2 câu ngắn gọn nội dung chính của bản tin phân tích (không phải disclaimer, không phải công thức)` : ""}
-Chỉ trả về JSON. Ngôn ngữ tiếng Việt. KHÔNG khuyến nghị mua/bán.`;
-
-    const userPrompt = [
-      `Thị trường:\n${marketCtx || "(không có)"}`,
-      portfolioCtx,
-      headlineCtx ? `\nTin tức bản tin:\n${headlineCtx}` : "",
-      deepSummary ? `\nDeep Research:\n${deepSummary}` : "",
-      needLlmDeepSummary ? `\nNội dung bản tin phân tích:\n${deepContentCtx}` : "",
-    ].filter(Boolean).join("\n\n");
-
-    let portfolioImpacts: string[] = [];
-    let watchlistItems: string[] = [];
-
-    try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-          max_tokens: 500,
-          temperature: 0.3,
-          response_format: { type: "json_object" },
-        }),
-      });
-      const json = await res.json();
-      const parsed = JSON.parse(json.choices?.[0]?.message?.content ?? "{}");
-      portfolioImpacts = Array.isArray(parsed.portfolio_impacts) ? parsed.portfolio_impacts.slice(0, 3) : [];
-      watchlistItems = Array.isArray(parsed.watchlist_items) ? parsed.watchlist_items.slice(0, 3) : [];
-      if (needLlmDeepSummary && typeof parsed.deep_summary === "string" && parsed.deep_summary.length > 20) {
-        deepSummary = parsed.deep_summary;
-      }
-    } catch { /* fallback below */ }
-
-    if (!portfolioImpacts.length) portfolioImpacts = buildMarketImpacts(market);
-    if (!watchlistItems.length) watchlistItems = buildWatchlist(market);
-
-    // ── 7. Brief refs ────────────────────────────────────────────────────────
-    const briefRefs = briefs.slice(0, 4).map(b => ({
-      id: b.id, title: b.title, type: b.type, created_at: b.created_at,
+    // ── Cần theo dõi: tin vĩ mô/liên ngành tác động lớn, cân bằng dấu, loại trùng
+    // với "Điểm nổi bật" ở trên (tránh 1 tin xuất hiện 2 lần trong cùng 1 card) ──
+    const watchlistCandidates = dedupeByTitle(macroNewsRes.data ?? [])
+      .filter(n => !highlightTitles.has(n.title.trim().toLowerCase()));
+    const watchlist = pickBalanced(watchlistCandidates, 3).map((n: NewsRow) => ({
+      title: n.title, source_name: n.source, source_url: n.article_url,
+      impact_score: n.impact_score, news_type: n.news_type, published_at: n.published_at ?? n.created_at,
     }));
 
-    const result = {
-      headlines,
-      deep_summary: deepSummary,
-      deep_brief_id: deepBrief?.id ?? null,
-      portfolio_impacts: portfolioImpacts,
-      watchlist_items: watchlistItems,
-      brief_refs: briefRefs,
-      from_briefs: true,
-      from_cache: false,
-      generated_at: new Date().toISOString(),
-    };
-
-    // ── 8. Lưu vào cache ─────────────────────────────────────────────────────
-    await sbAdmin.from("dashboard_highlights").upsert({
-      user_id: user.id,
-      data: result,
-      latest_brief_at: latestBriefAt,
-      generated_at: result.generated_at,
-    }, { onConflict: "user_id" });
-
-    return ok(result);
+    return ok({ highlights, portfolio_insights: portfolioInsights, watchlist, generated_at: new Date().toISOString() });
 
   } catch (err) {
     console.error("dashboard-highlight error:", err);
-    return ok({
-      headlines: [],
-      deep_summary: null,
-      deep_brief_id: null,
-      portfolio_impacts: buildMarketImpacts(market),
-      watchlist_items: buildWatchlist(market),
-      brief_refs: [],
-      from_briefs: false,
-      from_cache: false,
-      generated_at: new Date().toISOString(),
-    });
+    return ok({ highlights: [], portfolio_insights: [], watchlist: [], generated_at: new Date().toISOString() });
   }
 });
-
-function buildMarketImpacts(market: any): string[] {
-  const impacts: string[] = [];
-  if ((market.gainers ?? []).length) impacts.push(`${market.gainers[0].symbol} tăng mạnh ${market.gainers[0].pct?.toFixed?.(2)}% — cổ phiếu dẫn sóng phiên hôm nay`);
-  if ((market.indices ?? []).length) impacts.push(`${market.indices[0].name} biến động ${market.indices[0].pct >= 0 ? "+" : ""}${market.indices[0].pct?.toFixed?.(2)}% — ảnh hưởng toàn danh mục`);
-  if (!impacts.length) impacts.push("Chưa có bản tin AI trong 30 ngày. Hãy chạy agent để nhận phân tích tự động.");
-  return impacts;
-}
-
-function buildWatchlist(market: any): string[] {
-  const items: string[] = [];
-  if ((market.losers ?? []).length) items.push(`${market.losers[0].symbol} giảm ${market.losers[0].pct?.toFixed?.(2)}% — theo dõi thanh khoản và ngưỡng hỗ trợ`);
-  if ((market.losers ?? []).length > 1) items.push(`${market.losers[1].symbol} tiếp tục điều chỉnh — kiểm tra ngưỡng kỹ thuật`);
-  if (!items.length) items.push("Theo dõi biến động thị trường và dòng vốn khối ngoại.");
-  return items;
-}

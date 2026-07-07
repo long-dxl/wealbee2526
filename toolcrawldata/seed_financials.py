@@ -1,10 +1,21 @@
 """
-Seed dữ liệu tài chính từ VCI (iq.vietcap.com.vn) vào Supabase.
-Điền 3 bảng: financials_annual, dividends, insider_transactions
-cho 50 mã cổ phiếu tiêu biểu nhất TTCK Việt Nam.
+Seed dividends + insider_transactions từ VCI (iq.vietcap.com.vn) vào Supabase,
+cho TOÀN BỘ mã active trong bảng `tickers` (không giới hạn VN30/48 mã tiêu biểu).
+
+Lưu ý: KHÔNG còn seed `financials_annual` — bảng này đã bị thay thế bởi tầng
+`financial_statements`/`financial_ratios` mới (xem comment trong
+agent-scheduler/index.ts: "thay cho query financials_annual cũ, đông cứng,
+khác số với tầng mới"). Loại bỏ 2 API call/mã (income-statement +
+statistics-financial) vốn không còn ai đọc — giảm ~50% thời gian chạy.
+
+Nguồn: 1 API call/mã (`/v1/events`) trả về TOÀN BỘ sự kiện doanh nghiệp, dùng
+chung cho cả cổ tức (DIV/ISS) và giao dịch nội bộ (DDIND/DDINS) — đã verify
+API phủ tốt cả mã nhỏ/thanh khoản thấp, không giới hạn riêng VN30.
 
 Chạy:
-    python seed_financials.py
+    python seed_financials.py            # cron VPS 1 lần/ngày là đủ dư — cổ
+                                          # tức/giao dịch nội bộ không biến
+                                          # động theo phút như giá.
 """
 
 import sys
@@ -28,25 +39,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 log = logging.getLogger("seed_financials")
-
-SYMBOLS = [
-    # VN30 core (ngân hàng)
-    "VCB", "BID", "CTG", "TCB", "VPB", "MBB", "HDB", "ACB", "VIB", "STB", "TPB", "LPB", "SHB", "EIB",
-    # VN30 core (các ngành khác)
-    "HPG", "VIC", "VHM", "VNM", "GAS", "MSN", "MWG", "FPT", "BVH", "VJC", "SSI", "SAB", "PLX", "VRE",
-    # Bất động sản
-    "NVL", "KDH", "PDR", "BCM",
-    # Chứng khoán
-    "VND", "HCM", "VCI", "BSI",
-    # Hàng hóa & Công nghiệp
-    "DGC", "DCM", "DPM", "GVR", "PHR",
-    # Tiêu dùng & Bán lẻ
-    "PNJ", "REE", "GMD",
-    # Logistics & Cảng
-    "HAH", "PVT",
-    # Tiện ích
-    "BWE", "KBC",
-]
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -76,13 +68,6 @@ def get(url: str) -> dict | None:
 def safe_float(v) -> float | None:
     try:
         return float(v) if v is not None and v != 0.0 else None
-    except (TypeError, ValueError):
-        return None
-
-
-def safe_int(v) -> int | None:
-    try:
-        return int(str(v).replace(",", "")) if v is not None else None
     except (TypeError, ValueError):
         return None
 
@@ -119,83 +104,23 @@ def fetch_all_events(symbol: str) -> list[dict]:
     return data.get("data", {}).get("content", []) or []
 
 
-# ── Bước 1: financials_annual ─────────────────────────────────────────────────
-
-def fetch_financials(symbol: str) -> list[dict]:
-    """
-    Kết hợp income-statement và statistics-financial.
-    income-statement → revenue, net_profit, eps
-    statistics-financial → pe, pb, roe, roa, debtToEquity
-    """
-    # ── income statement ──
-    is_url = f"{BASE}/v1/company/{symbol}/financial-statement?section=INCOME_STATEMENT"
-    is_data = get(is_url)
-    time.sleep(0.3)
-
-    # ── ratios ──
-    rat_url = f"{BASE}/v1/company/{symbol}/statistics-financial"
-    rat_data = get(rat_url)
-    time.sleep(0.3)
-
-    if not is_data and not rat_data:
-        return []
-
-    # Build ratio lookup: year → row
-    rat_by_year: dict[int, dict] = {}
-    if rat_data:
-        for item in rat_data.get("data", []):
-            y = safe_int(item.get("yearReport"))
-            # ratioType="RATIO_TTM" and quarter=1 → annual summary
-            if y and item.get("quarter") == 1:
-                rat_by_year[y] = item
-
-    # Build income lookup: year → row
-    inc_by_year: dict[int, dict] = {}
-    if is_data:
-        years_list = is_data.get("data", {}).get("years", [])
-        for item in years_list:
-            y = safe_int(item.get("yearReport"))
-            if y:
-                inc_by_year[y] = item
-
-    all_years = set(rat_by_year.keys()) | set(inc_by_year.keys())
-    if not all_years:
-        return []
-
-    rows = []
-    for year in sorted(all_years):
-        inc = inc_by_year.get(year, {})
-        rat = rat_by_year.get(year, {})
-
-        # Revenue: isa3 (non-bank net sales) or isb38 (bank total operating income)
-        revenue = safe_float(inc.get("isa3")) or safe_float(inc.get("isb38"))
-        net_profit = safe_float(inc.get("isa20"))
-        eps = safe_float(inc.get("isa23"))
-
-        # Ratios
-        pe     = safe_float(rat.get("pe"))
-        pb     = safe_float(rat.get("pb"))
-        roe    = safe_float(rat.get("roe"))
-        roa    = safe_float(rat.get("roa"))
-        de     = safe_float(rat.get("debtToEquity"))
-
-        rows.append({
-            "symbol":         symbol,
-            "year":           year,
-            "revenue":        revenue,
-            "net_profit":     net_profit,
-            "eps":            eps,
-            "pe_ratio":       pe,
-            "pb_ratio":       pb,
-            "roe":            roe,
-            "roa":            roa,
-            "debt_to_equity": de,
-        })
-
-    return rows
+def get_active_symbols() -> list[str]:
+    """Toàn bộ mã active trong `tickers` — tự động phủ mã mới niêm yết,
+    không cần bảo trì danh sách tay như trước (SYMBOLS hardcode)."""
+    sb = get_client()
+    out, off = set(), 0
+    while True:
+        rows = sb.table("tickers").select("symbol").eq("is_active", True).range(off, off + 999).execute().data
+        if not rows:
+            break
+        out.update(r["symbol"] for r in rows)
+        if len(rows) < 1000:
+            break
+        off += 1000
+    return sorted(out)
 
 
-# ── Bước 2: dividends ─────────────────────────────────────────────────────────
+# ── Dividends ─────────────────────────────────────────────────────────────────
 
 def fetch_dividends(symbol: str, events: list[dict]) -> list[dict]:
     """Lọc DIV events → dividends rows."""
@@ -244,7 +169,7 @@ def fetch_dividends(symbol: str, events: list[dict]) -> list[dict]:
     return rows
 
 
-# ── Bước 3: insider_transactions ──────────────────────────────────────────────
+# ── Insider transactions ────────────────────────────────────────────────────────
 
 def fetch_insider(symbol: str, events: list[dict]) -> list[dict]:
     """Lọc DDIND / DDINS events → insider_transactions rows."""
@@ -301,50 +226,30 @@ def fetch_insider(symbol: str, events: list[dict]) -> list[dict]:
 
 def main():
     sb = get_client()
+    symbols = get_active_symbols()
 
-    total_fin = total_div = total_ins = 0
+    total_div = total_ins = 0
     failed: list[str] = []
 
     log.info("=" * 55)
-    log.info(f"  SEED FINANCIALS — {len(SYMBOLS)} mã cổ phiếu (VCI API)")
+    log.info(f"  SEED DIVIDENDS + INSIDER — {len(symbols)} mã active (VCI API)")
     log.info("=" * 55)
 
-    for i, symbol in enumerate(SYMBOLS, 1):
-        log.info(f"  [{i:02d}/{len(SYMBOLS)}] {symbol}")
+    for i, symbol in enumerate(symbols, 1):
+        log.info(f"  [{i:03d}/{len(symbols)}] {symbol}")
 
-        # ── financials_annual ──
-        try:
-            rows = fetch_financials(symbol)
-            if rows:
-                upsert_batch(sb, "financials_annual", rows, on_conflict="symbol,year")
-                log.info(f"    financials_annual: {len(rows)} năm")
-                total_fin += len(rows)
-            else:
-                log.warning(f"    financials_annual: không có data")
-        except Exception as e:
-            log.error(f"    financials_annual lỗi: {e}")
-            failed.append(f"{symbol}/financials")
-
-        time.sleep(DELAY)
-
-        # ── fetch events once (reuse for dividends + insider) ──
         events: list[dict] = []
         try:
             events = fetch_all_events(symbol)
         except Exception as e:
             log.warning(f"    events lỗi: {e}")
 
-        time.sleep(0.3)
-
         # ── dividends ──
         try:
             rows = fetch_dividends(symbol, events)
             if rows:
                 upsert_batch(sb, "dividends", rows, on_conflict="symbol,ex_date,dividend_type")
-                log.info(f"    dividends: {len(rows)} kỳ")
                 total_div += len(rows)
-            else:
-                log.info(f"    dividends: không có data")
         except Exception as e:
             log.error(f"    dividends lỗi: {e}")
             failed.append(f"{symbol}/dividends")
@@ -354,10 +259,7 @@ def main():
             rows = fetch_insider(symbol, events)
             if rows:
                 upsert_batch(sb, "insider_transactions", rows, on_conflict="symbol,trade_date,insider_name,trade_type")
-                log.info(f"    insider: {len(rows)} giao dịch")
                 total_ins += len(rows)
-            else:
-                log.info(f"    insider: không có data")
         except Exception as e:
             log.error(f"    insider lỗi: {e}")
             failed.append(f"{symbol}/insider")
@@ -365,8 +267,7 @@ def main():
         time.sleep(DELAY)
 
     log.info("=" * 55)
-    log.info(f"  HOÀN THÀNH")
-    log.info(f"  financials_annual    : {total_fin} rows")
+    log.info(f"  HOÀN THÀNH — {len(symbols)} mã")
     log.info(f"  dividends            : {total_div} rows")
     log.info(f"  insider_transactions : {total_ins} rows")
     if failed:

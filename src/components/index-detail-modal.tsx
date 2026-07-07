@@ -54,7 +54,7 @@ function pctFrom(rows: Row[], n: number): number | null {
 export function IndexDetailModal({
   indexCode, name, isDark = false, onClose,
 }: {
-  indexCode: "VNINDEX" | "HNX";
+  indexCode: "VNINDEX" | "HNX" | "VN30" | "UPCOM";
   name: string;
   isDark?: boolean;
   onClose: () => void;
@@ -79,10 +79,10 @@ export function IndexDetailModal({
         .from("market_indices")
         .select("date,open,high,low,close,volume,change_pt,change_pct")
         .eq("index_code", indexCode)
-        .order("date", { ascending: true })
+        .order("date", { ascending: false })
         .limit(400);
       if (!cancelled) {
-        setRows((data as Row[]) || []);
+        setRows(((data as Row[]) || []).slice().reverse());
         setLoading(false);
       }
     })();

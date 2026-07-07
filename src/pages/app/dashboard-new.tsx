@@ -12,13 +12,12 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUpRight, TrendingUp, TrendingDown,
   RefreshCw, Eye, FileText, Sparkles, ChevronDown,
-  AlertTriangle, Lightbulb, ExternalLink, X, BookOpen,
+  AlertTriangle, Lightbulb, Maximize2,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentUser } from "../../lib/hooks/useCurrentUser";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
-import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
-import { MdContent } from "../../components/MdContent";
+import { IndexDetailModal } from "../../components/index-detail-modal";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface MoverRow   { symbol: string; price: number; pct: number; vol: string; isCeil: boolean; isFloor: boolean; }
@@ -149,7 +148,7 @@ const ICB1: Record<string, string> = {
 };
 const toIcb1 = (s: string | null | undefined) => (s && ICB1[s]) || "Khác";
 
-function IndexCard({ idx, isDark, onClick, active }: { idx: IndexState; isDark: boolean; onClick?: () => void; active?: boolean }) {
+function IndexCard({ idx, isDark, onClick, active, onExpand }: { idx: IndexState; isDark: boolean; onClick?: () => void; active?: boolean; onExpand?: () => void }) {
   const isUp = idx.change >= 0;
   const brandC = isDark ? "#4D8FE8" : "#0849AC";
   const maxS = Math.max(...idx.sparkline), minS = Math.min(...idx.sparkline);
@@ -168,12 +167,27 @@ function IndexCard({ idx, isDark, onClick, active }: { idx: IndexState; isDark: 
   return (
     <div draggable onDragStart={handleDragStart} onClick={onClick}
       style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: active ? `0 0 0 2px ${brandC}` : cardShadow, flex: 1, minWidth: 0, cursor: onClick ? "pointer" : "grab", position: "relative", userSelect: "none", border: active ? `2px solid ${brandC}` : "2px solid transparent", boxSizing: "border-box" }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)"; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "1"; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "0"; }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)"; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "1"; const x = (e.currentTarget as HTMLElement).querySelector(".expand-hint") as HTMLElement | null; if (x) x.style.opacity = "1"; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; const h = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (h) h.style.opacity = "0"; const x = (e.currentTarget as HTMLElement).querySelector(".expand-hint") as HTMLElement | null; if (x) x.style.opacity = "0"; }}
       onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
       onDragStartCapture={e => { (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
     >
       <DragHint />
+      {onExpand && (
+        <button
+          className="expand-hint"
+          onClick={e => { e.stopPropagation(); onExpand(); }}
+          title="Xem biểu đồ chi tiết"
+          style={{
+            position: "absolute", bottom: 10, right: 10, width: 22, height: 22, display: "flex",
+            alignItems: "center", justifyContent: "center", borderRadius: 6, border: "none", cursor: "pointer",
+            background: isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.08)", color: fgSubtle,
+            opacity: 0, transition: "opacity 150ms ease",
+          }}
+        >
+          <Maximize2 size={12} strokeWidth={1.8} />
+        </button>
+      )}
       <div style={{ fontSize: 12, color: fgSubtle, fontFamily: "'Montserrat', system-ui, sans-serif", marginBottom: 4, fontWeight: 600, letterSpacing: "0.04em" }}>{idx.name}</div>
       <div style={{ fontSize: 28, fontWeight: 700, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif", marginBottom: 4 }}>{idx.value > 0 ? idx.value.toLocaleString("vi-VN") : "—"}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
@@ -198,38 +212,12 @@ function IndexCard({ idx, isDark, onClick, active }: { idx: IndexState; isDark: 
 interface BriefRow { id: string; title: string; summary: string; type: string; tickers: string[] | null; created_at: string; }
 interface AnalystReport { id: string; ticker: string | null; title: string; source_firm: string | null; recommendation: string | null; target_price: number | null; report_date: string | null; pdf_url: string; }
 
-interface DrawerBrief {
-  id: string; title: string; type: string;
-  date: string; time: string;
-  parsedBrief: BriefOutput | null;
-  rawContent: string;
-  refs: Array<{ index: number; label: string; url: string }>;
-}
-
-function parseBriefContent(content: string): BriefOutput | null {
-  try {
-    const parsed = JSON.parse(content);
-    const candidate = (parsed.sections || parsed.time) ? parsed
-      : Object.values(parsed).find((v) =>
-          v !== null && typeof v === "object" && ("sections" in (v as object) || "time" in (v as object))
-        ) ?? null;
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
-    const brief = candidate as BriefOutput;
-    if (!Array.isArray(brief.sections)) return null;
-    return brief;
-  } catch { return null; }
-}
-interface Headline { text: string; source_name: string; source_url: string; symbols: string[]; }
-interface BriefRef { id: string; title: string; type: string; created_at: string; }
+interface NewsHighlight { title: string; source_name: string | null; source_url: string | null; impact_score: number | null; symbols?: string[]; news_type?: string | null; published_at?: string | null; }
+interface PortfolioInsight { symbol: string; price: number; pct: number; insight: string | null; insight_source: string | null; source_url: string | null; insight_at?: string | null; }
 interface HighlightResult {
-  headlines: Headline[];
-  deep_summary: string | null;
-  deep_brief_id: string | null;
-  portfolio_impacts: string[];
-  watchlist_items: string[];
-  brief_refs: BriefRef[];
-  from_briefs: boolean;
-  from_cache: boolean;
+  highlights: NewsHighlight[];
+  portfolio_insights: PortfolioInsight[];
+  watchlist: NewsHighlight[];
   generated_at: string;
 }
 
@@ -448,24 +436,17 @@ async function fetchAnalystReports(): Promise<AnalystReport[]> {
   return (data ?? []) as AnalystReport[];
 }
 
-async function fetchHighlight(market: { gainers: MoverRow[]; losers: MoverRow[]; marketIndices: IndexState[] }): Promise<HighlightResult | null> {
+async function fetchHighlight(): Promise<HighlightResult | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) return null;
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
   const res = await fetch(`${SUPABASE_URL}/functions/v1/dashboard-highlight`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${session.access_token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ market: { gainers: market.gainers, losers: market.losers, indices: market.marketIndices } }),
+    body: JSON.stringify({}),
   });
   if (!res.ok) return null;
-  const data = await res.json() as HighlightResult;
-  // Filter out company profile headlines (server-side filter may miss edge cases)
-  if (data.headlines) {
-    data.headlines = data.headlines.filter(h =>
-      h.text && !/^[-–—]\s/.test(h.text) && !h.text.includes("Hoạt động KD")
-    );
-  }
-  return data;
+  return await res.json() as HighlightResult;
 }
 
 // ── Dashboard component ─────────────────────────────────────────────────────
@@ -480,32 +461,6 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   const hoverBg     = isDark ? "#1a2438" : "#E8F0FE";
 
   const [marketExpanded, setMarketExpanded] = useState(true);
-  const [drawerBrief, setDrawerBrief]     = useState<DrawerBrief | null>(null);
-  const [drawerLoading, setDrawerLoading] = useState(false);
-
-  async function openBriefDrawer(briefId: string) {
-    setDrawerLoading(true);
-    setDrawerBrief(null);
-    const { data } = await supabase
-      .from("briefs")
-      .select("id, title, type, content, created_at, refs")
-      .eq("id", briefId)
-      .single();
-    if (data) {
-      const d = new Date(data.created_at);
-      setDrawerBrief({
-        id: data.id,
-        title: data.title ?? "",
-        type: data.type ?? "",
-        date: d.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" }),
-        time: d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
-        parsedBrief: parseBriefContent(data.content ?? ""),
-        rawContent: data.content ?? "",
-        refs: Array.isArray(data.refs) ? data.refs : [],
-      });
-    }
-    setDrawerLoading(false);
-  }
 
   // ── Real data state (đồng bộ từ React Query bên dưới — xem useEffect sync) ───
   const [gainers,       setGainers]       = useState<MoverRow[]>([]);
@@ -519,6 +474,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   const [dashNews,      setDashNews]      = useState<NewsItem[]>([]);
   const [watchHoldings, setWatchHoldings] = useState<WatchRow[]>([]);
   const [marketIndices, setMarketIndices] = useState<IndexState[]>([]);
+  const [detailIndex,   setDetailIndex]   = useState<{ code: "VNINDEX" | "HNX" | "VN30" | "UPCOM"; name: string } | null>(null);
   const [briefs,        setBriefs]        = useState<BriefRow[]>([]);
   const [reports,       setReports]       = useState<AnalystReport[]>([]);
   const [highlight,     setHighlight]     = useState<HighlightResult | null>(null);
@@ -550,12 +506,13 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
     staleTime: 60_000,
   });
   const reportsQuery = useQuery({ queryKey: ["dashboard", "reports"], queryFn: fetchAnalystReports, staleTime: 5 * 60_000 });
-  // Highlight THẬT SỰ cần kết quả market nên chờ marketQuery — nhưng chỉ mình nó chờ,
-  // không kéo theo 4 query độc lập kia.
+  // Highlight KHÔNG còn phụ thuộc marketQuery (dashboard-highlight tự truy vấn
+  // giá + tin tức đã chấm điểm sẵn, không tốn LLM) — chạy song song độc lập,
+  // vào nhanh hơn thay vì phải chờ market load xong trước.
   const highlightQuery = useQuery({
-    queryKey: ["dashboard", "highlight"],
-    queryFn: () => fetchHighlight(marketQuery.data!),
-    enabled: !!marketQuery.data,
+    queryKey: ["dashboard", "highlight", userId],
+    queryFn: fetchHighlight,
+    enabled: !!userId,
     staleTime: 60_000,
   });
 
@@ -666,14 +623,10 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: brand, display: "flex", alignItems: "center", gap: 6 }}>
             <Sparkles size={12} strokeWidth={1.5} color={brand} /> ĐIỂM NỔI BẬT HÔM NAY
           </div>
-          {!highlightLoading && highlight?.brief_refs?.[0] && (
-            <button onClick={() => openBriefDrawer(highlight.brief_refs[0].id)}
-              style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)", color: brand }}>
-                {highlight.brief_refs[0].type === "daily_digest" ? "Bản tin hàng ngày" : "Deep Research"} · {relativeTime(highlight.brief_refs[0].created_at)}
-              </span>
-              <ExternalLink size={10} strokeWidth={1.5} color={fgSubtle} />
-            </button>
+          {!highlightLoading && highlight?.generated_at && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: fgSubtle }}>
+              Cập nhật {relativeTime(highlight.generated_at)}
+            </span>
           )}
         </div>
 
@@ -685,103 +638,95 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
             {[100, 90, 85, 70].map((w, i) => (
               <div key={i} style={{ height: 18, borderRadius: 5, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.06)", width: `${w}%` }} />
             ))}
-            <div style={{ fontSize: 12, color: fgSubtle, marginTop: 2 }}>AI đang tổng hợp bản tin của bạn…</div>
           </div>
         )}
 
-        {!highlightLoading && !highlight?.from_briefs && (
+        {!highlightLoading && !highlight?.highlights?.length && !highlight?.portfolio_insights?.length && !highlight?.watchlist?.length && (
           <p style={{ margin: 0, fontSize: 14, color: fgSubtle, textAlign: "center", padding: "12px 0" }}>
-            Chưa có bản tin nào trong 30 ngày · Đặt lịch chạy agent <strong>Tổng hợp Tin tức</strong> để cập nhật mỗi sáng
+            Chưa có tin tức/danh mục để tổng hợp.
           </p>
         )}
 
-        {!highlightLoading && highlight?.from_briefs && (
+        {!highlightLoading && (
           <>
-            {/* Headlines with inline source citations */}
-            {(highlight.headlines ?? []).length > 0 ? (
+            {/* Điểm nổi bật: tin tác động lớn nhất 48h gần nhất + trích nguồn */}
+            {(highlight?.highlights ?? []).length > 0 && (
               <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
-                {highlight.headlines.map((h, i) => (
+                {highlight!.highlights.map((h, i) => (
                   <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 15, color: fg, lineHeight: 1.5 }}>
                     <span style={{ color: brand, marginTop: 2, flexShrink: 0 }}>•</span>
                     <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word", overflowWrap: "break-word" }}>
-                      {h.text}
-                      {h.source_name && (
-                        h.source_url
-                          ? <a href={h.source_url} target="_blank" rel="noopener noreferrer"
-                              style={{ marginLeft: 3, textDecoration: "none" }}
-                              title={`Nguồn: ${h.source_name}`}>
-                              <sup style={{ fontSize: 10, color: brand, fontWeight: 700, textDecoration: "underline" }}>[{h.source_name}]</sup>
-                            </a>
-                          : <button onClick={() => onNavigate("inbox")}
-                              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginLeft: 3 }}>
-                              <sup style={{ fontSize: 10, color: brand, fontWeight: 700, textDecoration: "underline" }}>[{h.source_name}]</sup>
-                            </button>
+                      {h.title}
+                      {h.source_name && h.source_url && (
+                        <a href={h.source_url} target="_blank" rel="noopener noreferrer"
+                          style={{ marginLeft: 3, textDecoration: "none" }}
+                          title={`Nguồn: ${h.source_name}`}>
+                          <sup style={{ fontSize: 10, color: brand, fontWeight: 700, textDecoration: "underline" }}>[{h.source_name}]</sup>
+                        </a>
                       )}
+                      {h.published_at && <span style={{ fontSize: 12, color: fgSubtle, marginLeft: 5 }}>· {relativeTime(h.published_at)} trước</span>}
                     </span>
                   </li>
                 ))}
               </ul>
-            ) : (
-              <p style={{ margin: 0, fontSize: 14, color: fgSubtle }}>
-                {highlight.deep_summary
-                  ? null
-                  : "Không có tin tức thị trường hôm nay · Xem phân tích chi tiết trong bản tin"}
-              </p>
             )}
 
-            {/* Deep Research insight */}
-            {highlight.deep_summary && (
-              <>
-                <div style={{ height: "0.5px", background: divider, margin: "14px 0" }} />
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: "rgba(124,58,237,0.10)", color: "#7C3AED", flexShrink: 0, marginTop: 1 }}>
-                    Deep Research
-                  </span>
-                  <button
-                    onClick={() => highlight.deep_brief_id ? openBriefDrawer(highlight.deep_brief_id) : onNavigate("inbox")}
-                    style={{ background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", flex: 1, minWidth: 0, display: "block", width: "100%" }}>
-                    <span style={{ fontSize: 14, color: fgMuted, lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "break-word", whiteSpace: "normal", display: "block" }}>{highlight.deep_summary}</span>
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* Ý nghĩa với danh mục */}
-            {(highlight.portfolio_impacts ?? []).length > 0 && (
+            {/* Ý nghĩa với danh mục: %giá hôm nay (xanh/đỏ mặc định theo dấu) + insight ngắn từ tin/báo cáo */}
+            {(highlight?.portfolio_insights ?? []).length > 0 && (
               <>
                 <div style={{ height: "0.5px", background: divider, margin: "16px 0" }} />
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6366F1", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
                   <Lightbulb size={12} strokeWidth={1.5} color="#6366F1" /> Ý NGHĨA VỚI DANH MỤC
                 </div>
-                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
-                  {highlight.portfolio_impacts.map((impact, i) => (
-                    <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 15, color: fg, lineHeight: 1.5 }}>
-                      <span style={{ color: "#6366F1", marginTop: 2, flexShrink: 0 }}>•</span>
-                      <span>{impact}</span>
+                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
+                  {highlight!.portfolio_insights.map((p) => (
+                    <li key={p.symbol} style={{ fontSize: 14, lineHeight: 1.8 }}>
+                      {/* Không dùng display:flex ở đây — flex item không tự reflow theo
+                          từ khi wrap (cả span bị đẩy nguyên khối xuống dòng mới), phải
+                          để inline flow tự nhiên như văn bản thường mới "cùng 1 dòng". */}
+                      <span style={{ fontWeight: 700, color: fg, marginRight: 8 }}>{p.symbol}</span>
+                      <span style={{ display: "inline-flex", verticalAlign: "middle", marginRight: 8 }}><PctBadge value={p.pct} /></span>
+                      {p.insight && (
+                        <span style={{ color: fgSubtle }}>
+                          {p.insight}
+                          {p.insight_source && p.source_url && (
+                            <a href={p.source_url} target="_blank" rel="noopener noreferrer"
+                              style={{ marginLeft: 3, textDecoration: "none" }}
+                              title={`Nguồn: ${p.insight_source}`}>
+                              <sup style={{ fontSize: 10, color: brand, fontWeight: 700, textDecoration: "underline" }}>[{p.insight_source}]</sup>
+                            </a>
+                          )}
+                          {/* Mốc thời gian rõ ràng — tránh hiểu nhầm insight cũ là lý do giá đổi HÔM NAY */}
+                          {p.insight_at && <span style={{ fontSize: 12, color: fgSubtle, marginLeft: 5 }}>· {relativeTime(p.insight_at)} trước</span>}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
               </>
             )}
 
-            {/* Cần theo dõi */}
-            {(highlight.watchlist_items ?? []).length > 0 && (
+            {/* Cần theo dõi: tin vĩ mô/liên ngành tác động lớn + trích nguồn */}
+            {(highlight?.watchlist ?? []).length > 0 && (
               <>
                 <div style={{ height: "0.5px", background: divider, margin: "16px 0" }} />
                 <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#FF9500", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
                   <AlertTriangle size={12} strokeWidth={1.5} color="#FF9500" /> CẦN THEO DÕI
                 </div>
                 <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
-                  {highlight.watchlist_items.map((item, i) => (
+                  {highlight!.watchlist.map((w, i) => (
                     <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                       <span style={{ color: "#FF9500", marginTop: 2, flexShrink: 0 }}>•</span>
-                      <span style={{ fontSize: 15, color: fg, lineHeight: 1.5 }}>
-                        {item}{" "}
-                        <button
-                          onClick={() => highlight?.brief_refs?.[0] ? openBriefDrawer(highlight.brief_refs[0].id) : onNavigate("inbox")}
-                          style={{ background: "none", border: "none", color: brand, cursor: "pointer", fontSize: 13, fontFamily: "'Montserrat', system-ui, sans-serif", padding: 0, textDecoration: "underline" }}>
-                          → xem brief
-                        </button>
+                      <span style={{ fontSize: 15, color: fg, lineHeight: 1.5, flex: 1, minWidth: 0, wordBreak: "break-word", overflowWrap: "break-word" }}>
+                        {w.title}
+                        {w.source_name && w.source_url && (
+                          <a href={w.source_url} target="_blank" rel="noopener noreferrer"
+                            style={{ marginLeft: 3, textDecoration: "none" }}
+                            title={`Nguồn: ${w.source_name}`}>
+                            <sup style={{ fontSize: 10, color: brand, fontWeight: 700, textDecoration: "underline" }}>[{w.source_name}]</sup>
+                          </a>
+                        )}
+                        {w.published_at && <span style={{ fontSize: 12, color: fgSubtle, marginLeft: 5 }}>· {relativeTime(w.published_at)} trước</span>}
                       </span>
                     </li>
                   ))}
@@ -817,9 +762,19 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                 : idx.code === "HNX" ? () => { setHnxActive(a => !a); setVn30Active(false); setSelectedSector(null); }
                 : undefined
               }
-              active={(idx.code === "VN30" && vn30Active) || (idx.code === "HNX" && hnxActive)} />)
+              active={(idx.code === "VN30" && vn30Active) || (idx.code === "HNX" && hnxActive)}
+              onExpand={idx.code ? () => setDetailIndex({ code: idx.code as "VNINDEX" | "HNX" | "VN30" | "UPCOM", name: idx.name }) : undefined} />)
           )}
         </div>
+
+        {detailIndex && (
+          <IndexDetailModal
+            indexCode={detailIndex.code}
+            name={detailIndex.name}
+            isDark={isDark}
+            onClose={() => setDetailIndex(null)}
+          />
+        )}
 
         {/* Top Movers */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
@@ -1096,72 +1051,6 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       </div>
 
     </div>
-
-    {/* ── Brief Drawer ────────────────────────────────────────────────────── */}
-    {(drawerLoading || drawerBrief) && (
-      <>
-        {/* Backdrop */}
-        <div
-          onClick={() => { setDrawerBrief(null); setDrawerLoading(false); }}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, backdropFilter: "blur(2px)" }}
-        />
-        {/* Panel */}
-        <div style={{
-          position: "fixed", top: 0, right: 0, bottom: 0,
-          width: "min(740px, 100vw)",
-          background: isDark ? "#131824" : "#fff",
-          zIndex: 201, display: "flex", flexDirection: "column",
-          boxShadow: "-4px 0 32px rgba(0,0,0,0.25)",
-        }}>
-          {/* Drawer header */}
-          <div style={{
-            padding: "14px 20px", borderBottom: `0.5px solid ${divider}`,
-            display: "flex", alignItems: "center", gap: 12, flexShrink: 0,
-          }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: 9, flexShrink: 0,
-              background: drawerBrief?.type === "deep_research"
-                ? "linear-gradient(135deg,#6366F1,#8B5CF6)"
-                : "linear-gradient(135deg,#0849AC,#1a56c8)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              <BookOpen size={14} color="white" strokeWidth={1.5} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: fgSubtle, marginBottom: 1 }}>
-                {drawerBrief?.type === "deep_research" ? "Deep Research" : "Bản tin hàng ngày"}
-                {drawerBrief && ` · ${drawerBrief.date} · ${drawerBrief.time}`}
-              </div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: fg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {drawerLoading ? "Đang tải…" : (drawerBrief?.title ?? "")}
-              </div>
-            </div>
-            <button
-              onClick={() => { setDrawerBrief(null); setDrawerLoading(false); }}
-              style={{ padding: 6, borderRadius: 8, border: `0.5px solid ${divider}`, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", color: fgMuted }}
-            >
-              <X size={16} strokeWidth={1.5} />
-            </button>
-          </div>
-
-          {/* Drawer content */}
-          <div style={{ flex: 1, overflow: "auto", padding: "20px 24px 48px" }}>
-            {drawerLoading && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {[100, 75, 90, 65, 80, 55, 88].map((w, i) => (
-                  <div key={i} style={{ height: 15, borderRadius: 5, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)", width: `${w}%` }} />
-                ))}
-              </div>
-            )}
-            {!drawerLoading && drawerBrief && (
-              drawerBrief.parsedBrief
-                ? <BriefRenderer brief={drawerBrief.parsedBrief} isDark={isDark} />
-                : <MdContent text={drawerBrief.rawContent} refs={drawerBrief.refs} />
-            )}
-          </div>
-        </div>
-      </>
-    )}
     </>
   );
 }
