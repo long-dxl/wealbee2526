@@ -6,6 +6,7 @@ import {
   Zap, Clock, RefreshCw, CheckCircle2, AlertTriangle, Eye,
   Lightbulb, Mail, Inbox, Info, Settings, History, RotateCcw,
   Search, BarChart2, Activity, Globe, Calculator, ArrowRight, Users,
+  MessageCircle, Copy,
 } from "lucide-react";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { MdContent, RichContent } from "../../components/MdContent";
