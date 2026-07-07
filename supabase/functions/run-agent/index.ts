@@ -753,9 +753,17 @@ function buildZaloMessage(
     : "";
   const tail = link + srcBlock;
 
-  const budget = 2000 - header.length - tail.length;
-  if (plain.length > budget) plain = plain.slice(0, Math.max(0, budget - 1)).trimEnd() + "…";
-  return header + plain + tail;
+  // Vừa đủ trong giới hạn Zalo (2000) → gửi FULL. Dài quá → gửi THÔNG BÁO ngắn
+  // (tiêu đề + trích đoạn đầu, không cắt ngang giữa nội dung) + link/nguồn để xem đủ.
+  const full = header + plain + tail;
+  if (full.length <= 2000) return full;
+
+  const notice = "\n\n📄 (Nội dung dài — xem đầy đủ ở 🔗 link bên dưới)";
+  const teaserBudget = 2000 - header.length - tail.length - notice.length;
+  let teaser = plain.slice(0, Math.max(0, Math.min(400, teaserBudget))).trimEnd();
+  const lastNl = teaser.lastIndexOf("\n");            // cắt gọn ở ranh giới dòng nếu có
+  if (lastNl > 120) teaser = teaser.slice(0, lastNl).trimEnd();
+  return header + teaser + notice + tail;
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
