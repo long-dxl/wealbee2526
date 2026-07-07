@@ -165,13 +165,15 @@ LABEL_MAPS = {
     },
 }
 
-# ratio_code tính được thuần từ IS-quý (không cần số bình quân BS) — khớp RATIO_SET
-# trong _shared/financial-report.ts, chỉ lấy phần margin/growth theo quyết định
-# "không phức tạp hoá" (ROE/ROA/PE/PB/PS quý không tính, xem plan).
+# ratio_code tính được thuần từ IS-quý hoặc BS cuối kỳ (point-in-time, không cần số
+# bình quân) — khớp RATIO_SET trong _shared/financial-report.ts. ROE/ROA/PE/PB/PS quý
+# không tính theo quyết định "không phức tạp hoá" (annualize/TTM cần method riêng, xem plan);
+# DEBT_TO_EQUITY/CURRENT_RATIO thì thuần point-in-time (BS cuối quý / BS cuối quý) nên
+# không có vấn đề đó, đã verify khớp công thức FY (HPG 2025: D/E 0.97x, CR 1.10x).
 QUARTER_RATIOS = {
-    "normal":     ["GROSS_MARGIN", "OPERATING_MARGIN", "NET_MARGIN", "REVENUE_GROWTH", "NET_PROFIT_GROWTH"],
+    "normal":     ["GROSS_MARGIN", "OPERATING_MARGIN", "NET_MARGIN", "REVENUE_GROWTH", "NET_PROFIT_GROWTH", "DEBT_TO_EQUITY", "CURRENT_RATIO"],
     "bank":       ["REVENUE_GROWTH", "NET_PROFIT_GROWTH"],
-    "securities": ["GROSS_MARGIN", "OPERATING_MARGIN", "NET_MARGIN", "REVENUE_GROWTH", "NET_PROFIT_GROWTH"],
+    "securities": ["GROSS_MARGIN", "OPERATING_MARGIN", "NET_MARGIN", "REVENUE_GROWTH", "NET_PROFIT_GROWTH", "DEBT_TO_EQUITY"],
     "insurance":  ["NET_MARGIN", "OPERATING_MARGIN", "REVENUE_GROWTH", "NET_PROFIT_GROWTH"],
 }
 REVENUE_CODE = {"normal": "IS_REVENUE", "securities": "IS_REVENUE", "insurance": "IS_REVENUE", "bank": "BANK_TOI"}
@@ -242,30 +244,69 @@ def compute_ratios(values: dict[str, dict[str, float]], window: list[str], ctype
     """Margin (trong window) + growth YoY (chỉ tính được nếu có dữ liệu cùng kỳ năm trước
     trong `values`, có thể nằm ngoài window vì đọc toàn bộ lịch sử Excel trước khi cắt)."""
     ratios: dict[str, dict[str, float]] = {}
+    reasons: dict[str, dict[str, str]] = {}   # code -> {period: na_reason} (mẫu số ≤0)
     allowed = set(QUARTER_RATIOS.get(ctype, []))
     rev_code = REVENUE_CODE[ctype]
+    def flag(code, p, reason):
+        """Gắn cờ ratio KHÔNG XÁC ĐỊNH: ghi value=None + lý do (để ghi đè số rác đã lưu)."""
+        if code in allowed:
+            ratios.setdefault(code, {})[p] = None
+            reasons.setdefault(code, {})[p] = reason
+    # LƯU Ý: dùng IS_NET_PROFIT_PARENT (LNST cổ đông công ty mẹ), KHÔNG dùng IS_NET_PROFIT
+    # (LNST tổng, gồm cả lợi ích cổ đông không kiểm soát/NCI) — đã verify bằng số liệu thật:
+    # NET_MARGIN đã lưu ở tầng FY (vd GEX 2025 = 3.74%) chỉ khớp khi tính từ NET_PROFIT_PARENT
+    # (1.477.891.529.178 / 39.512.528.150.953), KHÔNG khớp nếu dùng NET_PROFIT tổng (sẽ ra 7.48%,
+    # gấp đôi). Với ~19% số mã (96/503 mẫu) có NCI lệch >5%, dùng sai sẽ sai margin/growth quý
+    # rất nhiều so với FY (có mã lệch tới 2x như GEX, TSC, DL1, ASM, CII).
     for p in window:
         rev = values.get(rev_code, {}).get(p)
         gp, op, npf = (values.get("IS_GROSS_PROFIT", {}).get(p),
                        values.get("IS_OPERATING_PROFIT", {}).get(p),
-                       values.get("IS_NET_PROFIT", {}).get(p))
-        if rev:
+                       values.get("IS_NET_PROFIT_PARENT", {}).get(p))
+        if rev is not None and rev > 0:   # biên LN chỉ có nghĩa khi DT DƯƠNG
             if gp is not None and "GROSS_MARGIN" in allowed:
                 ratios.setdefault("GROSS_MARGIN", {})[p] = gp / rev
             if op is not None and "OPERATING_MARGIN" in allowed:
                 ratios.setdefault("OPERATING_MARGIN", {})[p] = op / rev
             if npf is not None and "NET_MARGIN" in allowed:
                 ratios.setdefault("NET_MARGIN", {})[p] = npf / rev
+        elif rev is not None:   # DT ≤0 → biên LN không xác định
+            for c in ("GROSS_MARGIN", "OPERATING_MARGIN", "NET_MARGIN"):
+                flag(c, p, "non_positive_revenue")
+        # Cap biên LN "không đại diện" (holdco: DT nhỏ, LN chủ yếu từ tài chính) + LN gộp > DT
+        for c in ("NET_MARGIN", "OPERATING_MARGIN"):
+            v = ratios.get(c, {}).get(p)
+            if v is not None and abs(v) > 2:
+                flag(c, p, "revenue_not_representative")
+        gv = ratios.get("GROSS_MARGIN", {}).get(p)
+        if gv is not None and (gv > 1.05 or gv < -1):
+            flag("GROSS_MARGIN", p, "data_anomaly")
+
+        # Point-in-time (BS cuối quý / BS cuối quý) — không cần bình quân, không có vấn
+        # đề phương pháp luận annualize như ROE/ROA.
+        td, eq = values.get("BS_TOTAL_DEBT", {}).get(p), values.get("BS_EQUITY", {}).get(p)
+        if td is not None and eq and "DEBT_TO_EQUITY" in allowed:
+            ratios.setdefault("DEBT_TO_EQUITY", {})[p] = td / eq
+        ca, cl = values.get("BS_CURRENT_ASSETS", {}).get(p), values.get("BS_CURRENT_LIAB", {}).get(p)
+        if ca is not None and cl and "CURRENT_RATIO" in allowed:
+            ratios.setdefault("CURRENT_RATIO", {})[p] = ca / cl
 
         m = PERIOD_RE.match(p)
         prev_p = f"Q{m.group(1)}/{int(m.group(2)) - 1}"
+        # Tăng trưởng YoY chỉ có nghĩa khi gốc DƯƠNG; gốc ≤0 → NULL+lý do (không chia abs → đảo dấu)
         rev_prev = values.get(rev_code, {}).get(prev_p)
-        if rev is not None and rev_prev and "REVENUE_GROWTH" in allowed:
-            ratios.setdefault("REVENUE_GROWTH", {})[p] = (rev - rev_prev) / abs(rev_prev)
-        npf_prev = values.get("IS_NET_PROFIT", {}).get(prev_p)
-        if npf is not None and npf_prev and "NET_PROFIT_GROWTH" in allowed:
-            ratios.setdefault("NET_PROFIT_GROWTH", {})[p] = (npf - npf_prev) / abs(npf_prev)
-    return ratios
+        if rev is not None and rev_prev is not None:
+            if rev_prev > 0 and "REVENUE_GROWTH" in allowed:
+                ratios.setdefault("REVENUE_GROWTH", {})[p] = (rev - rev_prev) / rev_prev
+            elif rev_prev <= 0:
+                flag("REVENUE_GROWTH", p, "negative_base")
+        npf_prev = values.get("IS_NET_PROFIT_PARENT", {}).get(prev_p)
+        if npf is not None and npf_prev is not None:
+            if npf_prev > 0 and "NET_PROFIT_GROWTH" in allowed:
+                ratios.setdefault("NET_PROFIT_GROWTH", {})[p] = (npf - npf_prev) / npf_prev
+            elif npf_prev <= 0:
+                flag("NET_PROFIT_GROWTH", p, "negative_base")
+    return ratios, reasons
 
 
 def process_symbol(path: str, sym: str, ctype: str, dry_run: bool):
@@ -296,7 +337,7 @@ def process_symbol(path: str, sym: str, ctype: str, dry_run: bool):
         return [], [], []
 
     add_derived(values, window)
-    ratios = compute_ratios(values, window, ctype)
+    ratios, reasons = compute_ratios(values, window, ctype)
 
     # Map lại item_code -> (statement, nhãn VN gốc); dựng từ LABEL_MAPS + derived cố định.
     # Nhãn derived khớp đúng chữ đã lưu ở tầng FY (buildStatementTable() bóc tiền tố "(derived)").
@@ -312,6 +353,10 @@ def process_symbol(path: str, sym: str, ctype: str, dry_run: bool):
         for label, code in LABEL_MAPS.get((ctype, stmt), {}).items():
             code_to_info[code] = (stmt, label)
 
+    def _qend(p):   # "Q4/2025" -> ngày cuối quý (cột period_end sort đúng ở DB)
+        m = PERIOD_RE.match(p)
+        return f"{m.group(2)}-{ {'1':'03-31','2':'06-30','3':'09-30','4':'12-31'}[m.group(1)] }"
+
     fs_rows = []
     for code, per_period in values.items():
         info = code_to_info.get(code)
@@ -324,16 +369,20 @@ def process_symbol(path: str, sym: str, ctype: str, dry_run: bool):
                     "symbol": sym, "company_type": ctype, "statement": stmt,
                     "period": p, "period_type": "QUARTER", "item_code": code,
                     "item_label_vi": label, "value": per_period[p],
-                    "is_derived": code in DERIVED_LABELS,
+                    "is_derived": code in DERIVED_LABELS, "period_end": _qend(p),
                 })
+
+    UNIT_X = {"DEBT_TO_EQUITY", "CURRENT_RATIO"}  # còn lại (margin/growth) là pct
 
     ratio_rows = []
     for code, per_period in ratios.items():
         for p, v in per_period.items():
-            unit = "pct"
+            unit = "x" if code in UNIT_X else "pct"
+            # na_reason luôn có mặt (None nếu bình thường) — batch PostgREST đòi mọi row cùng key.
             ratio_rows.append({
                 "symbol": sym, "company_type": ctype, "period": p, "period_type": "QUARTER",
                 "ratio_code": code, "value": v, "unit": unit, "formula_version": "v1",
+                "na_reason": reasons.get(code, {}).get(p), "period_end": _qend(p),
             })
 
     return fs_rows, ratio_rows, window

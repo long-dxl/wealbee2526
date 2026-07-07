@@ -18,20 +18,32 @@ const PRIORITY_BS = [
 const PRIORITY_CF = ["CF_OPERATING","CF_INVESTING","CF_FINANCING","CF_CAPEX","CF_FCF","CF_NET"];
 
 const RATIO_SET: Record<string, string[]> = {
-  normal: ["ROE","ROA","ROIC","GROSS_MARGIN","OPERATING_MARGIN","NET_MARGIN","ASSET_TURNOVER","INVENTORY_TURNOVER","RECEIVABLES_TURNOVER","CURRENT_RATIO","QUICK_RATIO","DEBT_TO_EQUITY","INTEREST_COVERAGE","REVENUE_GROWTH","NET_PROFIT_GROWTH","OCF_TO_NI","EPS_DILUTED","BVPS","PE","PB","PS","DIVIDEND_YIELD"],
+  normal: ["ROE","ROA","ROIC","GROSS_MARGIN","OPERATING_MARGIN","NET_MARGIN","ASSET_TURNOVER","INVENTORY_TURNOVER","RECEIVABLES_TURNOVER","CURRENT_RATIO","QUICK_RATIO","DEBT_TO_EQUITY","DEBT_TO_EQUITY_IB","INTEREST_COVERAGE","REVENUE_GROWTH","NET_PROFIT_GROWTH","OCF_TO_NI","EPS_DILUTED","BVPS","PE","PB","PS","DIVIDEND_YIELD"],
   bank: ["NIM","YOEA","COF","CIR","CASA","LDR","NPL","NPL_COVERAGE","CREDIT_COST","LAR","REVENUE_GROWTH","NET_PROFIT_GROWTH","ROE","ROA","BVPS","PE","PB"],
-  securities: ["MARGIN_TO_EQUITY","ROE","ROA","ROIC","GROSS_MARGIN","OPERATING_MARGIN","NET_MARGIN","DEBT_TO_EQUITY","REVENUE_GROWTH","NET_PROFIT_GROWTH","BVPS","PE","PB","PS"],
+  securities: ["MARGIN_TO_EQUITY","ROE","ROA","ROIC","GROSS_MARGIN","OPERATING_MARGIN","NET_MARGIN","DEBT_TO_EQUITY","DEBT_TO_EQUITY_IB","REVENUE_GROWTH","NET_PROFIT_GROWTH","BVPS","PE","PB","PS"],
   insurance: ["COMBINED_RATIO","CLAIM_RATIO","ROE","ROA","NET_MARGIN","OPERATING_MARGIN","REVENUE_GROWTH","NET_PROFIT_GROWTH","BVPS","PE","PB"],
 };
 const RATIO_LABEL: Record<string, string> = {
   ROE:"ROE", ROA:"ROA", ROIC:"ROIC", GROSS_MARGIN:"Biên LN gộp", OPERATING_MARGIN:"Biên LN HĐKD", NET_MARGIN:"Biên LN ròng",
   ASSET_TURNOVER:"Vòng quay tài sản", INVENTORY_TURNOVER:"Vòng quay HTK", RECEIVABLES_TURNOVER:"Vòng quay phải thu",
-  CURRENT_RATIO:"Thanh toán hiện hành", QUICK_RATIO:"Thanh toán nhanh", DEBT_TO_EQUITY:"Nợ/Vốn CSH (D/E)", INTEREST_COVERAGE:"Khả năng trả lãi",
+  CURRENT_RATIO:"Thanh toán hiện hành", QUICK_RATIO:"Thanh toán nhanh", DEBT_TO_EQUITY:"Nợ phải trả/VCSH", DEBT_TO_EQUITY_IB:"Nợ vay/VCSH (D/E)", INTEREST_COVERAGE:"Khả năng trả lãi",
   REVENUE_GROWTH:"Tăng trưởng DT", NET_PROFIT_GROWTH:"Tăng trưởng LNST", OCF_TO_NI:"OCF/LNST (chất lượng LN)",
   EPS_DILUTED:"EPS pha loãng", BVPS:"Giá trị sổ sách/CP", PE:"P/E", PB:"P/B", PS:"P/S", DIVIDEND_YIELD:"Tỷ suất cổ tức",
   NIM:"NIM (biên lãi ròng)", YOEA:"Lợi suất TS sinh lãi", COF:"Chi phí vốn", CIR:"CIR (chi phí/thu nhập)", CASA:"CASA",
   LDR:"LDR (cho vay/huy động)", NPL:"Tỷ lệ nợ xấu (NPL)", NPL_COVERAGE:"Bao phủ nợ xấu", CREDIT_COST:"Chi phí tín dụng", LAR:"Dư nợ/Tổng TS",
   MARGIN_TO_EQUITY:"Dư nợ margin/VCSH", COMBINED_RATIO:"Combined ratio", CLAIM_RATIO:"Tỷ lệ bồi thường",
+};
+
+// Lý do 1 chỉ số bị bỏ trống (value=NULL) — để Agent hiểu "n/a" là tín hiệu, không phải thiếu data.
+const REASON_LABEL: Record<string, string> = {
+  negative_base: "kỳ gốc âm nên % tăng trưởng vô nghĩa",
+  non_positive_revenue: "doanh thu ≤0",
+  negative_equity: "vốn chủ sở hữu âm",
+  revenue_not_representative: "doanh thu quá nhỏ, LN chủ yếu ngoài HĐKD",
+  outlier_small_denominator: "mẫu số (VCSH/vốn đầu tư) gần 0 nên tỷ suất bị méo",
+  data_anomaly: "số liệu bất thường",
+  missing_data: "thiếu dữ liệu",
+  not_applicable: "không áp dụng cho loại hình này",
 };
 
 function fmtRatioVal(code: string, value: number | null, unit?: string): string {
@@ -236,15 +248,17 @@ export async function financialReport(sb: any, sym: string, ctype: string, depth
   try {
     const { data: rt } = await sb
       .from("financial_ratios")
-      .select("period, ratio_code, value, unit")
+      .select("period, ratio_code, value, unit, na_reason")
       .eq("symbol", sym).eq("period_type", "FY")
       .order("period", { ascending: false });
     if (rt?.length) {
       const periods = [...new Set((rt as any[]).map(r => r.period))].sort().reverse().slice(0, 5).sort();
-      const byCode = new Map<string, { unit?: string; vals: Record<string, number> }>();
+      const latest = periods[periods.length - 1];
+      const byCode = new Map<string, { unit?: string; vals: Record<string, number>; reasons: Record<string, string> }>();
       for (const r of rt as any[]) {
-        if (!byCode.has(r.ratio_code)) byCode.set(r.ratio_code, { unit: r.unit, vals: {} });
+        if (!byCode.has(r.ratio_code)) byCode.set(r.ratio_code, { unit: r.unit, vals: {}, reasons: {} });
         byCode.get(r.ratio_code)!.vals[r.period] = r.value;
+        if (r.na_reason) byCode.get(r.ratio_code)!.reasons[r.period] = r.na_reason;
       }
       const shown = (RATIO_SET[type]).filter(c => byCode.has(c));
       if (shown.length) {
@@ -254,6 +268,11 @@ export async function financialReport(sb: any, sym: string, ctype: string, depth
           const it = byCode.get(c)!;
           lines.push(`| ${RATIO_LABEL[c] ?? c} | ${periods.map(p => fmtRatioVal(c, it.vals[p] ?? null, it.unit)).join(" | ")} |`);
         }
+        // Ghi chú lý do các chỉ số bị bỏ trống ở kỳ gần nhất (để Agent không hiểu nhầm là thiếu data)
+        const notes = shown
+          .filter(c => byCode.get(c)!.reasons[latest])
+          .map(c => `${RATIO_LABEL[c] ?? c}: ${REASON_LABEL[byCode.get(c)!.reasons[latest]] ?? byCode.get(c)!.reasons[latest]}`);
+        if (notes.length) lines.push(`\n> *Chỉ số n/a (FY ${latest}): ${notes.join("; ")}.*`);
       }
     }
   } catch { /* skip */ }

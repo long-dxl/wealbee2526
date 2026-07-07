@@ -13,7 +13,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { financialReport, TYPE_LABEL } from "../_shared/financial-report.ts";
+import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { valueChainReport } from "../_shared/value-chain.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
 
@@ -82,7 +82,7 @@ const TOOL_DEFS = [
     type: "function",
     function: {
       name: "get_financials",
-      description: "Lấy BCTC chi tiết của một mã CP để phân tích sâu như Analyst: 3 bảng IS/BS/CF theo 5 năm + bảng chỉ số tài chính RIÊNG theo loại hình (thường: ROE/biên LN/vòng quay; ngân hàng: NIM/CIR/NPL/CASA/LDR; chứng khoán: dư nợ margin/VCSH; bảo hiểm: combined ratio) + KQKD quý gần nhất (YoY) + cổ tức + giao dịch nội bộ. Nguồn HSX/HNX.",
+      description: "Lấy BCTC chi tiết của một mã CP để phân tích sâu như Analyst: 3 bảng IS/BS/CF + chỉ số tài chính RIÊNG theo loại hình (thường: ROE/biên LN/vòng quay; ngân hàng: NIM/CIR/NPL/CASA/LDR; chứng khoán: dư nợ margin/VCSH; bảo hiểm: combined ratio), theo cả Năm (5 năm) và Quý (5 quý gần nhất, có YoY). Nguồn HSX/HNX.",
       parameters: {
         type: "object",
         properties: {
@@ -90,6 +90,20 @@ const TOOL_DEFS = [
             type: "string",
             description: "Mã CP, ví dụ 'VCB', 'HPG', 'FPT'",
           },
+        },
+        required: ["symbol"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_insider_activity",
+      description: "Lấy lịch sử cổ tức và giao dịch mua/bán của lãnh đạo/nội bộ (insider) của một mã CP. Dùng khi hỏi về cổ tức, hoặc lãnh đạo/cổ đông nội bộ mua/bán cổ phiếu.",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: "Mã CP, ví dụ 'VCB', 'HPG', 'FPT'" },
         },
         required: ["symbol"],
       },
@@ -305,45 +319,8 @@ async function toolGetFinancials(symbol: string): Promise<string> {
     }
   } catch { /* skip */ }
 
-  // 4 bảng IS/BS/CF/Chỉ số (theo loại hình) + KQKD quý gần nhất — module dùng chung
+  // 4 bảng IS/BS/CF/Chỉ số (theo loại hình, Năm + 5 Quý gần nhất) — module dùng chung
   lines.push(await financialReport(sb, sym, ctype));
-
-  // Dividends
-  try {
-    const { data: divs } = await sb
-      .from("dividends")
-      .select("ex_date, payment_date, dividend_type, amount")
-      .eq("symbol", sym)
-      .order("ex_date", { ascending: false })
-      .limit(5);
-
-    if (divs?.length) {
-      lines.push("\n### Cổ tức · Nguồn: HSX/HNX");
-      for (const d of divs) {
-        const amt = Number(d.amount).toLocaleString("vi-VN");
-        lines.push(`- **${d.ex_date}** (ngày GDKHQ): ${amt}đ/CP (${d.dividend_type ?? "tiền mặt"})${d.payment_date ? ` · Chi trả: ${d.payment_date}` : ""}`);
-      }
-    }
-  } catch { /* skip */ }
-
-  // Insider transactions
-  try {
-    const { data: insiders } = await sb
-      .from("insider_transactions")
-      .select("insider_name, position, trade_type, volume, price, trade_date")
-      .eq("symbol", sym)
-      .order("trade_date", { ascending: false })
-      .limit(5);
-
-    if (insiders?.length) {
-      lines.push("\n### Giao dịch nội bộ · Nguồn: HSX/HNX (công bố thông tin)");
-      for (const t of insiders) {
-        const priceStr = t.price != null ? ` @ ${Number(t.price).toLocaleString("vi-VN")}đ` : "";
-        const vol = Number(t.volume).toLocaleString("vi-VN");
-        lines.push(`- **${t.trade_date}** · ${t.insider_name}${t.position ? ` (${t.position})` : ""}: ${t.trade_type} **${vol} CP**${priceStr}`);
-      }
-    }
-  } catch { /* skip */ }
 
   // Recent prices
   try {
@@ -364,6 +341,13 @@ async function toolGetFinancials(symbol: string): Promise<string> {
     }
   } catch { /* skip */ }
 
+  return lines.join("\n");
+}
+
+async function toolGetInsiderActivity(symbol: string): Promise<string> {
+  const sym = symbol.toUpperCase().trim();
+  const lines: string[] = [`## Cổ tức & Giao dịch nội bộ: ${sym}`];
+  lines.push(await insiderReport(sb, sym));
   return lines.join("\n");
 }
 
@@ -499,6 +483,7 @@ async function executeTool(name: string, args: Record<string, any>, userId: stri
     case "get_market_data":      return toolGetMarketData();
     case "get_news":             return toolGetNews(args.symbols, args.days ?? 3, args.source);
     case "get_financials":       return toolGetFinancials(args.symbol ?? "");
+    case "get_insider_activity": return toolGetInsiderActivity(args.symbol ?? "");
     case "get_value_chain":      return toolGetValueChain(args.symbol ?? "");
     case "get_portfolio":        return toolGetPortfolio(userId);
     case "search_knowledge_base":return toolSearchKB(args.query ?? "", userId);
@@ -518,6 +503,8 @@ function toolLabel(name: string, args: Record<string, any>): { loading: string; 
     }
     case "get_financials":
       return { loading: `Đang lấy BCTC ${args.symbol}...`, done: `BCTC & Tài chính ${args.symbol}` };
+    case "get_insider_activity":
+      return { loading: `Đang lấy cổ tức/giao dịch nội bộ ${args.symbol}...`, done: `Cổ tức & Giao dịch nội bộ ${args.symbol}` };
     case "get_value_chain":
       return { loading: `Đang phân tích chuỗi cung ứng ${args.symbol}...`, done: `Chuỗi cung ứng & yếu tố tác động ${args.symbol}` };
     case "get_portfolio":
@@ -540,6 +527,7 @@ const SYSTEM_PROMPT = `Bạn là BeeAI — trợ lý phân tích thị trường
 **Chiến lược gọi tool theo loại câu hỏi:**
 - "Hôm nay có gì?", "thị trường?", "tin tức?" → gọi **CẢ HAI**: get_market_data VÀ get_news
 - "VCB/HPG/FPT thế nào?" → gọi get_news(symbols=["VCB"]) VÀ get_financials("VCB")
+- "Cổ tức/giao dịch nội bộ của VCB?" → gọi get_insider_activity("VCB") (KHÔNG cần gọi get_financials nếu câu hỏi chỉ về cổ tức/nội bộ)
 - "Danh mục tôi?" → gọi get_portfolio VÀ get_market_data
 - "Tìm tài liệu..." → gọi search_knowledge_base
 - Cần tin mới nhất ngoài DB → gọi web_search
