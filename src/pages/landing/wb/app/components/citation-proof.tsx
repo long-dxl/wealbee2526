@@ -43,7 +43,7 @@ export function CitationProof() {
               <div className="border-b px-5 py-4" style={{ borderColor: "var(--wb-border)" }}>
                 <div className="flex items-center gap-2.5">
                   <span className="flex size-7 items-center justify-center rounded-full text-white" style={{ background: "var(--wb-deep)", fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: 12 }}>B</span>
-                  <span style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 500, fontSize: 15, color: "var(--wb-text)" }}>
+                  <span style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: 15, color: "var(--wb-text)" }}>
                     Định giá cổ phiếu <Ticker symbol="HPG" /> hiện tại thế nào?
                   </span>
                 </div>

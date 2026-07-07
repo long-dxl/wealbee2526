@@ -168,7 +168,7 @@ export function LoginModal({
                 <form className="px-8 py-7" onSubmit={handleChangePassword}>
                   <div className="flex flex-col gap-7">
                     <div>
-                      <label style={{ display: "block", fontFamily: "Montserrat, sans-serif", fontSize: 12.5, fontWeight: 500, color: labelFor("newpass"), marginBottom: 8, letterSpacing: "0.02em", transition: "color .18s" }}>
+                      <label style={{ display: "block", fontFamily: "Montserrat, sans-serif", fontSize: 12.5, fontWeight: 600, color: labelFor("newpass"), marginBottom: 8, letterSpacing: "0.02em", transition: "color .18s" }}>
                         Mật khẩu mới<span style={{ color: "#4D8FE8", marginLeft: 2 }}>*</span>
                       </label>
                       <div className="relative">
@@ -184,7 +184,7 @@ export function LoginModal({
                       </div>
                     </div>
                     <div>
-                      <label style={{ display: "block", fontFamily: "Montserrat, sans-serif", fontSize: 12.5, fontWeight: 500, color: labelFor("confirm"), marginBottom: 8, letterSpacing: "0.02em", transition: "color .18s" }}>
+                      <label style={{ display: "block", fontFamily: "Montserrat, sans-serif", fontSize: 12.5, fontWeight: 600, color: labelFor("confirm"), marginBottom: 8, letterSpacing: "0.02em", transition: "color .18s" }}>
                         Xác nhận mật khẩu<span style={{ color: "#4D8FE8", marginLeft: 2 }}>*</span>
                       </label>
                       <input
@@ -210,7 +210,7 @@ export function LoginModal({
                 <div className="flex flex-col gap-7">
                   {/* Email */}
                   <div>
-                    <label style={{ display: "block", fontFamily: "Montserrat, sans-serif", fontSize: 12.5, fontWeight: 500, color: labelFor("email"), marginBottom: 8, letterSpacing: "0.02em", transition: "color .18s" }}>
+                    <label style={{ display: "block", fontFamily: "Montserrat, sans-serif", fontSize: 12.5, fontWeight: 600, color: labelFor("email"), marginBottom: 8, letterSpacing: "0.02em", transition: "color .18s" }}>
                       Email<span style={{ color: "#4D8FE8", marginLeft: 2 }}>*</span>
                     </label>
                     <input
@@ -223,7 +223,7 @@ export function LoginModal({
 
                   {/* Password */}
                   <div>
-                    <label style={{ display: "block", fontFamily: "Montserrat, sans-serif", fontSize: 12.5, fontWeight: 500, color: labelFor("password"), marginBottom: 8, letterSpacing: "0.02em", transition: "color .18s" }}>
+                    <label style={{ display: "block", fontFamily: "Montserrat, sans-serif", fontSize: 12.5, fontWeight: 600, color: labelFor("password"), marginBottom: 8, letterSpacing: "0.02em", transition: "color .18s" }}>
                       Mật khẩu<span style={{ color: "#4D8FE8", marginLeft: 2 }}>*</span>
                     </label>
                     <div className="relative">

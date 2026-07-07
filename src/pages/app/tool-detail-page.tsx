@@ -11,8 +11,8 @@ export function ToolDetailPage() {
   const { isDark } = useOutletContext<AppOutletContext>();
 
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgMuted = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.55)";
-  const fgSubtle = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
+  const fgSubtle = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const fgDisabled = isDark ? "rgba(240,242,255,0.30)" : "rgba(26,26,46,0.30)";
   const brand = isDark ? "#4D8FE8" : "#0849AC";
   const cardBg = isDark ? "#131824" : "#fff";
@@ -23,7 +23,7 @@ export function ToolDetailPage() {
 
   if (!tool) {
     return (
-      <div style={{ maxWidth: 720, margin: "0 auto", padding: 24, fontFamily: FONT, background: bgApp }}>
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, fontFamily: FONT, background: bgApp }}>
         <button onClick={() => navigate("/app/tools")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: fgMuted, fontSize: 13, fontFamily: FONT, marginBottom: 20 }}>
           <ArrowLeft size={15} strokeWidth={1.5} /> Công cụ
         </button>
@@ -38,7 +38,7 @@ export function ToolDetailPage() {
   const related = tools.filter((t) => t.category === tool.category && t.id !== tool.id);
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", padding: 24, fontFamily: FONT, background: bgApp }}>
+    <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, fontFamily: FONT, background: bgApp }}>
       <button onClick={() => navigate("/app/tools")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: fgMuted, fontSize: 13, fontFamily: FONT, marginBottom: 20 }}>
         <ArrowLeft size={15} strokeWidth={1.5} /> Công cụ
       </button>
@@ -64,7 +64,7 @@ export function ToolDetailPage() {
                 Sắp ra mắt
               </span>
             ) : (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 500, color: fgSubtle }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: fgSubtle }}>
                 <span style={{ width: 14, height: 14, borderRadius: "50%", background: brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <Check size={9} color="#fff" strokeWidth={3} />
                 </span>

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   House, Inbox, Bot, Plus, LayoutTemplate, Wrench,
   BookOpen, Wallet, Settings, List,
-  ChevronsLeft, ChevronsRight,
+  ChevronsLeft, ChevronsRight, Sparkles,
 } from "lucide-react";
 import { WealbeeLogo } from "./WealbeeIcon";
 import { lightTheme, type Theme } from "../lib/theme-context";
@@ -16,6 +16,8 @@ interface SidebarProps {
   hasAgentRunning?: boolean;
   planLabel?: string;
   beenyBalance?: number | null;
+  beenyPct?: number;      // % quota ngày đã dùng (0..1)
+  beenyBonus?: number;    // Beeny mua thêm (hết hạn 24h)
   isDark?: boolean;
   theme?: Theme;
 }
@@ -49,16 +51,31 @@ export function Sidebar({
   hasAgentRunning = false,
   planLabel = "Free",
   beenyBalance = null,
+  beenyPct = 0,
+  beenyBonus = 0,
   isDark = false,
   theme = lightTheme,
 }: SidebarProps) {
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+  const [beenyMenuOpen, setBeenyMenuOpen] = useState(false);
+  const badgeRef = useRef<HTMLButtonElement>(null);
+  const [menuPos, setMenuPos] = useState<{ left: number; bottom: number } | null>(null);
+  const toggleBeenyMenu = () => {
+    setBeenyMenuOpen(v => {
+      const next = !v;
+      if (next && badgeRef.current) {
+        const r = badgeRef.current.getBoundingClientRect();
+        setMenuPos({ left: Math.round(r.right + 8), bottom: Math.round(window.innerHeight - r.bottom) });
+      }
+      return next;
+    });
+  };
   const beenyStr = beenyBalance == null ? "…"
     : (() => { const r = Math.round(Math.max(0, beenyBalance) * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); })();
 
   const FONT = "'Montserrat', system-ui, sans-serif";
   const inactiveText = isDark ? "rgba(240,242,255,0.82)" : "rgba(26,26,46,0.82)";
-  const inactiveIcon = isDark ? "rgba(240,242,255,0.60)" : "rgba(26,26,46,0.55)";
+  const inactiveIcon = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const hoverBg = isDark ? "rgba(255,255,255,0.05)" : "rgba(26,26,46,0.05)";
   const activeBg = isDark ? "rgba(77,143,232,0.14)" : "rgba(8,73,172,0.08)";
 
@@ -127,7 +144,7 @@ export function Sidebar({
                   background: isDark ? "#1e2535" : "#1A1A2E",
                   color: "#fff",
                   fontSize: 12,
-                  fontWeight: 500,
+                  fontWeight: 600,
                   padding: "5px 10px",
                   borderRadius: 7,
                   whiteSpace: "nowrap",
@@ -215,33 +232,75 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Gói + số dư Beeny (thay thanh token cũ) */}
+      {/* Gói + Số dư Beeny + thanh % đã dùng → dropdown mở bên PHẢI */}
       {!collapsed && (
-        <button
-          onClick={() => onNavigate("settings")}
-          title="Gói dịch vụ & số dư Beeny"
-          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-            width: "calc(100% - 16px)", margin: "8px 8px 0", padding: "9px 12px",
-            borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.12)"),
-            background: "transparent", cursor: "pointer", fontFamily: FONT,
-            transition: "background 100ms ease",
-          }}
-        >
-          <span style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: "0.02em",
-            padding: "2px 8px", borderRadius: 99, flexShrink: 0,
-            background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.08)", color: theme.brand,
-          }}>
-            {planLabel}
-          </span>
-          <span style={{ display: "flex", alignItems: "baseline", gap: 4, overflow: "hidden" }}>
-            <span style={{ fontSize: 14, fontWeight: 800, color: isDark ? "#F5C518" : "#B8860B", fontFamily: FONT }}>{beenyStr}</span>
-            <span style={{ fontSize: 11, fontWeight: 600, color: inactiveText, fontFamily: FONT }}>Beeny</span>
-          </span>
-        </button>
+        <div style={{ position: "relative", margin: "8px 8px 0" }}>
+          {beenyMenuOpen && menuPos && (
+            <>
+              <div onClick={() => setBeenyMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
+              <div style={{
+                position: "fixed", left: menuPos.left, bottom: menuPos.bottom, zIndex: 201, width: 210,
+                background: isDark ? "#1a2032" : "#fff", borderRadius: 12, padding: 5,
+                border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.1)" : "rgba(8,73,172,0.14)"),
+                boxShadow: isDark ? "0 10px 30px rgba(0,0,0,0.5)" : "0 10px 30px rgba(8,73,172,0.16)",
+              }}>
+                {[
+                  { icon: Wallet,   label: "Số dư & tiêu dùng", page: "settings-usage" },
+                  { icon: Sparkles, label: "Gói dịch vụ",        page: "settings-billing" },
+                ].map(o => (
+                  <button key={o.page}
+                    onClick={() => { setBeenyMenuOpen(false); onNavigate(o.page); }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 11px",
+                      borderRadius: 8, border: "none", background: "transparent", cursor: "pointer",
+                      fontFamily: FONT, fontSize: 13, fontWeight: 600, color: inactiveText, textAlign: "left",
+                    }}>
+                    <o.icon size={16} strokeWidth={1.8} color={theme.brand} />
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <button
+            ref={badgeRef}
+            onClick={toggleBeenyMenu}
+            title="Gói dịch vụ & số dư Beeny"
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = beenyMenuOpen ? hoverBg : "transparent"; }}
+            style={{
+              display: "flex", flexDirection: "column", gap: 7, width: "100%", padding: "9px 12px 10px",
+              borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.12)"),
+              background: beenyMenuOpen ? hoverBg : "transparent", cursor: "pointer", fontFamily: FONT,
+              transition: "background 100ms ease",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%" }}>
+              <span style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.02em",
+                padding: "2px 8px", borderRadius: 99, flexShrink: 0,
+                background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.08)", color: theme.brand,
+              }}>
+                {planLabel}
+              </span>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 4, overflow: "hidden" }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: inactiveText, fontFamily: FONT }}>Số dư:</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: isDark ? "#F5C518" : "#B8860B", fontFamily: FONT }}>{beenyStr}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: inactiveText, fontFamily: FONT }}>Beeny</span>
+              </span>
+            </div>
+            {/* Thanh % đã dùng trong ngày (giống usage bar) */}
+            <div style={{ width: "100%", height: 5, borderRadius: 99, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.10)", overflow: "hidden" }}>
+              <div style={{ width: `${Math.round(beenyPct * 100)}%`, height: "100%", borderRadius: 99, background: beenyPct >= 0.9 ? "#e0524d" : theme.brand, transition: "width 400ms ease" }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+              <span style={{ fontSize: 9.5, fontWeight: 600, color: inactiveText, fontFamily: FONT }}>Đã dùng {Math.round(beenyPct * 100)}% hôm nay</span>
+              {beenyBonus > 0 && <span style={{ fontSize: 9.5, fontWeight: 700, color: isDark ? "#F5C518" : "#B8860B", fontFamily: FONT }}>+{Math.round(beenyBonus)} bonus</span>}
+            </div>
+          </button>
+        </div>
       )}
 
       {/* Footer */}
@@ -283,7 +342,7 @@ export function Sidebar({
             gap: 9, width: "100%", height: 36,
             padding: collapsed ? "0" : "0 10px",
             borderRadius: 7, border: "none", background: "transparent",
-            color: inactiveText, cursor: "pointer", fontFamily: FONT, fontSize: 13.5, fontWeight: 500,
+            color: inactiveText, cursor: "pointer", fontFamily: FONT, fontSize: 13.5, fontWeight: 600,
             transition: "background 100ms ease",
           }}
         >

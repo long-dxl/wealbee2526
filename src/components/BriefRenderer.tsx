@@ -57,7 +57,7 @@ function SymbolChip({ sym, active, isDark }: { sym: string; active: boolean; isD
   return (
     <span style={{
       background: active ? (isDark ? "rgba(77,143,232,0.18)" : "#EBF3FF") : (isDark ? "rgba(255,255,255,0.07)" : "#F3F4F6"),
-      color: active ? (isDark ? "#7BB8F5" : "#0849AC") : (isDark ? "rgba(240,242,255,0.40)" : "#9CA3AF"),
+      color: active ? (isDark ? "#7BB8F5" : "#0849AC") : (isDark ? "rgba(240,242,255,0.85)" : "#9CA3AF"),
       fontSize: 12, fontWeight: active ? 700 : 600,
       padding: "4px 11px", borderRadius: 20,
       fontFamily: "'Montserrat', system-ui, sans-serif",
@@ -99,7 +99,7 @@ function SectionHeader({ section, isDark }: { section: SectionHeaderSection; isD
 // ── Section renderers ─────────────────────────────────────────────────────
 
 function PortfolioChips({ section, isDark }: { section: PortfolioChipsSection; isDark: boolean }) {
-  const fgLabel = isDark ? "rgba(240,242,255,0.45)" : "rgba(26,26,46,0.45)";
+  const fgLabel = isDark ? "rgba(240,242,255,0.45)" : "#3D3D52";
   return (
     <div style={{ padding: "12px 20px 16px", background: isDark ? "transparent" : "transparent" }}>
       <p style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 700, color: fgLabel, letterSpacing: "0.5px", textTransform: "uppercase", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
@@ -122,7 +122,7 @@ function PortfolioChips({ section, isDark }: { section: PortfolioChipsSection; i
 function NewsCard({ section, watchSymbols, isDark }: { section: NewsCardSection; watchSymbols: string[]; isDark: boolean }) {
   const lc = LABEL_CONFIG[section.label] ?? { bg: "#F3F4F6", color: "#374151", border: "#D1D5DB", text: section.label, icon: <Minus size={11} /> };
   const fgBody = isDark ? "rgba(240,242,255,0.75)" : "#374151";
-  const fgReasoning = isDark ? "rgba(240,242,255,0.65)" : "#4A5568";
+  const fgReasoning = isDark ? "rgba(240,242,255,0.85)" : "#4A5568";
   const cardBg = isDark ? "rgba(255,255,255,0.03)" : "#F8F9FB";
   const reasoningBg = isDark ? "rgba(77,143,232,0.10)" : "#ECF2FF";
   const reasoningColor = isDark ? "#7BB8F5" : "#0849AC";
@@ -150,7 +150,7 @@ function NewsCard({ section, watchSymbols, isDark }: { section: NewsCardSection;
             {lc.icon}{lc.text}
           </span>
           {section.news_type && (
-            <span style={{ background: isDark ? "rgba(255,255,255,0.07)" : "#F0F0F8", color: isDark ? "rgba(240,242,255,0.55)" : "#5A5A7A", fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 20, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+            <span style={{ background: isDark ? "rgba(255,255,255,0.07)" : "#F0F0F8", color: isDark ? "rgba(240,242,255,0.85)" : "#5A5A7A", fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 20, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
               {NEWS_TYPE_LABEL[section.news_type] ?? section.news_type}
             </span>
           )}
@@ -171,7 +171,7 @@ function NewsCard({ section, watchSymbols, isDark }: { section: NewsCardSection;
             {section.affected_symbols.map(s => (
               <span key={s} style={{
                 background: watchSet.has(s) ? (isDark ? "rgba(77,143,232,0.18)" : "#EBF3FF") : (isDark ? "rgba(255,255,255,0.06)" : "#F3F4F6"),
-                color: watchSet.has(s) ? (isDark ? "#7BB8F5" : "#0849AC") : (isDark ? "rgba(240,242,255,0.40)" : "#9CA3AF"),
+                color: watchSet.has(s) ? (isDark ? "#7BB8F5" : "#0849AC") : (isDark ? "rgba(240,242,255,0.85)" : "#9CA3AF"),
                 fontSize: 11, fontWeight: watchSet.has(s) ? 700 : 500,
                 fontStyle: watchSet.has(s) ? "italic" : "normal",
                 padding: "3px 10px", borderRadius: 20,
@@ -239,7 +239,7 @@ function NewsCard({ section, watchSymbols, isDark }: { section: NewsCardSection;
 
 function ComparisonTable({ section, isDark }: { section: ComparisonTableSection; isDark: boolean }) {
   const fg = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
-  const fgMuted = isDark ? "rgba(240,242,255,0.60)" : "rgba(26,26,46,0.65)";
+  const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "rgba(26,26,46,0.65)";
   const thBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(8,73,172,0.04)";
   const border = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
   const brand = isDark ? "#4D8FE8" : "#0849AC";
@@ -284,7 +284,7 @@ function ComparisonTable({ section, isDark }: { section: ComparisonTableSection;
 
 function SummaryList({ section, isDark }: { section: SummaryListSection; isDark: boolean }) {
   const fg = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
-  const fgMuted = isDark ? "rgba(240,242,255,0.60)" : "rgba(26,26,46,0.65)";
+  const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "rgba(26,26,46,0.65)";
   const brand = isDark ? "#4D8FE8" : "#0849AC";
 
   return (
@@ -327,8 +327,8 @@ function SummaryList({ section, isDark }: { section: SummaryListSection; isDark:
 
 function TextBlock({ section, isDark }: { section: TextBlockSection; isDark: boolean }) {
   const isDisclaimer = section.content.includes("tư vấn đầu tư") || section.content.includes("Luật Chứng khoán");
-  const fgMuted = isDark ? "rgba(240,242,255,0.35)" : "rgba(26,26,46,0.40)";
-  const fgBody = isDark ? "rgba(240,242,255,0.65)" : "#374151";
+  const fgMuted = isDark ? "rgba(240,242,255,0.35)" : "#3D3D52";
+  const fgBody = isDark ? "rgba(240,242,255,0.85)" : "#374151";
 
   if (isDisclaimer) {
     return (
@@ -367,7 +367,7 @@ export function BriefRenderer({
   const brand = isDark ? "#4D8FE8" : "#0849AC";
   const headerBg = isDark ? "rgba(77,143,232,0.10)" : "#ECF2FF";
   const fgHeader = isDark ? "#7BB8F5" : "#0849AC";
-  const fgBody = isDark ? "rgba(240,242,255,0.65)" : "#374151";
+  const fgBody = isDark ? "rgba(240,242,255,0.85)" : "#374151";
   const dividerColor = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)";
 
   // Group sections: find multi-symbol news_cards vs per-symbol
@@ -381,7 +381,7 @@ export function BriefRenderer({
           Bản tin hàng ngày · {brief.time || "—"}
         </span>
         {brief.date && (
-          <span style={{ color: isDark ? "rgba(123,184,245,0.60)" : "rgba(8,73,172,0.55)", fontSize: 12, marginLeft: 10, fontWeight: 500 }}>
+          <span style={{ color: isDark ? "rgba(123,184,245,0.60)" : "rgba(8,73,172,0.55)", fontSize: 12, marginLeft: 10, fontWeight: 600 }}>
             {brief.date}
           </span>
         )}
@@ -432,7 +432,7 @@ export function BriefRenderer({
 
       {sections.length === 0 && (
         <div style={{ padding: "32px 20px", textAlign: "center" as const }}>
-          <p style={{ margin: 0, fontSize: 13, color: isDark ? "rgba(240,242,255,0.35)" : "rgba(26,26,46,0.40)", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+          <p style={{ margin: 0, fontSize: 13, color: isDark ? "rgba(240,242,255,0.35)" : "#3D3D52", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
             Không có tin tức nổi bật trong 48h qua.
           </p>
         </div>

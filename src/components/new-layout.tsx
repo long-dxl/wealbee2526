@@ -9,9 +9,7 @@ import { CreateAgentModal } from "./CreateAgentModal";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { ProtectedRoute } from "./protected-route";
 import { supabase } from "../lib/supabase/client";
-import { getPlanAndBeeny } from "../lib/plan-limits";
-import { claimTrial } from "../lib/trial";
-import { TrialGrantedModal } from "./TrialGrantedModal";
+import { getPlanAndBeeny, PLAN_LIMITS } from "../lib/plan-limits";
 import { WALLET_REFRESH } from "../lib/wallet-events";
 import type { ContextCard } from "../types/cards";
 
@@ -35,6 +33,8 @@ const PAGE_ROUTE: Record<string, string> = {
 tickers:         "/app/tickers",
   inbox:           "/app/inbox",
   reports:         "/app/reports",
+  "settings-billing": "/app/settings?tab=billing",
+  "settings-usage":   "/app/settings?tab=usage",
   agents:          "/app/agents",
   "agent-studio":  "/app/agent-studio",
   "create-agent":  "/app/agent-studio",
@@ -57,26 +57,25 @@ function NewLayoutInner() {
   const [hubContextCards, setHubContextCards] = useState<ContextCard[]>([]);
   const [planLabel, setPlanLabel] = useState("Free");
   const [beenyBalance, setBeenyBalance] = useState<number | null>(null);
+  const [beenyPct, setBeenyPct] = useState(0);        // % quota ngày đã dùng (0..1)
+  const [beenyBonus, setBeenyBonus] = useState(0);    // Beeny mua thêm (hết hạn 24h)
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
-  const [trialDays, setTrialDays] = useState<number | null>(null);  // >0 = hiện card nhận Pro trial
 
   const fetchWallet = (userId: string) => {
-    getPlanAndBeeny(userId).then(({ label, balance }) => {
+    getPlanAndBeeny(userId).then(({ plan, label, balance, bonus }) => {
       setPlanLabel(label);
       setBeenyBalance(balance);
+      setBeenyBonus(bonus ?? 0);
+      const daily = PLAN_LIMITS[plan]?.daily ?? 10;
+      const dailyBal = Math.max(0, (balance ?? 0) - (bonus ?? 0));
+      setBeenyPct(Math.min(1, Math.max(0, (daily - dailyBal) / daily)));
     });
   };
 
   // Load ngay khi session sẵn sàng (getSession đọc localStorage, không cần network)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        // User cũ đủ điều kiện → nhận Pro trial 7 ngày + hiện card
-        claimTrial().then(r => {
-          if (r.granted) { setTrialDays(r.days ?? 7); fetchWallet(session.user.id); }
-        });
-        fetchWallet(session.user.id);
-      }
+      if (session?.user) fetchWallet(session.user.id);
     });
 
     // Lắng nghe auth thay đổi (login/logout) để cập nhật
@@ -158,6 +157,8 @@ function NewLayoutInner() {
         hasAgentRunning={false}
         planLabel={planLabel}
         beenyBalance={beenyBalance}
+        beenyPct={beenyPct}
+        beenyBonus={beenyBonus}
         isDark={isDark}
         theme={theme}
       />
@@ -245,10 +246,6 @@ function NewLayoutInner() {
         onCancel={() => setCreateAgentOpen(false)}
         onContinue={handleCreateAgentContinue}
       />
-
-      {trialDays != null && (
-        <TrialGrantedModal days={trialDays} isDark={isDark} onClose={() => setTrialDays(null)} />
-      )}
 
       <Toaster theme={isDark ? "dark" : "light"} position="bottom-right" richColors />
       <style>{`

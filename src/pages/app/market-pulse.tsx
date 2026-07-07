@@ -40,7 +40,7 @@ function PctBadge({ value, ceilingFloor }: { value: number; ceilingFloor?: "ceil
     return <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: "rgba(6,182,212,0.12)", color: "#06B6D4", fontFamily: "'Montserrat', system-ui, sans-serif" }}>{value.toFixed(2)}%</span>;
   const isUp = value > 0, isDown = value < 0;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: isUp ? "rgba(52,199,89,0.12)" : isDown ? "rgba(255,59,48,0.12)" : "rgba(0,0,0,0.06)", color: isUp ? "#34C759" : isDown ? "#FF3B30" : "rgba(26,26,46,0.45)", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: isUp ? "rgba(52,199,89,0.12)" : isDown ? "rgba(255,59,48,0.12)" : "rgba(0,0,0,0.06)", color: isUp ? "#34C759" : isDown ? "#FF3B30" : "#3D3D52", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
       {isUp ? "+" : ""}{value.toFixed(2)}%
     </span>
   );
@@ -49,7 +49,7 @@ function PctBadge({ value, ceilingFloor }: { value: number; ceilingFloor?: "ceil
 function getSentimentColor(s: string, isDark: boolean) {
   if (s === "Tích cực" || s === "positive") return { bg: "rgba(52,199,89,0.12)", text: "#34C759" };
   if (s === "Cảnh báo" || s === "negative") return { bg: "rgba(255,59,48,0.10)", text: "#FF3B30" };
-  return isDark ? { bg: "rgba(255,255,255,0.08)", text: "rgba(240,242,255,0.55)" } : { bg: "rgba(26,26,46,0.08)", text: "rgba(26,26,46,0.60)" };
+  return isDark ? { bg: "rgba(255,255,255,0.08)", text: "rgba(240,242,255,0.85)" } : { bg: "rgba(26,26,46,0.08)", text: "#3D3D52" };
 }
 
 function getSectorColor(pct: number) {
@@ -98,7 +98,7 @@ export function MarketPulse({
   const cardBg    = isDark ? "#131824" : "#fff";
   const cardShadow = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08)";
   const fg        = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgSubtle  = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const fgSubtle  = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const divider   = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)";
   const brand     = isDark ? "#4D8FE8" : "#0849AC";
   const hoverBg   = isDark ? "#1a2438" : "#E8F0FE";
@@ -244,7 +244,7 @@ export function MarketPulse({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px", fontFamily: "'Montserrat', system-ui, sans-serif", background: isDark ? "#0B0D18" : undefined }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px", fontFamily: "'Montserrat', system-ui, sans-serif", background: isDark ? "#0B0D18" : undefined }}>
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, paddingBottom: 16, borderBottom: "0.5px solid " + divider }}>

@@ -486,23 +486,23 @@ export function ActionHub({
             <SquarePen size={12} strokeWidth={2} /> Đoạn chat mới
           </button>
 
-          {!isAtDefault && (
-            <button
-              onClick={() => onWidthChange(DEFAULT_WIDTH)}
-              title={`Reset về ${DEFAULT_WIDTH}px`}
-              style={{
-                display: "flex", alignItems: "center", gap: 4, padding: "3px 8px",
-                borderRadius: 6, border: "0.5px solid " + t.borderStrong,
-                background: t.bgAccent, cursor: "pointer",
-                color: t.brand, fontSize: 11, fontWeight: 700,
-                fontFamily: "'Montserrat', system-ui, sans-serif", flexShrink: 0,
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccentActive; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccent; }}
-            >
-              <RotateCcw size={11} strokeWidth={2} /> Reset
-            </button>
-          )}
+          {/* Reset độ rộng — luôn hiện; mờ đi khi đang ở mặc định */}
+          <button
+            onClick={() => onWidthChange(DEFAULT_WIDTH)}
+            disabled={isAtDefault}
+            title={`Reset độ rộng về ${DEFAULT_WIDTH}px`}
+            style={{
+              display: "flex", alignItems: "center", gap: 4, padding: "3px 8px",
+              borderRadius: 6, border: "0.5px solid " + t.borderStrong,
+              background: t.bgAccent, cursor: isAtDefault ? "default" : "pointer",
+              color: t.brand, fontSize: 11, fontWeight: 700, opacity: isAtDefault ? 0.45 : 1,
+              fontFamily: "'Montserrat', system-ui, sans-serif", flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { if (!isAtDefault) (e.currentTarget as HTMLElement).style.background = t.bgAccentActive; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccent; }}
+          >
+            <RotateCcw size={11} strokeWidth={2} /> Reset
+          </button>
 
           <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: t.fgSubtle, padding: 4, borderRadius: 6, display: "flex", alignItems: "center" }} title="Đóng">
             <PanelRightClose size={18} strokeWidth={1.5} />
@@ -569,7 +569,7 @@ export function ActionHub({
                     cursor: "pointer", textAlign: "left",
                     transition: "background 120ms ease",
                     fontFamily: "'Montserrat', system-ui, sans-serif",
-                    fontSize: 13, fontWeight: 500, color: t.fg,
+                    fontSize: 13, fontWeight: 600, color: t.fg,
                   }}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccentActive; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.035)"; }}

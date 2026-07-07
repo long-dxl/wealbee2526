@@ -62,8 +62,8 @@ function PerfTooltip({ active, payload, label, isDark }: any) {
   if (!active || !payload?.length) return null;
   const bg = isDark ? "#1A1D30" : "#fff";
   const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(8,73,172,0.15)";
-  const muted = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.50)";
-  const mutedText = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.55)";
+  const muted = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
+  const mutedText = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   return (
     <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: 10, padding: "10px 14px", fontFamily: FONT, boxShadow: "0 8px 24px rgba(0,0,0,0.12)" }}>
       <div style={{ fontSize: 11, color: muted, marginBottom: 6 }}>{label}</div>
@@ -248,8 +248,8 @@ export function Portfolio({
   const cardBg = isDark ? "#131824" : "#fff";
   const cardShadow = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08), 0 1px 2px rgba(0,0,0,0.04)";
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgMuted = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.60)";
-  const fgSubtle = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
+  const fgSubtle = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const fgDisabled = isDark ? "rgba(240,242,255,0.30)" : "rgba(26,26,46,0.35)";
   const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)";
   const brand = isDark ? "#4D8FE8" : "#0849AC";
@@ -540,7 +540,7 @@ export function Portfolio({
   `;
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px", fontFamily: FONT, background: isDark ? "#0B0D18" : undefined }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px", fontFamily: FONT, background: isDark ? "#0B0D18" : undefined }}>
       <style>{hoverStyle}</style>
 
       {/* Header summary — draggable */}
@@ -787,11 +787,11 @@ export function Portfolio({
               <CartesianGrid stroke={gridStroke} vertical={false} />
               <XAxis
                 dataKey="date"
-                tick={{ fill: isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)", fontSize: 10, fontFamily: FONT }}
+                tick={{ fill: isDark ? "rgba(240,242,255,0.85)" : "#3D3D52", fontSize: 10, fontFamily: FONT }}
                 axisLine={false} tickLine={false}
               />
               <YAxis
-                tick={{ fill: isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)", fontSize: 10, fontFamily: FONT }}
+                tick={{ fill: isDark ? "rgba(240,242,255,0.85)" : "#3D3D52", fontSize: 10, fontFamily: FONT }}
                 axisLine={false} tickLine={false} width={44}
                 tickFormatter={(v: number) => `${v > 0 ? "+" : ""}${v.toFixed(0)}%`}
               />
@@ -1047,7 +1047,7 @@ export function Portfolio({
       {/* Modal */}
       {showModal && (
         <div
-          style={{ position: "fixed", inset: 0, background: "rgba(26,26,46,0.50)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+          style={{ position: "fixed", inset: 0, background: "#3D3D52", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
         >
           <div style={{ background: "#fff", borderRadius: 20, padding: 28, width: 480, boxShadow: "0 20px 60px rgba(8,73,172,0.16), 0 4px 12px rgba(0,0,0,0.08)" }}>
@@ -1055,13 +1055,13 @@ export function Portfolio({
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#1A1A2E" }}>
                 {editingHolding ? "Sửa cổ phiếu" : "Thêm cổ phiếu vào danh mục"}
               </h2>
-              <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(26,26,46,0.45)", display: "flex" }}>
+              <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#3D3D52", display: "flex" }}>
                 <X size={20} strokeWidth={1.5} />
               </button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div style={{ position: "relative" }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "rgba(26,26,46,0.60)", marginBottom: 6, fontFamily: FONT }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#3D3D52", marginBottom: 6, fontFamily: FONT }}>
                   Mã cổ phiếu
                 </label>
                 <div style={{ position: "relative" }}>
@@ -1133,7 +1133,7 @@ export function Portfolio({
                         }}
                       >
                         <div style={{ fontSize: 13, fontWeight: 700, color: "#0849AC", fontFamily: FONT }}>{s.symbol}</div>
-                        <div style={{ fontSize: 12, color: "rgba(26,26,46,0.55)", fontFamily: FONT }}>{s.name}</div>
+                        <div style={{ fontSize: 12, color: "#3D3D52", fontFamily: FONT }}>{s.name}</div>
                       </button>
                     ))}
                   </div>
@@ -1145,7 +1145,7 @@ export function Portfolio({
                 { label: "Ngày mua – tùy chọn", key: "purchaseDate", placeholder: "VD: 08/01/2026" },
               ].map(({ label, key, placeholder }) => (
                 <div key={key}>
-                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "rgba(26,26,46,0.60)", marginBottom: 6, fontFamily: FONT }}>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#3D3D52", marginBottom: 6, fontFamily: FONT }}>
                     {label}
                   </label>
                   <input
@@ -1163,7 +1163,7 @@ export function Portfolio({
               ))}
             </div>
             {!form.avgPrice && (
-              <p style={{ fontSize: 12, color: "rgba(26,26,46,0.45)", marginTop: 12, fontStyle: "italic" }}>
+              <p style={{ fontSize: 12, color: "#3D3D52", marginTop: 12, fontStyle: "italic" }}>
                 Nếu không nhập giá mua: chỉ track % thay đổi, không tính P&L
               </p>
             )}
@@ -1173,7 +1173,7 @@ export function Portfolio({
               </p>
             )}
             <div style={{ display: "flex", gap: 10, marginTop: 24, justifyContent: "flex-end" }}>
-              <button onClick={() => setShowModal(false)} style={{ padding: "10px 20px", borderRadius: 10, border: "0.5px solid rgba(8,73,172,0.20)", background: "transparent", fontSize: 14, fontWeight: 600, cursor: "pointer", color: "rgba(26,26,46,0.60)", fontFamily: FONT }}>
+              <button onClick={() => setShowModal(false)} style={{ padding: "10px 20px", borderRadius: 10, border: "0.5px solid rgba(8,73,172,0.20)", background: "transparent", fontSize: 14, fontWeight: 600, cursor: "pointer", color: "#3D3D52", fontFamily: FONT }}>
                 Hủy
               </button>
               <button onClick={handleSave} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: "#0849AC", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>

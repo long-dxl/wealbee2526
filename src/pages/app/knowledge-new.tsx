@@ -175,7 +175,7 @@ function FileRow({
 
 export function KnowledgeBase({ isDark = false }: { isDark?: boolean }) {
   const fg       = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
-const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "rgba(26,26,46,0.40)";
+const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "#3D3D52";
   const cardBg   = isDark ? "#131824" : "#ffffff";
   const brand    = isDark ? "#4D8FE8" : "#0849AC";
   const divider  = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
@@ -364,7 +364,7 @@ const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "rgba(26,26,46,0.40)";
   return (
     <>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+      <div style={{ maxWidth: 1040, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
 
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -462,7 +462,7 @@ const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "rgba(26,26,46,0.40)";
           }}
         >
           <Upload size={14} color={isDark ? "rgba(77,143,232,0.55)" : "rgba(8,73,172,0.40)"} strokeWidth={1.5} />
-          <span style={{ fontSize: 13, color: isDark ? "rgba(77,143,232,0.70)" : "rgba(8,73,172,0.55)", fontWeight: 500 }}>
+          <span style={{ fontSize: 13, color: isDark ? "rgba(77,143,232,0.70)" : "rgba(8,73,172,0.55)", fontWeight: 600 }}>
             Kéo thả tài liệu vào đây
           </span>
           <span style={{ fontSize: 12, color: fgSubtle }}>· PDF, TXT, MD · tối đa 10MB</span>

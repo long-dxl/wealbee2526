@@ -65,7 +65,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         onClick={onComplete}
         style={{
           position: "absolute", top: 24, right: 24, background: "none", border: "none",
-          color: "rgba(26,26,46,0.45)", fontSize: 14, cursor: "pointer",
+          color: "#3D3D52", fontSize: 14, cursor: "pointer",
           fontFamily: "'Montserrat', system-ui, sans-serif",
         }}
       >
@@ -98,7 +98,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             <h1 style={{ fontSize: 28, fontWeight: 700, color: "#1A1A2E", margin: "0 0 8px", textAlign: "center" }}>
               Bắt đầu miễn phí
             </h1>
-            <p style={{ fontSize: 15, color: "rgba(26,26,46,0.50)", textAlign: "center", margin: "0 0 32px" }}>
+            <p style={{ fontSize: 15, color: "#3D3D52", textAlign: "center", margin: "0 0 32px" }}>
               Tạo tài khoản để truy cập đội ngũ phân tích AI cá nhân
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -125,7 +125,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
               <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "4px 0" }}>
                 <div style={{ flex: 1, height: "0.5px", background: "rgba(26,26,46,0.12)" }} />
-                <span style={{ fontSize: 13, color: "rgba(26,26,46,0.40)" }}>hoặc dùng email</span>
+                <span style={{ fontSize: 13, color: "#3D3D52" }}>hoặc dùng email</span>
                 <div style={{ flex: 1, height: "0.5px", background: "rgba(26,26,46,0.12)" }} />
               </div>
 
@@ -162,7 +162,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             <h1 style={{ fontSize: 24, fontWeight: 700, color: "#1A1A2E", margin: "0 0 8px", textAlign: "center" }}>
               Bạn chủ yếu muốn làm gì?
             </h1>
-            <p style={{ fontSize: 14, color: "rgba(26,26,46,0.50)", textAlign: "center", margin: "0 0 24px" }}>
+            <p style={{ fontSize: 14, color: "#3D3D52", textAlign: "center", margin: "0 0 24px" }}>
               Wealbee sẽ cấu hình phù hợp với mục tiêu của bạn
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -190,11 +190,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                       background: selected ? "rgba(8,73,172,0.10)" : "#F5F5F7",
                       display: "flex", alignItems: "center", justifyContent: "center",
                     }}>
-                      <Icon size={22} color={selected ? "#0849AC" : "rgba(26,26,46,0.40)"} strokeWidth={1.5} />
+                      <Icon size={22} color={selected ? "#0849AC" : "#3D3D52"} strokeWidth={1.5} />
                     </div>
                     <div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1A2E", marginBottom: 2 }}>{opt.label}</div>
-                      <div style={{ fontSize: 13, color: "rgba(26,26,46,0.50)" }}>{opt.desc}</div>
+                      <div style={{ fontSize: 13, color: "#3D3D52" }}>{opt.desc}</div>
                     </div>
                   </button>
                 );
@@ -209,7 +209,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1A2E", margin: "0 0 8px", textAlign: "center" }}>
               Thêm danh mục để AI phân tích
             </h1>
-            <p style={{ fontSize: 14, color: "rgba(26,26,46,0.50)", textAlign: "center", margin: "0 0 20px" }}>
+            <p style={{ fontSize: 14, color: "#3D3D52", textAlign: "center", margin: "0 0 20px" }}>
               Không bắt buộc · có thể thêm sau trong app
             </p>
 
@@ -229,7 +229,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#0849AC", marginBottom: 2 }}>
                   Dùng demo (5 mã VN30)  <span style={{ fontSize: 11, background: "#0849AC", color: "#fff", borderRadius: 6, padding: "2px 6px", marginLeft: 6 }}>Gợi ý</span>
                 </div>
-                <div style={{ fontSize: 12, color: "rgba(26,26,46,0.50)" }}>Bắt đầu ngay · đổi sau</div>
+                <div style={{ fontSize: 12, color: "#3D3D52" }}>Bắt đầu ngay · đổi sau</div>
               </div>
             </button>
 

@@ -52,7 +52,7 @@ export function Personas() {
                   background: i === active ? "color-mix(in srgb, var(--wb-primary) 14%, transparent)" : "transparent",
                   color: i === active ? "var(--wb-bright)" : "var(--wb-muted)",
                   fontFamily: "Montserrat, sans-serif",
-                  fontWeight: 500,
+                  fontWeight: 600,
                   fontSize: 14,
                 }}
               >

@@ -109,7 +109,7 @@ export function AgentReportCard({ floating = false }: { floating?: boolean }) {
             Tác động danh mục của bạn
           </div>
           <div style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 700, fontSize: 18, color: "var(--wb-up)" }}>
-            +2.250.000 VND <span style={{ fontSize: 12, fontWeight: 500 }}>(VCB +0,8%)</span>
+            +2.250.000 VND <span style={{ fontSize: 12, fontWeight: 600 }}>(VCB +0,8%)</span>
           </div>
         </div>
 

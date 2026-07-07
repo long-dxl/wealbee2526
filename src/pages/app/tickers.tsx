@@ -42,7 +42,7 @@ function PctBadge({ value }: { value: number }) {
       padding: "2px 7px", borderRadius: 6, fontSize: 12, fontWeight: 600,
       width: "fit-content",
       background: isUp ? "rgba(52,199,89,0.12)" : isDown ? "rgba(255,59,48,0.12)" : "rgba(0,0,0,0.06)",
-      color: isUp ? "#34C759" : isDown ? "#FF3B30" : "rgba(26,26,46,0.45)",
+      color: isUp ? "#34C759" : isDown ? "#FF3B30" : "#3D3D52",
       fontFamily: "'Montserrat', system-ui, sans-serif",
     }}>
       {isUp ? "+" : ""}{value.toFixed(2)}%
@@ -94,8 +94,8 @@ export function Tickers({
   const cardBg     = isDark ? "#131824" : "#fff";
   const cardShadow = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08), 0 1px 2px rgba(0,0,0,0.04)";
   const fg         = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
-  const fgMuted    = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.60)";
-  const fgSubtle   = isDark ? "rgba(240,242,255,0.40)" : "rgba(26,26,46,0.45)";
+  const fgMuted    = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
+  const fgSubtle   = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const divider    = isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)";
   const brand      = isDark ? "#4D8FE8" : "#0849AC";
   const bgMuted    = isDark ? "#0f1220" : "#F5F5F7";
@@ -227,7 +227,7 @@ export function Tickers({
   if (sortBy === "Ngành")       filtered = [...filtered].sort((a, b) => a.sector.localeCompare(b.sector));
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px", fontFamily: FONT }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px", fontFamily: FONT }}>
       <style>{`@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }`}</style>
 
       {/* Header */}

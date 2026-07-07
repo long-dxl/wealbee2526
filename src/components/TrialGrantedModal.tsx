@@ -6,7 +6,7 @@ const FONT = "'Montserrat', system-ui, sans-serif";
 export function TrialGrantedModal({ days = 7, isDark, onClose }: { days?: number; isDark: boolean; onClose: () => void }) {
   const cardBg = isDark ? "#131824" : "#fff";
   const fg = isDark ? "rgba(240,242,255,0.94)" : "#1A1A2E";
-  const sub = isDark ? "rgba(240,242,255,0.55)" : "rgba(26,26,46,0.6)";
+  const sub = isDark ? "rgba(240,242,255,0.85)" : "rgba(26,26,46,0.6)";
   const brand = isDark ? "#4D8FE8" : "#0849AC";
 
   const perks = ["5 Agent · 100 Beeny/ngày", "Deep Research + báo cáo đầy đủ", "Gửi email theo lịch riêng", "Ưu tiên xử lý"];

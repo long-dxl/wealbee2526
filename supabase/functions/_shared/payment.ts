@@ -6,14 +6,33 @@ export const BANK_BIN = "970422";              // MB Bank
 export const ACCOUNT_NO = "0853500666";
 export const ACCOUNT_NAME = "PHAM QUANG MINH";
 
-// Giá gói (VND). ĐANG Ở CHẾ ĐỘ TEST — đổi sang 199000 / 499000 khi go-live.
+// Giá gói (VND) — PRODUCTION. Tháng + Năm (năm = 10 tháng, tặng 2 tháng).
 export const PLAN_PRICE: Record<string, number> = {
-  pro: 2000,       // TEST (thật: 199000)
-  premium: 5000,   // TEST (thật: 499000)
+  pro: 199000,
+  premium: 499000,
+};
+export const PLAN_PRICE_YEAR: Record<string, number> = {
+  pro: 1990000,
+  premium: 4990000,
+};
+/** Giá theo gói + kỳ hạn. */
+export function planPrice(plan: string, period: string): number {
+  return (period === "year" ? PLAN_PRICE_YEAR : PLAN_PRICE)[plan] ?? 0;
+}
+/** Số ngày cộng khi thanh toán theo kỳ. */
+export function planDays(period: string): number {
+  return period === "year" ? 365 : 30;
+}
+
+// Gói Beeny mua thêm theo ngày (hết hạn 24h, mỗi loại 1 lần/ngày). CHỈ cho user Pro/Premium.
+export const BEENY_PACKS: Record<string, { price: number; beeny: number }> = {
+  pack_5k:  { price: 5000,  beeny: 120 },
+  pack_10k: { price: 10000, beeny: 250 },
+  pack_20k: { price: 20000, beeny: 500 },
 };
 
-// Ví Beeny nạp đầy khi lên gói (trần theo gói)
-export const PLAN_CAP: Record<string, number> = { free: 20, pro: 150, premium: 500 };
+// Beeny/ngày theo gói — nạp đủ 1 ngày khi lên gói
+export const PLAN_CAP: Record<string, number> = { free: 10, pro: 100, premium: 250 };
 
 // Ảnh QR động VietQR (số tiền + nội dung CK cố định vào QR)
 export function qrUrl(amount: number, memo: string): string {

@@ -29,7 +29,7 @@ export function SettingsPage() {
         {SECTIONS.map(s => {
           const Icon = s.icon;
           return (
-            <button key={s.id} onClick={() => setSection(s.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 9, border: "none", cursor: "pointer", fontSize: "0.8125rem", fontWeight: 500, fontFamily: "inherit", background: section === s.id ? "rgba(8,73,172,0.08)" : "transparent", color: section === s.id ? "#0849ac" : "#6a7282", textAlign: "left", marginBottom: 2 }}>
+            <button key={s.id} onClick={() => setSection(s.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 9, border: "none", cursor: "pointer", fontSize: "0.8125rem", fontWeight: 600, fontFamily: "inherit", background: section === s.id ? "rgba(8,73,172,0.08)" : "transparent", color: section === s.id ? "#0849ac" : "#6a7282", textAlign: "left", marginBottom: 2 }}>
               <Icon style={{ width: 15, height: 15 }} />{s.label}
             </button>
           );

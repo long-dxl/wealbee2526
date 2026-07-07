@@ -83,7 +83,7 @@ function AgentCard({
   const menuRef = useRef<HTMLDivElement>(null);
 
   const fg      = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
-  const fgMuted = isDark ? "rgba(240,242,255,0.52)" : "rgba(26,26,46,0.56)";
+  const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "rgba(26,26,46,0.56)";
   const fgSubtle= isDark ? "rgba(240,242,255,0.32)" : "rgba(26,26,46,0.38)";
   const cardBg  = isDark ? "#131824" : "#ffffff";
   const border  = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
@@ -148,7 +148,7 @@ function AgentCard({
           </span>
           <StatusDot status={agent.status} />
           {agent.status === "paused" && (
-            <span style={{ fontSize: 11, color: fgSubtle, fontWeight: 500 }}>· Tạm dừng</span>
+            <span style={{ fontSize: 11, color: fgSubtle, fontWeight: 600 }}>· Tạm dừng</span>
           )}
         </div>
 
@@ -196,7 +196,7 @@ function AgentCard({
                       display: "flex", alignItems: "center", gap: 9,
                       width: "100%", padding: "8px 12px", border: "none",
                       background: "transparent", cursor: "pointer", borderRadius: 8,
-                      fontSize: 13, fontWeight: 500,
+                      fontSize: 13, fontWeight: 600,
                       color: item.danger ? "#FF3B30" : fg,
                       fontFamily: "'Montserrat', system-ui, sans-serif",
                       transition: "background 100ms",
@@ -246,7 +246,7 @@ export function Agents({ onNavigate, isDark = false }: { onNavigate: (page: stri
   const [agents, setAgents] = useState(mockAgents);
 
   const fg       = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
-  const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "rgba(26,26,46,0.40)";
+  const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "#3D3D52";
   const brand    = isDark ? "#4D8FE8" : "#0849AC";
   const divider  = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
 
@@ -265,7 +265,7 @@ export function Agents({ onNavigate, isDark = false }: { onNavigate: (page: stri
   };
 
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
 
       {/* ── Header ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -334,7 +334,7 @@ export function Agents({ onNavigate, isDark = false }: { onNavigate: (page: stri
           width: "100%", marginTop: 14, padding: "14px",
           borderRadius: 16, border: `1px dashed ${isDark ? "rgba(255,255,255,0.14)" : "rgba(8,73,172,0.20)"}`,
           background: "transparent", cursor: "pointer",
-          color: fgSubtle, fontSize: 13, fontWeight: 500,
+          color: fgSubtle, fontSize: 13, fontWeight: 600,
           fontFamily: "'Montserrat', system-ui, sans-serif",
           transition: "all 150ms ease",
         }}

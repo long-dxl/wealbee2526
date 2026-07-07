@@ -218,8 +218,8 @@ ${body}
 
 export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; onSelectTicker?: (sym: string) => void }) {
   const fg       = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
-  const fgMuted  = isDark ? "rgba(240,242,255,0.60)" : "rgba(26,26,46,0.65)";
-  const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "rgba(26,26,46,0.40)";
+  const fgMuted  = isDark ? "rgba(240,242,255,0.85)" : "rgba(26,26,46,0.65)";
+  const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "#3D3D52";
   const cardBg   = isDark ? "#131824" : "#ffffff";
   const brand    = isDark ? "#4D8FE8" : "#0849AC";
   const divider  = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
@@ -429,7 +429,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
         </div>
 
         {/* Detail content */}
-        <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px 80px" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px 80px" }}>
           {/* Meta */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <span style={{
@@ -466,7 +466,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
 
   // ── List view ─────────────────────────────────────────────────────────────
   return (
-    <div style={{ maxWidth: 760, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: 1040, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>

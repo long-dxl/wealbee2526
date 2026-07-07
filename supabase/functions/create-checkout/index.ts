@@ -5,7 +5,7 @@
 // Secrets: SEPAY_MERCHANT_ID, SEPAY_SECRET_KEY, SEPAY_ENV(sandbox|production), APP_URL.
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { PLAN_PRICE, genMemo } from "../_shared/payment.ts";
+import { PLAN_PRICE, planPrice, BEENY_PACKS, genMemo } from "../_shared/payment.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -58,16 +58,44 @@ Deno.serve(async (req) => {
   if (authErr || !user) return json({ error: "Unauthorized" }, 401);
 
   const body = await req.json().catch(() => ({}));
-  const plan = String(body.plan ?? "").toLowerCase();
-  if (!(plan in PLAN_PRICE)) return json({ error: "Gói không hợp lệ" }, 400);
-  const amount = PLAN_PRICE[plan];
+  const kind = String(body.kind ?? "plan").toLowerCase();
+
+  // ── Chuẩn bị đơn theo loại ──
+  let amount = 0, desc = "", insert: Record<string, any> = {};
+
+  if (kind === "pack") {
+    const pack = String(body.pack ?? "").toLowerCase();
+    if (!(pack in BEENY_PACKS)) return json({ error: "Gói Beeny không hợp lệ" }, 400);
+    // Chỉ Pro/Premium mới mua pack
+    const { data: pr } = await sb.from("user_profiles").select("plan, plan_expires_at").eq("user_id", user.id).limit(1);
+    const p = pr?.[0];
+    const active = p && ["pro", "premium"].includes(String(p.plan)) && (!p.plan_expires_at || Date.parse(p.plan_expires_at) > Date.now());
+    if (!active) return json({ error: "Chỉ gói Pro/Premium mới mua thêm Beeny theo ngày" }, 403);
+    // Mỗi loại chỉ mua 1 lần/ngày (đơn đã trả hôm nay VN)
+    const todayVN = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+    const { data: dup } = await sb.from("payment_orders")
+      .select("id").eq("user_id", user.id).eq("kind", "pack").eq("plan", pack).eq("status", "paid")
+      .gte("created_at", `${todayVN}T00:00:00+07:00`).limit(1);
+    if (dup?.length) return json({ error: "Bạn đã mua gói Beeny này hôm nay. Mỗi loại 1 lần/ngày." }, 409);
+
+    const cfg = BEENY_PACKS[pack];
+    amount = cfg.price;
+    desc = `Wealbee mua ${cfg.beeny} Beeny`;
+    insert = { user_id: user.id, kind: "pack", plan: pack, beeny: cfg.beeny, amount, status: "pending" };
+  } else {
+    const plan = String(body.plan ?? "").toLowerCase();
+    const period = body.period === "year" ? "year" : "month";
+    if (!(plan in PLAN_PRICE)) return json({ error: "Gói không hợp lệ" }, 400);
+    amount = planPrice(plan, period);
+    desc = `Wealbee ${plan.toUpperCase()} ${period === "year" ? "1 nam" : "1 thang"}`;
+    insert = { user_id: user.id, kind: "plan", plan, period, amount, status: "pending" };
+  }
 
   let order: any = null;
   for (let i = 0; i < 3 && !order; i++) {
     const memo = genMemo();
     const { data, error } = await sb.from("payment_orders")
-      .insert({ user_id: user.id, plan, amount, memo, status: "pending" })
-      .select("id, memo").single();
+      .insert({ ...insert, memo }).select("id, memo").single();
     if (!error) order = data;
   }
   if (!order) return json({ error: "Không tạo được đơn" }, 500);
@@ -79,12 +107,12 @@ Deno.serve(async (req) => {
     order_amount: amount,
     currency: "VND",
     order_invoice_number: order.memo,
-    order_description: `Wealbee nang cap goi ${plan.toUpperCase()}`,
+    order_description: desc,
     success_url: `${APP_URL}/app/settings?payment=success&order=${order.memo}`,
     error_url: `${APP_URL}/app/settings?payment=error`,
     cancel_url: `${APP_URL}/app/settings?payment=cancel`,
   };
   fields.signature = await signFields(fields, SEPAY_SECRET);
 
-  return json({ checkoutURL: CHECKOUT_URL, fields, orderId: order.id, memo: order.memo, amount, plan });
+  return json({ checkoutURL: CHECKOUT_URL, fields, orderId: order.id, memo: order.memo, amount });
 });

@@ -66,7 +66,7 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
   const [needPortfolio, setNeedPortfolio] = useState(false);
 
   const fg       = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
-  const fgMuted  = isDark ? "rgba(240,242,255,0.52)" : "rgba(26,26,46,0.58)";
+  const fgMuted  = isDark ? "rgba(240,242,255,0.85)" : "rgba(26,26,46,0.58)";
   const fgSubtle = isDark ? "rgba(240,242,255,0.32)" : "rgba(26,26,46,0.38)";
   const cardBg   = isDark ? "#131824" : "#ffffff";
   const cardShadow = isDark
@@ -121,7 +121,7 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
   };
 
   return (
-    <div style={{ maxWidth: 940, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
 
       {needPortfolio && <NeedPortfolioModal onDismiss={() => setNeedPortfolio(false)} />}
 

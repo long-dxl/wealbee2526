@@ -43,7 +43,7 @@ export function Navbar({ theme, onToggleTheme, onOpenDemo }: { theme: "dark" | "
               key={l.href}
               href={l.href}
               className="rounded-md px-3 py-2 transition-colors hover:text-[var(--wb-text)]"
-              style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 500, fontSize: 14, color: "var(--wb-muted)" }}
+              style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: 14, color: "var(--wb-muted)" }}
             >
               {l.label}
             </a>
@@ -63,7 +63,7 @@ export function Navbar({ theme, onToggleTheme, onOpenDemo }: { theme: "dark" | "
           <Link
             to="/login"
             className="hidden rounded-full px-4 py-2 transition-opacity hover:opacity-70 sm:block"
-            style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 500, fontSize: 14, color: "var(--wb-muted)", textDecoration: "none" }}
+            style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: 14, color: "var(--wb-muted)", textDecoration: "none" }}
           >
             Đăng nhập
           </Link>
@@ -91,7 +91,7 @@ export function Navbar({ theme, onToggleTheme, onOpenDemo }: { theme: "dark" | "
                 href={l.href}
                 onClick={() => setOpen(false)}
                 className="rounded-md px-3 py-2.5"
-                style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 500, fontSize: 15, color: "var(--wb-text)" }}
+                style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: 15, color: "var(--wb-text)" }}
               >
                 {l.label}
               </a>
