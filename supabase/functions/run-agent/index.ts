@@ -11,6 +11,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { valueChainReport } from "../_shared/value-chain.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
+import { zaloSend } from "../_shared/zalo.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -852,6 +853,25 @@ function inferImpactScore(output: string, templateId: string): number {
   return Math.min(8, Math.max(-8, net));
 }
 
+// Định dạng output cho Zalo: bỏ markdown/html, cắt ≤2000 ký tự.
+function buildZaloMessage(agentName: string, title: string, output: string): string {
+  const plain = output
+    .replace(/```[\s\S]*?```/g, "")           // code blocks
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")      // images
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")   // [text](url) → text
+    .replace(/\[ref:\d+\]/g, "")               // ref markers
+    .replace(/<[^>]+>/g, "")                    // html tags
+    .replace(/[*_#>`]/g, "")                    // md symbols
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const header = `🐝 ${agentName}\n${title}\n\n`;
+  const footer = "\n\n— Xem chi tiết trong Wealbee";
+  const budget = 2000 - header.length - footer.length;
+  let body = plain;
+  if (body.length > budget) body = body.slice(0, budget - 1).trimEnd() + "…";
+  return header + body + footer;
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -1423,6 +1443,21 @@ QUY TẮC:
             emit({ type: "step", step: "email_send", status: "error", label: `Lỗi gửi email: ${String(emailErr)}` });
           }
         }
+
+        // ── Đẩy thông báo Zalo (nếu user đã liên kết + bật cảnh báo) ──
+        try {
+          const { data: zl } = await sb.from("zalo_links")
+            .select("chat_id, notify_alert").eq("user_id", user.id).limit(1);
+          const link = zl?.[0];
+          if (link?.chat_id && link.notify_alert) {
+            emit({ type: "step", step: "zalo_send", status: "loading", label: "Đang gửi Zalo..." });
+            const r = await zaloSend(String(link.chat_id), buildZaloMessage(agent.name ?? "Agent", title, fullOutput));
+            emit({ type: "step", step: "zalo_send", status: r.ok ? "done" : "error", label: r.ok ? "Đã gửi Zalo" : `Lỗi Zalo: ${r.error ?? ""}` });
+          }
+        } catch (zErr) {
+          console.error("Zalo send failed:", zErr);
+        }
+
         // Emit registry (numbered refs) + sources list (reuse already-deduplicated arrays)
         if (regArray.length > 0) {
           emit({ type: "ref_registry", refs: regArray });
