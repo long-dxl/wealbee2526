@@ -15,6 +15,35 @@ import { notifyWalletChanged } from "../../lib/wallet-events";
 import { projectId } from "../../utils/supabase/info";
 import wealbeeLogo from "../../assets/Logo.svg";
 
+type ScheduleFrequency = "daily" | "weekdays" | "weekly" | "custom";
+
+// Dựng chuỗi lưu vào agents.schedule — LUÔN dùng JSON đầy đủ {mode,frequency,time,days},
+// KHÔNG dùng dạng rút gọn "daily:HH:MM" cũ — "weekly"/"custom" cần mảng ngày cụ thể mà
+// dạng rút gọn không biểu diễn được (đã verify: backend trigger agents_set_next_run_at
+// trả về NULL cho "weekly:HH:MM" vì không có ngày). days dùng chỉ số UI: 0=T2..5=T7,6=CN.
+function buildScheduleValue(frequency: ScheduleFrequency, time: string, days: number[]): string {
+  return JSON.stringify({ mode: "scheduled", frequency, time, days });
+}
+
+// Đọc lại agents.schedule khi mở agent để sửa — chấp nhận cả JSON mới lẫn định dạng
+// rút gọn cũ "daily:HH:MM"/"weekdays:HH:MM"/"weekly:HH:MM" (agent tạo trước khi có fix này).
+function parseScheduleValue(raw: string | null | undefined): { frequency: ScheduleFrequency; time: string; days: number[] } | null {
+  if (!raw) return null;
+  try {
+    const cfg = JSON.parse(raw);
+    if (cfg?.mode === "scheduled" && cfg.frequency && cfg.time) {
+      return { frequency: cfg.frequency, time: cfg.time, days: Array.isArray(cfg.days) ? cfg.days : [] };
+    }
+  } catch { /* không phải JSON — thử định dạng rút gọn cũ */ }
+  const m = raw.match(/^(daily|weekdays|weekly):(\d{1,2}:\d{2})$/);
+  if (m) {
+    const frequency = m[1] as ScheduleFrequency;
+    const days = frequency === "weekdays" ? [0, 1, 2, 3, 4] : frequency === "daily" ? [0, 1, 2, 3, 4, 5, 6] : [];
+    return { frequency, time: m[2], days };
+  }
+  return null;
+}
+
 interface StudioProps {
   onBack: () => void;
   agentId?: string;
@@ -533,9 +562,14 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       // nó được suy ra (derived) bằng cách so sánh watchlist với portfolioSymbols hiện tại, xem isPortfolioConnected.
       if (data.target_symbols?.length) setWatchlist(data.target_symbols);
       if (data.email_notify != null) setNotifyEmail(data.email_notify);
-      if (data.schedule && data.schedule.startsWith("daily:")) setScheduleTime(data.schedule.split(":").slice(1).join(":"));
+      const parsedSchedule = parseScheduleValue(data.schedule);
+      if (parsedSchedule) {
+        setFrequency(parsedSchedule.frequency);
+        setScheduleTime(parsedSchedule.time);
+        if (parsedSchedule.days.length) setSelectedDays(new Set(parsedSchedule.days));
+      }
       // Điều kiện kích hoạt
-      const tt = data.trigger_type || (data.schedule?.startsWith("daily:") ? "scheduled" : "manual");
+      const tt = data.trigger_type || (parsedSchedule ? "scheduled" : "manual");
       setTriggerType(tt === "scheduled" || tt === "event" ? tt : "manual");
       const tc = data.trigger_config;
       if (tc && typeof tc === "object") {
@@ -596,7 +630,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   // ── Save agent ────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setIsSaved(true);
-    const schedule = triggerType === "scheduled" ? `daily:${scheduleTime}` : "manual";
+    const schedule = triggerType === "scheduled"
+      ? buildScheduleValue(frequency, scheduleTime, [...selectedDays].sort((a, b) => a - b))
+      : "manual";
     const trigger_config = triggerType === "event"
       ? {
           event_type: eventType,
