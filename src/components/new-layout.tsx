@@ -108,6 +108,13 @@ function NewLayoutInner() {
   const currentPage = isTickerPage ? "" : (ROUTE_PAGE[location.pathname] ?? "dashboard");
   const isStudioMode = currentPage === "agent-studio" || currentPage === "create-agent";
 
+  // Trang Cài đặt: thu gọn ActionHub mặc định để giao diện thoáng — chỉ áp dụng
+  // lúc VÀO trang (currentPage đổi giá trị), user vẫn tự mở lại được sau đó mà
+  // không bị effect này ép đóng lại.
+  useEffect(() => {
+    if (currentPage === "settings") setActionHubOpen(false);
+  }, [currentPage]);
+
   const handleNavigate = (page: string) => {
     // "Tạo Agent" luôn mở modal đặt tên trước — không điều hướng ngay để user
     // có thể Huỷ/click ra ngoài mà không rời trang đang xem.
