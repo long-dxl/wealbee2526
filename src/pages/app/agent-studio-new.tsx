@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useBlocker, useNavigate } from "react-router";
+import { useBlocker } from "react-router";
 import {
   ChevronLeft, Bot, Save, Play, Sparkles, ChevronDown, ChevronUp,
   Check, X, Plus, FileText, Wrench, BookOpen, TrendingUp,
@@ -11,7 +11,7 @@ import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer"
 import { MdContent, RichContent } from "../../components/MdContent";
 import { supabase } from "../../lib/supabase/client";
 import { canCreateAgent } from "../../lib/plan-limits";
-import { getZaloLink } from "../../lib/zalo";
+import { getZaloLink, genZaloCode, ZALO_BOT_LINK, ZALO_BOT_QR } from "../../lib/zalo";
 import { notifyWalletChanged } from "../../lib/wallet-events";
 import { projectId } from "../../utils/supabase/info";
 import wealbeeLogo from "../../assets/Logo.svg";
@@ -390,7 +390,24 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   const [userEmail, setUserEmail] = useState("");
   const [notifyZalo, setNotifyZalo] = useState(false);
   const [zaloLinkName, setZaloLinkName] = useState<string | null>(null);  // null = chưa kết nối; "" hoặc tên = đã kết nối
-  const navigate = useNavigate();
+  const [zaloConnecting, setZaloConnecting] = useState(false);  // đang hiện card kết nối inline
+  const [zaloCode, setZaloCode] = useState<string | null>(null);
+  const [zaloBusy, setZaloBusy] = useState(false);
+  const [zaloCopied, setZaloCopied] = useState(false);
+
+  const refreshZaloLink = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const link = await getZaloLink(user.id);
+    setZaloLinkName(link ? (link.displayName || "") : null);
+    if (link) { setZaloConnecting(false); setZaloCode(null); }
+  };
+  const startZaloConnect = async () => {
+    setZaloConnecting(true); setZaloBusy(true);
+    try { setZaloCode(await genZaloCode()); }
+    catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+    finally { setZaloBusy(false); }
+  };
 
   // ── Cảnh báo rời trang khi có thay đổi chưa lưu ─────────────────────────────
   // agentLoaded: true khi agent (nếu có agentId) đã nạp xong dữ liệu thật, hoặc luôn true
@@ -715,8 +732,10 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
 
-  // Chặn điều hướng trong app (sidebar, breadcrumb…) khi còn thay đổi chưa lưu
-  const blocker = useBlocker(isDirty);
+  // Chặn điều hướng trong app (sidebar, breadcrumb…) khi còn thay đổi chưa lưu.
+  // bypassBlockRef: khi handleSave() điều hướng sau lưu → BỎ chặn (tránh hiện nhầm modal "chưa lưu").
+  const bypassBlockRef = useRef(false);
+  const blocker = useBlocker(() => isDirty && !bypassBlockRef.current);
 
   const requestLeave = (action: () => void) => {
     if (isDirty) { leaveActionRef.current = action; setConfirmLeaveOpen(true); }
