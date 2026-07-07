@@ -288,34 +288,37 @@ async function fetchMarketData(): Promise<{
     universeSet.add(s.symbol);
   });
 
-  // 2 phiên giao dịch gần nhất
-  const { data: d0r } = await supabase.from("prices_daily").select("date").order("date", { ascending: false }).limit(1).single();
-  const d0 = d0r?.date;
-  const dates: string[] = [];
-  if (d0) {
-    dates.push(d0);
-    const { data: d1r } = await supabase.from("prices_daily").select("date").lt("date", d0).order("date", { ascending: false }).limit(1);
-    const d1 = d1r?.[0]?.date;
-    if (d1) dates.push(d1);
-  }
+  // Cửa sổ 10 ngày gần nhất (đủ bao trọn cuối tuần/lễ dài). KHÔNG dùng "2 ngày
+  // global mới nhất" nữa: job realtime trong phiên chỉ cập nhật HÔM NAY cho
+  // VN30 ∪ portfolio (~30 mã) chứ không phủ hết 700+ mã mọi sàn — nếu ép mọi
+  // mã so theo đúng 1 cặp ngày chung, mã nào chưa có dữ liệu HÔM NAY (toàn bộ
+  // HNX/UPCOM + phần lớn HOSE ngoài VN30) sẽ bị coi là "phẳng 0%" oan vì thiếu
+  // đúng ngày global mới nhất. Mỗi mã tự lấy 2 NGÀY GẦN NHẤT CỦA RIÊNG NÓ.
+  const windowCutoff = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 10);
+    return d.toISOString().slice(0, 10);
+  })();
 
-  // Giá cho 2 phiên, phân trang để vượt giới hạn 1000 dòng của PostgREST
+  // QUAN TRỌNG: phải có tiebreaker phụ (id) — hàng nghìn dòng trùng "date" mỗi
+  // ngày, nếu chỉ order theo date, Postgres không đảm bảo thứ tự ổn định giữa
+  // các trang .range() liên tiếp → có thể LÀM RỚT hẳn 1 dòng của 1 mã ở ranh
+  // giới trang (đã bắt được thực tế: HDB/SHB mất đúng dòng 1 ngày, khiến %thay
+  // đổi tính nhảy sang so với 2 ngày trước thay vì đúng 1 ngày trước).
   const prc: any[] = [];
-  if (dates.length) {
-    for (let from = 0; from < 8000; from += 1000) {
-      const { data } = await supabase.from("prices_daily").select("symbol,date,close,volume")
-        .in("date", dates).order("date", { ascending: false }).range(from, from + 999);
-      if (!data?.length) break;
-      prc.push(...data);
-      if (data.length < 1000) break;
-    }
+  for (let from = 0; from < 16000; from += 1000) {
+    const { data } = await supabase.from("prices_daily").select("symbol,date,close,volume")
+      .gte("date", windowCutoff).order("date", { ascending: false }).order("id", { ascending: false }).range(from, from + 999);
+    if (!data?.length) break;
+    prc.push(...data);
+    if (data.length < 1000) break;
   }
 
-  // gom theo mã (mọi sàn), date desc: [0]=phiên cuối, [1]=phiên trước
+  // gom theo mã (mọi sàn), mỗi mã tự sort theo NGÀY CỦA RIÊNG NÓ: [0]=phiên cuối, [1]=phiên trước
   const bySym: Record<string, any[]> = {};
   prc.forEach((p: any) => { if (universeSet.has(p.symbol)) (bySym[p.symbol] ??= []).push(p); });
   const withPct = Object.keys(bySym).map((sym: string) => {
-    const rows = bySym[sym];
+    const rows = bySym[sym].sort((a, b) => b.date.localeCompare(a.date));
     const latest = rows[0], prev = rows[1];
     const pct = prev && prev.close > 0 ? ((Number(latest.close) - Number(prev.close)) / Number(prev.close)) * 100 : 0;
     return { symbol: sym, price: Number(latest.close), pct, vol: fmtVol(latest.volume), sector: toIcb1(sectorMap[sym]), exchange: exchangeMap[sym] || "" };
@@ -592,6 +595,22 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       )
     : null;
   const scopeLabel = [vn30Active ? "VN30" : null, hnxActive ? "HNX" : null, selectedSector].filter(Boolean).join(" · ") || null;
+  // Heatmap ngành: khi chọn rổ VN30/HNX, phải tính lại theo ĐÚNG rổ đó (không
+  // giữ cố định toàn bộ HOSE như trước) — chỉ lọc theo sàn/rổ, KHÔNG lọc theo
+  // selectedSector (bấm 1 ô ngành chỉ để lọc Top tăng/giảm, không thu hẹp
+  // heatmap còn 1 ô).
+  const scopeSectors = (vn30Active || hnxActive)
+    ? (() => {
+        const scoped = allMovers.filter(m => (!vn30Active || vn30Set.has(m.symbol)) && (!hnxActive || m.exchange === "HNX"));
+        const groups: Record<string, number[]> = {};
+        scoped.forEach(m => { if (m.sector !== "Khác") (groups[m.sector] ??= []).push(m.pct); });
+        return Object.entries(groups)
+          .map(([name, pcts]) => ({ name, pct: pcts.reduce((a, b) => a + b, 0) / pcts.length }))
+          .sort((a, b) => b.pct - a.pct)
+          .slice(0, 12);
+      })()
+    : null;
+  const displaySectors = scopeSectors ?? sectors;
   // Chuẩn CTCK: TĂNG = chỉ mã tăng (xanh), GIẢM = chỉ mã giảm (đỏ). Card giữ size nhờ minHeight.
   const displayGainers = scopeMovers
     ? scopeMovers.filter(m => m.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 5).map(m => ({ ...m, isFloor: false }))
@@ -882,8 +901,9 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
         </div>
 
         {/* Heatmap Ngành */}
-        {sectors.length > 0 && (() => {
-          const heatmapCard: ContextCard = { id: "heatmap-nganh", type: "index", label: "Heatmap ngành", badge: dateStr, summary: sectors.map(s => `${s.name}: ${s.pct >= 0 ? "+" : ""}${s.pct.toFixed(1)}%`).join(" · ") };
+        {displaySectors.length > 0 && (() => {
+          const heatmapScopeLabel = [vn30Active ? "VN30" : null, hnxActive ? "HNX" : null].filter(Boolean).join(" · ") || null;
+          const heatmapCard: ContextCard = { id: "heatmap-nganh", type: "index", label: "Heatmap ngành", badge: dateStr, summary: displaySectors.map(s => `${s.name}: ${s.pct >= 0 ? "+" : ""}${s.pct.toFixed(1)}%`).join(" · ") };
           return (
             <div {...makeDragHandlers(heatmapCard)}
               style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, marginBottom: 16, position: "relative", cursor: "grab", userSelect: "none" }}
@@ -892,9 +912,12 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
               <div className="card-hint" style={{ position: "absolute", top: 10, right: 10, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)", borderRadius: 6, padding: "3px 7px", opacity: 0, transition: "opacity 150ms ease", pointerEvents: "none" }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>⠿ Kéo vào AI</span>
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fg, marginBottom: 12 }}>HEATMAP NGÀNH</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fg }}>HEATMAP NGÀNH</div>
+                {heatmapScopeLabel && <span style={{ fontSize: 10, fontWeight: 700, color: brand, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", padding: "2px 7px", borderRadius: 10 }}>{heatmapScopeLabel}</span>}
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
-                {sectors.map(s => {
+                {displaySectors.map(s => {
                   const col = getSectorColor(s.pct);
                   const isSelected = selectedSector === s.name;
                   return (
