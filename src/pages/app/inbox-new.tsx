@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router";
 import {
   Sparkles, Clock, ChevronRight, BookOpen,
   RefreshCw, GripVertical, ArrowLeft, Download, Mail, Check,
@@ -290,6 +291,19 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, []);
+
+  // Deep-link: mở đúng brief khi vào từ Zalo/email (?brief=<id>) → tự mở + đánh dấu đã đọc.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get("brief");
+    if (!id || briefs.length === 0) return;
+    const target = briefs.find(b => b.id === id);
+    if (target) {
+      open(target);
+      searchParams.delete("brief");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [briefs, searchParams]);
 
   const filtered    = filter === "all" ? briefs : briefs.filter(b => b.agentDeleted);
   const unreadCount = briefs.filter(b => !b.read).length;
