@@ -3,6 +3,11 @@ import { supabase } from "./supabase/client";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
+/** Link công khai mở Bot Wealbee trên Zalo (deeplink). */
+export const ZALO_BOT_LINK = "https://zalo.me/3356662529883136548";
+/** Ảnh QR trỏ tới link bot (dịch vụ QR công khai — dữ liệu chỉ là link công khai). */
+export const ZALO_BOT_QR = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=0&data=${encodeURIComponent(ZALO_BOT_LINK)}`;
+
 export interface ZaloLink {
   chatId: string;
   displayName: string | null;

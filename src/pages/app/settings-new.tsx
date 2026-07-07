@@ -7,7 +7,7 @@ import { getPlanAndBeeny, fmtBeeny, PLAN_LIMITS } from "../../lib/plan-limits";
 import { startCheckout, startPackCheckout } from "../../lib/payment";
 import { logout, deleteAccount } from "../../lib/account";
 import { getTrialAvailable, activateTrial } from "../../lib/trial";
-import { getZaloLink, genZaloCode, setZaloNotify, unlinkZalo, sendZaloTest, type ZaloLink } from "../../lib/zalo";
+import { getZaloLink, genZaloCode, setZaloNotify, unlinkZalo, sendZaloTest, ZALO_BOT_LINK, ZALO_BOT_QR, type ZaloLink } from "../../lib/zalo";
 import { TrialGrantedModal } from "../../components/TrialGrantedModal";
 import { useBrokerConfig, type BrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { discoverAccounts } from "../../lib/services/dnse";
@@ -569,29 +569,48 @@ export function Settings() {
                         {zaloBusy ? "Đang tạo mã…" : "Kết nối Zalo"}
                       </button>
                     ) : (
-                      <div style={{ background: isDark ? "rgba(0,104,255,0.08)" : "rgba(0,104,255,0.05)", border: "1px solid rgba(0,104,255,0.25)", borderRadius: 12, padding: 16 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: labelColor, marginBottom: 10 }}>
-                          Mở <b style={{ color: headingColor }}>bot Wealbee</b> trên Zalo và gửi mã dưới đây (hết hạn sau 15 phút):
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <div style={{ flex: 1, fontFamily: "monospace", fontSize: 26, fontWeight: 800, letterSpacing: "0.18em", color: "#0068FF", textAlign: "center", background: cardBg, borderRadius: 10, padding: "10px 0", border: "1px dashed rgba(0,104,255,0.4)" }}>
-                            {zaloCode}
+                      <div style={{ background: isDark ? "rgba(0,104,255,0.08)" : "rgba(0,104,255,0.05)", border: "1px solid rgba(0,104,255,0.25)", borderRadius: 12, padding: 16, display: "flex", gap: 18, flexWrap: "wrap", alignItems: "flex-start" }}>
+                        {/* Trái: hướng dẫn + mã */}
+                        <div style={{ flex: 1, minWidth: 240 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: headingColor, marginBottom: 8 }}>
+                            Bước 1 — Mở Bot Wealbee trên Zalo
                           </div>
-                          <button onClick={() => { navigator.clipboard.writeText(zaloCode); setZaloCopied(true); setTimeout(() => setZaloCopied(false), 1500); }}
-                            title="Sao chép"
-                            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, borderRadius: 10, border: "1px solid " + borderColor, background: "transparent", cursor: "pointer", color: headingColor }}>
-                            {zaloCopied ? <Check size={18} color="#1a7a3a" /> : <Copy size={18} />}
-                          </button>
+                          <a href={ZALO_BOT_LINK} target="_blank" rel="noreferrer"
+                            style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 9, background: "#0068FF", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: FONT, boxShadow: "0 4px 12px rgba(0,104,255,0.25)" }}>
+                            <MessageCircle size={15} /> Mở Bot Wealbee
+                          </a>
+                          <div style={{ fontSize: 12, color: subtleColor, marginTop: 5 }}>Trên máy tính: quét QR bên phải bằng điện thoại →</div>
+
+                          <div style={{ fontSize: 13, fontWeight: 700, color: headingColor, margin: "14px 0 8px" }}>
+                            Bước 2 — Gửi mã này cho bot <span style={{ fontWeight: 600, color: subtleColor }}>(hết hạn 15 phút)</span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ flex: 1, fontFamily: "monospace", fontSize: 26, fontWeight: 800, letterSpacing: "0.18em", color: "#0068FF", textAlign: "center", background: cardBg, borderRadius: 10, padding: "10px 0", border: "1px dashed rgba(0,104,255,0.4)" }}>
+                              {zaloCode}
+                            </div>
+                            <button onClick={() => { navigator.clipboard.writeText(zaloCode); setZaloCopied(true); setTimeout(() => setZaloCopied(false), 1500); }}
+                              title="Sao chép"
+                              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, borderRadius: 10, border: "1px solid " + borderColor, background: "transparent", cursor: "pointer", color: headingColor }}>
+                              {zaloCopied ? <Check size={18} color="#1a7a3a" /> : <Copy size={18} />}
+                            </button>
+                          </div>
+                          <div style={{ display: "flex", gap: 14, marginTop: 12, alignItems: "center" }}>
+                            <button onClick={loadZalo}
+                              style={{ padding: "8px 16px", borderRadius: 9, border: "1px solid " + borderColor, background: "transparent", color: headingColor, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT, display: "flex", alignItems: "center", gap: 6 }}>
+                              <RefreshCw size={14} /> Đã gửi, kiểm tra
+                            </button>
+                            <button onClick={handleGenZaloCode} disabled={zaloBusy}
+                              style={{ padding: "8px 6px", border: "none", background: "transparent", color: subtleColor, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>
+                              Tạo mã mới
+                            </button>
+                          </div>
                         </div>
-                        <div style={{ display: "flex", gap: 14, marginTop: 12, alignItems: "center" }}>
-                          <button onClick={loadZalo}
-                            style={{ padding: "8px 16px", borderRadius: 9, border: "1px solid " + borderColor, background: "transparent", color: headingColor, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT, display: "flex", alignItems: "center", gap: 6 }}>
-                            <RefreshCw size={14} /> Đã gửi, kiểm tra
-                          </button>
-                          <button onClick={handleGenZaloCode} disabled={zaloBusy}
-                            style={{ padding: "8px 6px", border: "none", background: "transparent", color: subtleColor, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>
-                            Tạo mã mới
-                          </button>
+                        {/* Phải: QR */}
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                          <div style={{ background: "#fff", borderRadius: 10, padding: 8, border: "1px solid " + borderColor }}>
+                            <img src={ZALO_BOT_QR} alt="QR Bot Wealbee" width={140} height={140} style={{ display: "block" }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: subtleColor, textAlign: "center", maxWidth: 150 }}>Quét bằng camera Zalo để mở bot</span>
                         </div>
                       </div>
                     )}
