@@ -7,6 +7,8 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
+import { buildPriceContext, buildNewsContext } from "../_shared/market-context.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -32,7 +34,6 @@ const MODEL_MAP: Record<string, { provider: "openai" | "anthropic"; apiModel: st
 };
 const DEFAULT_MODEL = { provider: "openai" as const, apiModel: "gpt-4.1-mini" };
 
-const PRICE_MAX_AGE_DAYS = 5;
 const faUrl = (sym: string) => `https://fireant.vn/ma-chung-khoan/${sym}`;
 
 // ── Schedule helpers ──────────────────────────────────────────────────────────
@@ -89,10 +90,6 @@ function calcNextRunAt(cfg: ScheduleConfig, startFromToday = false): string | nu
 
 // ── DB helpers (shared với run-agent) ────────────────────────────────────────
 
-function daysSince(dateStr: string): number {
-  return Math.round((Date.now() - new Date(dateStr).getTime()) / 86400000);
-}
-
 class SourceRegistry {
   private list: Array<{ label: string; url: string }> = [];
   add(label: string, url: string): string {
@@ -104,200 +101,34 @@ class SourceRegistry {
   toArray() { return this.list.map((s, i) => ({ index: i + 1, ...s })); }
 }
 
-async function buildPriceContext(registry: SourceRegistry): Promise<string> {
-  const lines: string[] = [];
-  const todayVN = new Date().toLocaleDateString("vi-VN", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Ho_Chi_Minh",
-  });
-  lines.push(`Ngày phân tích: ${todayVN}`);
-
-  try {
-    const { data: indices } = await sb.from("market_indices")
-      .select("index_code,date,close,change_pt,change_pct")
-      .in("index_code", ["VNINDEX","HNX"]).order("date",{ascending:false}).limit(4);
-    const seen = new Set<string>();
-    const fresh: typeof indices = [];
-    for (const idx of (indices ?? [])) {
-      if (seen.has(idx.index_code)) continue;
-      seen.add(idx.index_code);
-      if (daysSince(idx.date) <= PRICE_MAX_AGE_DAYS) fresh.push(idx);
-    }
-    lines.push("\n## Chỉ số thị trường");
-    if (fresh.length) {
-      for (const idx of fresh) {
-        const arrow = (idx.change_pct ?? 0) >= 0 ? "▲" : "▼";
-        const pct = idx.change_pct != null ? `${idx.change_pct >= 0 ? "+" : ""}${Number(idx.change_pct).toFixed(2)}%` : "";
-        const pt  = idx.change_pt  != null ? `${idx.change_pt  >= 0 ? "+" : ""}${Number(idx.change_pt).toFixed(2)} điểm` : "";
-        const ref = ` ${registry.add(idx.index_code, faUrl(idx.index_code))}`;
-        lines.push(`- ${idx.index_code}: ${Number(idx.close).toLocaleString("vi-VN",{minimumFractionDigits:2})} ${arrow} ${pt} (${pct}) · phiên ${idx.date}${ref}`);
-      }
-    } else {
-      lines.push(`- Chưa có dữ liệu chỉ số mới (cuối: ${indices?.[0]?.date ?? "N/A"}). Không suy đoán.`);
-    }
-  } catch { /* ignore */ }
-
-  try {
-    const { data: prices } = await sb.from("prices_daily")
-      .select("symbol,date,close").order("date",{ascending:false}).limit(75);
-    const latestDate: Record<string, string> = {};
-    const bySymbol: Record<string, number[]> = {};
-    for (const row of (prices ?? [])) {
-      if (!bySymbol[row.symbol]) { bySymbol[row.symbol] = []; latestDate[row.symbol] = row.date; }
-      if (bySymbol[row.symbol].length < 2) bySymbol[row.symbol].push(Number(row.close));
-    }
-    const freshSyms = Object.keys(bySymbol).filter(s => daysSince(latestDate[s]) <= PRICE_MAX_AGE_DAYS);
-    if (freshSyms.length) {
-      const movers = freshSyms
-        .filter(s => bySymbol[s].length === 2)
-        .map(s => ({ s, pct: ((bySymbol[s][0] - bySymbol[s][1]) / bySymbol[s][1]) * 100 }))
-        .sort((a,b) => b.pct - a.pct);
-      lines.push("\n## Giá VN30");
-      for (const sym of freshSyms) {
-        const ref = ` ${registry.add(sym, faUrl(sym))}`;
-        lines.push(`- ${sym}: ${bySymbol[sym][0].toLocaleString("vi-VN")} đ · phiên ${latestDate[sym]}${ref}`);
-      }
-      const top5up   = movers.filter(m => m.pct > 0).slice(0, 5);
-      const top5down = movers.filter(m => m.pct < 0).slice(-5).reverse();
-      if (top5up.length)   { lines.push("\n### Top tăng"); for (const m of top5up)   lines.push(`- ${m.s}: +${m.pct.toFixed(2)}%`); }
-      if (top5down.length) { lines.push("\n### Top giảm"); for (const m of top5down) lines.push(`- ${m.s}: ${m.pct.toFixed(2)}%`); }
-    }
-  } catch { /* ignore */ }
-  return lines.join("\n");
-}
-
-async function buildNewsContext(registry: SourceRegistry, targetSyms?: string[]): Promise<string> {
-  try {
-    const since = new Date(Date.now() - 48*3600000).toISOString();
-    const baseQuery = () => sb.from("market_news")
-      .select("title,content_summary,label,impact_score,affected_symbols,published_at,article_url,source")
-      .or("label.is.null,label.neq.trash")
-      .gte("published_at", since);
-
-    const addItem = (n: Record<string, any>, lines: string[], portfolioHits?: string[]) => {
-      const allSyms = n.affected_symbols?.length ? ` [${n.affected_symbols.slice(0,4).join(",")}]` : "";
-      const portTag = portfolioHits?.length ? ` (danh mục: ${portfolioHits.join(",")})` : "";
-      const ref  = n.article_url ? ` ${registry.add(n.source ?? "Báo", n.article_url)}` : "";
-      lines.push(`- ${n.title}${allSyms}${portTag}${ref}`);
-      if (n.content_summary) lines.push(`  ${String(n.content_summary).substring(0,150)}`);
-    };
-
-    const lines: string[] = [];
-    const seenUrls = new Set<string>();
-
-    if (targetSyms && targetSyms.length > 0) {
-      const portSet = new Set(targetSyms);
-
-      // Fetch top-5 per symbol
-      const symNewsMap = new Map<string, Record<string, any>[]>();
-      await Promise.all(targetSyms.map(async (sym) => {
-        const { data } = await baseQuery()
-          .contains("affected_symbols", [sym])
-          .order("published_at", { ascending: false })
-          .limit(5);
-        if (data?.length) symNewsMap.set(sym, data);
-      }));
-
-      // Pre-classify each article by how many portfolio symbols it affects
-      const allPortNews = new Map<string, Record<string, any>>(); // url → article
-      for (const articles of symNewsMap.values()) {
-        for (const n of articles) {
-          if (n.article_url && !allPortNews.has(n.article_url)) allPortNews.set(n.article_url, n);
-        }
-      }
-
-      const multiPort: Record<string, any>[] = [];   // affects 2+ portfolio stocks
-      const singlePort = new Map<string, Record<string, any>[]>(); // sym → articles affecting only that sym
-
-      for (const [url, n] of allPortNews) {
-        const hits = (n.affected_symbols as string[] ?? []).filter(s => portSet.has(s));
-        if (hits.length >= 2) {
-          multiPort.push(n);
-        } else {
-          const sym = hits[0];
-          if (sym) {
-            if (!singlePort.has(sym)) singlePort.set(sym, []);
-            singlePort.get(sym)!.push(n);
-          }
-        }
-      }
-
-      // Section 1: Multi-portfolio articles
-      lines.push("\n## Tin ảnh hưởng nhiều cổ phiếu trong danh mục (48h)");
-      if (multiPort.length === 0) {
-        lines.push("(Không có bài nào ảnh hưởng đồng thời từ 2 mã trở lên trong danh mục)");
-      } else {
-        for (const n of multiPort) {
-          const hits = (n.affected_symbols as string[] ?? []).filter(s => portSet.has(s));
-          addItem(n, lines, hits);
-          if (n.article_url) seenUrls.add(n.article_url);
-        }
-      }
-
-      // Section 2: Per-symbol articles (excluding already shown)
-      for (const sym of targetSyms) {
-        const articles = singlePort.get(sym) ?? [];
-        const fresh = articles.filter(n => !seenUrls.has(n.article_url ?? ""));
-        lines.push(`\n### Tin riêng - ${sym}`);
-        if (fresh.length === 0) {
-          lines.push("(Không có tin riêng)");
-        } else {
-          for (const n of fresh) {
-            const hits = (n.affected_symbols as string[] ?? []).filter(s => portSet.has(s));
-            addItem(n, lines, hits);
-            if (n.article_url) seenUrls.add(n.article_url);
-          }
-        }
-      }
-    }
-
-    // Global top-10 by recency (exclude portfolio news already shown)
-    const { data: globalNews } = await baseQuery().order("published_at",{ascending:false}).limit(15);
-    const general = (globalNews ?? []).filter(n => !seenUrls.has(n.article_url ?? ""));
-    if (general.length > 0) {
-      lines.push("\n## Tin tức thị trường chung (48h)");
-      for (const n of general.slice(0, 10)) addItem(n, lines);
-    }
-
-    return lines.length ? lines.join("\n") : "";
-  } catch { return ""; }
-}
-
-async function buildFinancialsContext(symbol: string, registry: SourceRegistry): Promise<string> {
+// Tool "financials" (BCTC) — dùng chung module financialReport() (Năm + 5 Quý gần
+// nhất), thay cho query financials_annual cũ (đông cứng, khác số với tầng mới).
+async function buildFinancialsContext(symbol: string, registry: SourceRegistry, depth: "full" | "brief" = "full"): Promise<string> {
   const sym = symbol.toUpperCase();
   const lines: string[] = [`\n## Tài chính: ${sym}`];
   try {
-    const { data: fins } = await sb.from("financials_annual")
-      .select("year,revenue,net_profit,eps,pe_ratio,pb_ratio,roe,roa,debt_to_equity")
-      .eq("symbol",sym).order("year",{ascending:false}).limit(4);
-    if (fins?.length) {
+    const { data: tk } = await sb.from("tickers").select("company_type").eq("symbol", sym).single();
+    const ctype = tk?.company_type ?? "normal";
+    const report = await financialReport(sb, sym, ctype, depth);
+    if (report.trim()) {
       const ref = ` ${registry.add("BCTC", faUrl(sym))}`;
-      lines.push(`### BCTC${ref}`);
-      lines.push("| Năm | DT (tỷ) | LN (tỷ) | EPS | P/E | P/B | ROE |");
-      lines.push("|-----|---------|---------|-----|-----|-----|-----|");
-      for (const f of fins) {
-        const rev = f.revenue    != null ? (Number(f.revenue)    / 1e9).toFixed(0) : "—";
-        const np  = f.net_profit != null ? (Number(f.net_profit) / 1e9).toFixed(0) : "—";
-        const eps = f.eps        != null ? Number(f.eps).toLocaleString("vi-VN")   : "—";
-        const pe  = f.pe_ratio   != null ? Number(f.pe_ratio).toFixed(1)           : "—";
-        const pb  = f.pb_ratio   != null ? Number(f.pb_ratio).toFixed(2)           : "—";
-        const roe = f.roe        != null ? (Number(f.roe)*100).toFixed(1)+"%"      : "—";
-        lines.push(`| ${f.year} | ${rev} | ${np} | ${eps} | ${pe} | ${pb} | ${roe} |`);
-      }
+      lines.push(`### BCTC (${TYPE_LABEL[ctype] ?? ctype})${ref}`);
+      lines.push(report);
     }
   } catch { /* ignore */ }
-  try {
-    const { data: ins } = await sb.from("insider_transactions")
-      .select("trade_date,insider_name,trade_type,volume")
-      .eq("symbol",sym).order("trade_date",{ascending:false}).limit(5);
-    if (ins?.length) {
-      const ref = ` ${registry.add("Insider", faUrl(sym))}`;
-      lines.push(`\n### Insider${ref}`);
-      for (const t of ins) {
-        const vol = t.volume ? `${Number(t.volume).toLocaleString("vi-VN")} CP` : "";
-        lines.push(`- ${t.trade_date}: ${t.insider_name} **${t.trade_type==="buy"?"MUA":"BÁN"}** ${vol}`);
-      }
-    }
-  } catch { /* ignore */ }
+  return lines.length > 1 ? lines.join("\n") : "";
+}
+
+// Tool "insider_trades" (cổ tức + giao dịch nội bộ) — tách riêng khỏi BCTC.
+async function buildInsiderContext(symbol: string, registry: SourceRegistry): Promise<string> {
+  const sym = symbol.toUpperCase();
+  const lines: string[] = [`\n## Cổ tức & Giao dịch nội bộ: ${sym}`];
+  const report = await insiderReport(sb, sym);
+  if (report.trim()) {
+    const ref = ` ${registry.add("Nội bộ", faUrl(sym))}`;
+    lines.push(ref);
+    lines.push(report);
+  }
   return lines.length > 1 ? lines.join("\n") : "";
 }
 
@@ -372,18 +203,25 @@ async function runAgent(agent: Record<string, unknown>): Promise<void> {
     // Thu thập context — DB tool IDs: price_feed, news_feed, financials, insider_trades, rsi, macd
     let priceCtx = `Ngày: ${new Date().toLocaleDateString("vi-VN",{weekday:"long",year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Ho_Chi_Minh"})}`;
     if (tools.some(t => ["price_feed","price","index","movers"].includes(t))) {
-      priceCtx = await buildPriceContext(registry);
+      priceCtx = await buildPriceContext(sb, registry, syms);
     }
 
     let newsCtx = "";
     if (tools.some(t => ["news_feed","news","macro"].includes(t))) {
-      newsCtx = await buildNewsContext(registry, syms.length > 0 ? syms : undefined);
+      newsCtx = await buildNewsContext(sb, registry, syms.length > 0 ? syms : undefined);
     }
 
     let financialsCtx = "";
-    if (syms.length > 0 && tools.some(t => ["financials","pe","insider_trades","insider"].includes(t))) {
-      const parts = await Promise.all(syms.map(s => buildFinancialsContext(s, registry)));
+    if (syms.length > 0 && tools.some(t => ["financials","pe"].includes(t))) {
+      const depth: "full" | "brief" = ["insider_buy", "volume_spike"].includes(agent.template_id as string) ? "brief" : "full";
+      const parts = await Promise.all(syms.map(s => buildFinancialsContext(s, registry, depth)));
       financialsCtx = parts.filter(Boolean).join("\n\n");
+    }
+
+    let insiderCtx = "";
+    if (syms.length > 0 && tools.some(t => ["insider_trades","insider"].includes(t))) {
+      const parts = await Promise.all(syms.map(s => buildInsiderContext(s, registry)));
+      insiderCtx = parts.filter(Boolean).join("\n\n");
     }
 
     // ── KB RAG ─────────────────────────────────────────────────────────────
@@ -442,7 +280,7 @@ Dữ liệu đã được phân loại sẵn: "Tin ảnh hưởng nhiều cổ p
 NGUỒN DỮ LIỆU XÁC NHẬN
 Ngày: ${new Date().toLocaleDateString("vi-VN",{weekday:"long",year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Ho_Chi_Minh"})}
 ═══════════════════════════════════════
-${priceCtx}${newsCtx}${financialsCtx}${kbCtx}
+${priceCtx}${newsCtx}${financialsCtx}${insiderCtx}${kbCtx}
 ═══════════════════════════════════════`;
 
     const userMessage = syms.length > 0
