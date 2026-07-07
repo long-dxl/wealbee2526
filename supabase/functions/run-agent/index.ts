@@ -819,7 +819,7 @@ Deno.serve(async (req: Request) => {
   // Fetch agent + template
   const { data: agent, error: agentErr } = await sb
     .from("agents")
-    .select("id, user_id, template_id, name, description, system_prompt, tools, run_count, model, email_notify, kb_document_ids, target_symbols, news_sources")
+    .select("id, user_id, template_id, name, description, system_prompt, tools, run_count, model, email_notify, zalo_notify, kb_document_ids, target_symbols, news_sources")
     .eq("id", agent_id)
     .eq("user_id", user.id)
     .single();
@@ -1363,16 +1363,18 @@ QUY TẮC:
           }
         }
 
-        // ── Đẩy thông báo Zalo (nếu user đã liên kết + bật cảnh báo) ──
+        // ── Đẩy thông báo Zalo (chỉ khi agent BẬT zalo_notify + user đã liên kết) ──
         try {
+          if (agent.zalo_notify === true) {
           const { data: zl } = await sb.from("zalo_links")
-            .select("chat_id, notify_alert").eq("user_id", user.id).limit(1);
+            .select("chat_id").eq("user_id", user.id).limit(1);
           const link = zl?.[0];
-          if (link?.chat_id && link.notify_alert) {
+          if (link?.chat_id) {
             emit({ type: "step", step: "zalo_send", status: "loading", label: "Đang gửi Zalo..." });
             const detailUrl = brief?.id ? `${APP_URL}/app/inbox?brief=${brief.id}` : "";
             const r = await zaloSend(String(link.chat_id), buildZaloMessage(agent.name ?? "Agent", title, fullOutput, detailUrl, regArray));
             emit({ type: "step", step: "zalo_send", status: r.ok ? "done" : "error", label: r.ok ? "Đã gửi Zalo" : `Lỗi Zalo: ${r.error ?? ""}` });
+          }
           }
         } catch (zErr) {
           console.error("Zalo send failed:", zErr);

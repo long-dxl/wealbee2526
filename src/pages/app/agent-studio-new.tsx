@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useBlocker } from "react-router";
+import { useBlocker, useNavigate } from "react-router";
 import {
   ChevronLeft, Bot, Save, Play, Sparkles, ChevronDown, ChevronUp,
   Check, X, Plus, FileText, Wrench, BookOpen, TrendingUp,
@@ -11,6 +11,7 @@ import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer"
 import { MdContent, RichContent } from "../../components/MdContent";
 import { supabase } from "../../lib/supabase/client";
 import { canCreateAgent } from "../../lib/plan-limits";
+import { getZaloLink } from "../../lib/zalo";
 import { notifyWalletChanged } from "../../lib/wallet-events";
 import { projectId } from "../../utils/supabase/info";
 import wealbeeLogo from "../../assets/Logo.svg";
@@ -388,6 +389,8 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   const [notifyEmail, setNotifyEmail] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [notifyZalo, setNotifyZalo] = useState(false);
+  const [zaloLinkName, setZaloLinkName] = useState<string | null>(null);  // null = chưa kết nối; "" hoặc tên = đã kết nối
+  const navigate = useNavigate();
 
   // ── Cảnh báo rời trang khi có thay đổi chưa lưu ─────────────────────────────
   // agentLoaded: true khi agent (nếu có agentId) đã nạp xong dữ liệu thật, hoặc luôn true
@@ -441,6 +444,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return;
       setUserEmail(user.email ?? "");
+      getZaloLink(user.id).then(link => setZaloLinkName(link ? (link.displayName || "") : null));
       supabase.from("portfolio_holdings").select("symbol").eq("user_id", user.id).then(({ data }) => {
         if (data?.length) {
           const syms = data.map((h: { symbol: string }) => h.symbol);
@@ -533,6 +537,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       // nó được suy ra (derived) bằng cách so sánh watchlist với portfolioSymbols hiện tại, xem isPortfolioConnected.
       if (data.target_symbols?.length) setWatchlist(data.target_symbols);
       if (data.email_notify != null) setNotifyEmail(data.email_notify);
+      if (data.zalo_notify != null) setNotifyZalo(data.zalo_notify);
       if (data.schedule && data.schedule.startsWith("daily:")) setScheduleTime(data.schedule.split(":").slice(1).join(":"));
       // Điều kiện kích hoạt
       const tt = data.trigger_type || (data.schedule?.startsWith("daily:") ? "scheduled" : "manual");
@@ -610,7 +615,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       name: agentName, description: agentDesc, system_prompt: prompt, model: selectedModel,
       tools: [...selectedTools], target_symbols: allSymbols, use_portfolio: isPortfolioConnected,
       news_sources: newsSources,
-      email_notify: notifyEmail, schedule, status: "active",
+      email_notify: notifyEmail, zalo_notify: notifyZalo, schedule, status: "active",
       trigger_type: triggerType, trigger_config,
       updated_at: new Date().toISOString(),
     };
@@ -1042,19 +1047,34 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                     <div style={{ width: 20, height: 20, borderRadius: 5, background: "linear-gradient(135deg,#0068FF,#00B4FF)", display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ fontSize: 9, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px", fontFamily: "system-ui" }}>Za</span></div>
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: notifyZalo ? 700 : 400, color: fg, display: "flex", alignItems: "center", gap: 5 }}>Zalo OA {!notifyZalo && <span style={{ fontSize: 10, background: "rgba(0,120,255,0.10)", color: "#0068FF", padding: "1px 6px", borderRadius: 6, fontWeight: 600 }}>Kết nối</span>}</div>
-                    <div style={{ fontSize: 11, color: fgSubtle }}>{notifyZalo ? "Gửi qua Zalo Official Account" : "Nhận brief qua tin nhắn Zalo"}</div>
+                    <div style={{ fontSize: 13, fontWeight: notifyZalo ? 700 : 400, color: fg, display: "flex", alignItems: "center", gap: 5 }}>Zalo Bot {notifyZalo && zaloLinkName === null && <span style={{ fontSize: 10, background: "rgba(0,120,255,0.10)", color: "#0068FF", padding: "1px 6px", borderRadius: 6, fontWeight: 600 }}>Cần kết nối</span>}</div>
+                    <div style={{ fontSize: 11, color: fgSubtle }}>Nhận brief qua tin nhắn bot Zalo của Wealbee</div>
                   </div>
                   <div style={{ width: 36, height: 20, borderRadius: 99, flexShrink: 0, background: notifyZalo ? "#0068FF" : "rgba(26,26,46,0.18)", display: "flex", alignItems: "center", justifyContent: notifyZalo ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms ease" }}><div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.15)" }} /></div>
                 </div>
 
                 {notifyZalo && (
-                  <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(0,120,255,0.05)", border: "0.5px solid rgba(0,120,255,0.15)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#0068FF", fontWeight: 600, marginBottom: 3 }}>
-                      <Settings size={11} strokeWidth={1.5} color="#0068FF" /> Cần kết nối Zalo OA
+                  zaloLinkName !== null ? (
+                    /* Đã kết nối → confirm */
+                    <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(26,168,95,0.07)", border: "0.5px solid rgba(26,168,95,0.25)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "#1a7a3a", fontWeight: 700 }}>
+                        <Check size={12} strokeWidth={2.5} color="#1a7a3a" /> Đã kết nối Zalo{zaloLinkName ? ` · ${zaloLinkName}` : ""}
+                      </div>
+                      <div style={{ fontSize: 11, color: fgSubtle, lineHeight: 1.5, marginTop: 2 }}>Agent này sẽ gửi brief về Zalo của bạn sau mỗi lần chạy.</div>
                     </div>
-                    <div style={{ fontSize: 11, color: "#3D3D52", lineHeight: 1.5 }}>Vào <strong>Settings → Kết nối</strong> để liên kết tài khoản Zalo Official Account.</div>
-                  </div>
+                  ) : (
+                    /* Chưa kết nối → nhắc cấu hình */
+                    <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(0,120,255,0.05)", border: "0.5px solid rgba(0,120,255,0.15)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#0068FF", fontWeight: 700, marginBottom: 3 }}>
+                        <Settings size={11} strokeWidth={1.5} color="#0068FF" /> Chưa kết nối Zalo
+                      </div>
+                      <div style={{ fontSize: 11, color: fgSubtle, lineHeight: 1.5, marginBottom: 6 }}>Bạn cần liên kết tài khoản với bot Zalo của Wealbee thì agent mới gửi được thông báo.</div>
+                      <button type="button" onClick={() => navigate("/app/settings?tab=notifications")}
+                        style={{ padding: "5px 12px", borderRadius: 7, border: "none", background: "#0068FF", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
+                        Kết nối Zalo ngay
+                      </button>
+                    </div>
+                  )
                 )}
               </div>
             </div>
