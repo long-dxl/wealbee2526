@@ -95,45 +95,65 @@ const TICKER_SECTOR: Record<string, string> = {
 
 // Hàng hóa có sàn miễn phí Yahoo Finance (lấy giá đóng cửa gần nhất + %). Loại không có → web_search.
 const YAHOO: Record<string, string> = {
+  GIA_QUANG_SAT: "TIO=F",   // Quặng sắt 62% Fe SGX — input thép chính (có 1y lịch sử)
   GIA_THEP_HRC: "HRC=F", GIA_DAU_BRENT: "BZ=F", GIA_KHI_GAS: "NG=F", GIA_NHIEN_BAY: "HO=F",
   GIA_DUONG: "SB=F", GIA_KHO_DAU: "ZM=F", GIA_NGO: "ZC=F", GIA_HEO_HOI: "HE=F", GIA_BONG: "CT=F",
+  GIA_CAO_SU: "RU=F",       // Cao su TOCOM (nếu Yahoo có)
 };
 
-interface Quote { price: number; chgPct: number | null; date: string }
+interface Quote {
+  price: number; date: string; symbol: string;
+  dayPct: number | null;                    // %thay đổi phiên gần nhất
+  ytdPct: number | null; ytdFrom: string;   // so đầu năm nay
+  yoyPct: number | null; yoyFrom: string;   // so ~1 năm trước
+}
 
+// Lấy giá + LỊCH SỬ 1 năm → hiện tại, đầu năm (YTD), 1 năm trước (YoY).
 async function fetchYahoo(ticker: string): Promise<Quote | null> {
   try {
     const res = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=7d&interval=1d`,
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1y&interval=1d`,
       { headers: { "User-Agent": "Mozilla/5.0" } },
     );
     if (!res.ok) return null;
     const j = await res.json();
     const r = j?.chart?.result?.[0];
-    const closes: number[] = (r?.indicators?.quote?.[0]?.close ?? []).filter((v: number | null) => v != null);
+    const raw: (number | null)[] = r?.indicators?.quote?.[0]?.close ?? [];
     const ts: number[] = r?.timestamp ?? [];
-    if (!closes.length) return null;
-    const price = closes[closes.length - 1];
-    const prev = closes.length > 1 ? closes[closes.length - 2] : null;
+    const pts: { c: number; d: Date }[] = [];
+    for (let i = 0; i < raw.length; i++) if (raw[i] != null) pts.push({ c: raw[i] as number, d: new Date(ts[i] * 1000) });
+    if (!pts.length) return null;
+    const cur = pts[pts.length - 1], yearAgo = pts[0];
+    const prev = pts.length > 1 ? pts[pts.length - 2] : null;
+    const yr = cur.d.getFullYear();
+    const ytd = pts.find(p => p.d.getFullYear() === yr) ?? yearAgo;
+    const pct = (a: number, b: number) => b ? ((a - b) / b) * 100 : null;
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
     return {
-      price,
-      chgPct: prev ? ((price - prev) / prev) * 100 : null,
-      date: ts.length ? new Date(ts[ts.length - 1] * 1000).toISOString().slice(0, 10) : "",
+      price: cur.c, date: iso(cur.d), symbol: ticker,
+      dayPct: prev ? pct(cur.c, prev.c) : null,
+      ytdPct: pct(cur.c, ytd.c), ytdFrom: iso(ytd.d),
+      yoyPct: pct(cur.c, yearAgo.c), yoyFrom: iso(yearAgo.d),
     };
   } catch { return null; }
 }
 
-// Lấy giá thật cho danh sách commodity id (song song). Trả map id → cell hiển thị.
-async function priceCells(ids: string[]): Promise<Record<string, string>> {
+const fmtNum = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+const fmtPct = (p: number | null) => p == null ? "n/a" : `${p >= 0 ? "+" : ""}${p.toFixed(1)}%`;
+
+// Trả map id → {now, ytd, yoy, link} (chuỗi hiển thị). No-feed → cần web_search.
+async function priceCells(ids: string[]): Promise<Record<string, { now: string; ytd: string; yoy: string; link: string }>> {
   const uniq = [...new Set(ids)];
-  const out: Record<string, string> = {};
+  const out: Record<string, { now: string; ytd: string; yoy: string; link: string }> = {};
   await Promise.all(uniq.map(async (id) => {
     const yf = YAHOO[id];
-    if (!yf) { out[id] = "cần web_search (Trading Economics/Platts)"; return; }
+    if (!yf) { out[id] = { now: "cần web_search", ytd: "cần web_search", yoy: "cần web_search", link: "web_search chuyên ngành" }; return; }
     const q = await fetchYahoo(yf);
     out[id] = q
-      ? `**${q.price.toLocaleString("en-US", { maximumFractionDigits: 2 })}**${q.chgPct != null ? ` (${q.chgPct >= 0 ? "+" : ""}${q.chgPct.toFixed(1)}%)` : ""} · ${q.date}`
-      : "n/a";
+      ? { now: `**${fmtNum(q.price)}**${q.dayPct != null ? ` (${fmtPct(q.dayPct)})` : ""} · ${q.date}`,
+          ytd: `${fmtPct(q.ytdPct)} (từ ${q.ytdFrom})`, yoy: `${fmtPct(q.yoyPct)} (từ ${q.yoyFrom})`,
+          link: `https://finance.yahoo.com/quote/${encodeURIComponent(yf)}` }
+      : { now: "n/a", ytd: "n/a", yoy: "n/a", link: `https://finance.yahoo.com/quote/${encodeURIComponent(yf)}` };
   }));
   return out;
 }
@@ -146,21 +166,25 @@ async function chainLines(sym: string, sector: string): Promise<string[]> {
   const out: string[] = [`## Chuỗi giá trị & yếu tố tác động: ${sym} — Ngành ${c.label}`];
   if (peers.length) out.push(`Cùng ngành: ${peers.join(", ")}`);
 
+  const row = (m: Commodity, id: string) => {
+    const p = prices[id];
+    return `| ${m.name} | ${m.unit} | ${p?.now ?? "n/a"} | ${p?.ytd ?? "n/a"} | ${p?.yoy ?? "n/a"} | ${p?.link ?? m.source} |`;
+  };
   if (c.inputs.length) {
     out.push(`\n### ⬇️ ĐẦU VÀO (chi phí — giá tăng làm GIẢM biên lợi nhuận)`);
-    out.push("| Nguyên liệu | Đơn vị | Giá hiện tại | Nguồn |", "|---|---|---|---|");
-    for (const id of c.inputs) { const m = COMMODITY[id]; if (m) out.push(`| ${m.name} | ${m.unit} | ${prices[id] ?? "n/a"} | ${m.source} |`); }
+    out.push("| Nguyên liệu | Đơn vị | Giá hiện tại | Đầu năm (YTD) | 1 năm (YoY) | Nguồn |", "|---|---|---|---|---|---|");
+    for (const id of c.inputs) { const m = COMMODITY[id]; if (m) out.push(row(m, id)); }
   }
   if (c.outputs.length) {
     out.push(`\n### ⬆️ ĐẦU RA (sản phẩm — giá tăng làm TĂNG doanh thu/lợi nhuận)`);
-    out.push("| Sản phẩm | Đơn vị | Giá hiện tại | Nguồn |", "|---|---|---|---|");
-    for (const id of c.outputs) { const m = COMMODITY[id]; if (m) out.push(`| ${m.name} | ${m.unit} | ${prices[id] ?? "n/a"} | ${m.source} |`); }
+    out.push("| Sản phẩm | Đơn vị | Giá hiện tại | Đầu năm (YTD) | 1 năm (YoY) | Nguồn |", "|---|---|---|---|---|---|");
+    for (const id of c.outputs) { const m = COMMODITY[id]; if (m) out.push(row(m, id)); }
   }
   if (c.macro?.length) {
     out.push(`\n### 🌐 YẾU TỐ VĨ MÔ tác động`);
     for (const d of c.macro) out.push(`- **${d.factor}** (${d.sign === "+" ? "thuận chiều ↑" : "ngược chiều ↓"}): ${d.mechanism}`);
   }
-  out.push(`\n> Cơ chế: chi phí đầu vào ↑ → biên LN ↓; giá đầu ra ↑ → LN ↑. Giá có sàn lấy realtime từ Yahoo Finance; loại "cần web_search" (quặng sắt/than cốc/urea/cước biển…) hãy gọi web_search nguồn chuyên ngành để có số mới nhất.`);
+  out.push(`\n> Cơ chế biên LN: chi phí đầu vào ↑ → biên ↓; giá đầu ra ↑ → LN ↑. So sánh %YTD/%YoY để biết xu hướng: input GIẢM + output TĂNG = biên nở (tốt). Cột "cần web_search" (than cốc/thép xây dựng nội địa/urea/cước biển) hãy dùng tool web_search nguồn chuyên ngành (VSA/Trading Economics) để bổ sung số.`);
   return out;
 }
 
