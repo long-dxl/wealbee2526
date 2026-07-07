@@ -169,12 +169,39 @@ async function braveTop(query: string): Promise<{ snippet: string; url: string; 
   } catch { return null; }
 }
 
+// Cache DÙNG CHUNG kết quả no-feed (bảng commodity_cache) → Brave query theo commodity × 12h,
+// KHÔNG theo user × run → 2000 query/tháng thừa dù đông user. sb = client service (run-agent/bee-ai-chat).
+const CACHE_TTL_MS = 12 * 3600 * 1000;
+// deno-lint-ignore no-explicit-any
+async function cachedNoFeed(sb: any, id: string, query: string): Promise<{ snippet: string; url: string; domain: string } | null> {
+  if (sb) {
+    try {
+      const { data } = await sb.from("commodity_cache").select("snippet,url,domain,fetched_at").eq("commodity_id", id).limit(1);
+      const row = data?.[0];
+      if (row?.url && (Date.now() - Date.parse(row.fetched_at) < CACHE_TTL_MS)) {
+        return { snippet: row.snippet ?? "", url: row.url, domain: row.domain ?? "" };  // HIT → không gọi Brave
+      }
+    } catch { /* cache lỗi → tra mới */ }
+  }
+  const bt = await braveTop(query);
+  if (!bt) return null;
+  if (sb) {
+    try {
+      await sb.from("commodity_cache").upsert(
+        { commodity_id: id, snippet: bt.snippet, url: bt.url, domain: bt.domain, fetched_at: new Date().toISOString() },
+        { onConflict: "commodity_id" });
+    } catch { /* best-effort */ }
+  }
+  return bt;
+}
+
 // (B) registry để đăng ký nguồn → [ref:N] click được (run-agent truyền vào; bee-ai-chat để trống).
 interface Reg { add(name: string, url: string): string }
 interface Cell { now: string; ytd: string; yoy: string; link: string; label: string }
 
-// Feed→Yahoo (giá+YTD+YoY); no-feed→Brave web_search (snippet+link) nếu có BRAVE_SEARCH_API_KEY.
-async function priceCells(ids: string[]): Promise<Record<string, Cell>> {
+// Feed→Yahoo (giá+YTD+YoY); no-feed→Brave web_search (qua cache dùng chung) nếu có BRAVE_SEARCH_API_KEY.
+// deno-lint-ignore no-explicit-any
+async function priceCells(ids: string[], sb?: any): Promise<Record<string, Cell>> {
   const uniq = [...new Set(ids)];
   const out: Record<string, Cell> = {};
   await Promise.all(uniq.map(async (id) => {
@@ -190,7 +217,7 @@ async function priceCells(ids: string[]): Promise<Record<string, Cell>> {
         : { now: "n/a", ytd: "n/a", yoy: "n/a", link, label: `${m?.name ?? id} (Yahoo Finance)` };
       return;
     }
-    const bt = await braveTop(NOFEED_QUERY[id] ?? `giá ${m?.name ?? id} hôm nay`);
+    const bt = await cachedNoFeed(sb, id, NOFEED_QUERY[id] ?? `giá ${m?.name ?? id} hôm nay`);
     out[id] = bt
       ? { now: bt.snippet || "(xem nguồn)", ytd: "—", yoy: "—", link: bt.url, label: `${m?.name ?? id} (${bt.domain})` }
       : { now: "cần web_search", ytd: "—", yoy: "—", link: "", label: `${m?.name ?? id}` };
@@ -198,11 +225,12 @@ async function priceCells(ids: string[]): Promise<Record<string, Cell>> {
   return out;
 }
 
-async function chainLines(sym: string, sector: string, registry?: Reg): Promise<string[]> {
+// deno-lint-ignore no-explicit-any
+async function chainLines(sym: string, sector: string, registry?: Reg, sb?: any): Promise<string[]> {
   const c = SECTOR_CHAIN[sector];
   if (!c) return [];
   const peers = Object.entries(TICKER_SECTOR).filter(([t, s]) => s === sector && t !== sym).map(([t]) => t);
-  const prices = await priceCells([...c.inputs, ...c.outputs]);
+  const prices = await priceCells([...c.inputs, ...c.outputs], sb);
   const out: string[] = [`## Chuỗi giá trị & yếu tố tác động: ${sym} — Ngành ${c.label}`];
   if (peers.length) out.push(`Cùng ngành: ${peers.join(", ")}`);
 
@@ -268,9 +296,10 @@ export function valueChainFrame(symbol: string, appSectorName?: string): string 
 }
 
 /** Báo cáo chuỗi giá trị + GIÁ THẬT cho 1 mã. Trả "" nếu ngành không gắn chuỗi hàng hóa (vd ngân hàng/CN tech). */
-export async function valueChainReport(_sb: unknown, symbol: string, appSectorName?: string, registry?: Reg): Promise<string> {
+// deno-lint-ignore no-explicit-any
+export async function valueChainReport(sb: any, symbol: string, appSectorName?: string, registry?: Reg): Promise<string> {
   const sym = symbol.toUpperCase().trim();
   const sector = resolveSector(sym, appSectorName);
   if (!sector) return "";
-  return (await chainLines(sym, sector, registry)).join("\n");
+  return (await chainLines(sym, sector, registry, sb)).join("\n");
 }
