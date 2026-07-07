@@ -736,6 +736,8 @@ function buildZaloMessage(
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")      // images
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")   // [text](url) → text
     .replace(/\[ref:(\d+)\]/g, "[$1]")         // giữ chú thích số → [N]
+    // Bảng markdown không render trong Zalo → thay khối bảng bằng ghi chú (xem đầy đủ ở link)
+    .replace(/(?:^[ \t]*\|.*\|[ \t]*\n?){2,}/gm, "📊 (Bảng số liệu — xem đầy đủ ở 🔗 link bên dưới)\n")
     .replace(/<[^>]+>/g, "")                    // html tags
     .replace(/[*_#>`]/g, "")                    // md symbols
     .replace(/[ \t]+\n/g, "\n")                 // bỏ khoảng trắng cuối dòng
