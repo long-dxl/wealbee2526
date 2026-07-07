@@ -239,10 +239,10 @@ const TOOL_GROUPS = [
         includes: ["Lịch sử cổ tức", "Giao dịch nội bộ (MUA/BÁN)"],
       },
       {
-        id: "value_chain", name: "Chuỗi cung ứng & yếu tố tác động", Icon: Activity,
-        desc: "Nguyên liệu đầu vào & sản phẩm đầu ra theo ngành (thép: quặng/than cốc → HRC; cảng/hàng không: dầu/nhiên liệu; phân bón: khí → urea…) + giá cước & yếu tố vĩ mô tác động biên lợi nhuận",
+        id: "value_chain", name: "Giá hàng hóa (chuỗi cung ứng)", Icon: Activity,
+        desc: "Kéo GIÁ realtime nguyên liệu đầu vào & sản phẩm đầu ra theo ngành (thép: quặng/than cốc → HRC; cảng/hàng không: dầu/nhiên liệu; phân bón: khí → urea…). Lưu ý: khung suy luận chuỗi cung ứng & yếu tố vĩ mô LUÔN được agent áp dụng — bật tool này chỉ để thêm SỐ giá thị trường realtime.",
         available: true,
-        includes: ["Nguyên liệu đầu vào (chi phí)", "Sản phẩm đầu ra (doanh thu)", "Yếu tố vĩ mô tác động"],
+        includes: ["Giá nguyên liệu đầu vào (realtime)", "Giá sản phẩm đầu ra (realtime)", "Khung tác động: luôn áp dụng"],
       },
       {
         id: "pe_ratio", name: "P/E & Định giá", Icon: Calculator,

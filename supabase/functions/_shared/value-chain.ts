@@ -164,11 +164,9 @@ async function chainLines(sym: string, sector: string): Promise<string[]> {
   return out;
 }
 
-/** Báo cáo chuỗi giá trị + GIÁ THẬT cho 1 mã. Trả "" nếu ngành không gắn chuỗi hàng hóa (vd ngân hàng/CN tech). */
-export async function valueChainReport(_sb: unknown, symbol: string, appSectorName?: string): Promise<string> {
-  const sym = symbol.toUpperCase().trim();
+/** Suy ngành cho 1 mã (map curate → fallback theo sector_name app). "" nếu không thuộc chuỗi hàng hóa. */
+function resolveSector(sym: string, appSectorName?: string): string {
   let sector = TICKER_SECTOR[sym];
-  // Fallback thô theo sector_name của app nếu chưa có trong map curate
   if (!sector && appSectorName) {
     const s = appSectorName.toLowerCase();
     if (s.includes("vận tải")) sector = "SECTOR_LOGISTICS";
@@ -176,6 +174,37 @@ export async function valueChainReport(_sb: unknown, symbol: string, appSectorNa
     else if (s.includes("tiện ích") || s.includes("năng lượng")) sector = "SECTOR_UTILITIES";
     else if (s.includes("thời trang")) sector = "SECTOR_TEXTILE";
   }
-  if (!sector || !SECTOR_CHAIN[sector]) return "";
+  return sector && SECTOR_CHAIN[sector] ? sector : "";
+}
+
+/** KHUNG TƯ DUY chuỗi giá trị (chỉ CẤU TRÚC nhân-quả, KHÔNG kéo giá — không network).
+ *  Luôn áp dụng khi phân tích DN sản xuất; giá realtime là tool dữ liệu riêng (valueChainReport). */
+export function valueChainFrame(symbol: string, appSectorName?: string): string {
+  const sym = symbol.toUpperCase().trim();
+  const sector = resolveSector(sym, appSectorName);
+  if (!sector) return "";
+  const c = SECTOR_CHAIN[sector];
+  const out: string[] = [`## Khung chuỗi giá trị & yếu tố tác động: ${sym} — Ngành ${c.label}`];
+  if (c.inputs.length) {
+    out.push(`### ĐẦU VÀO (chi phí — giá ↑ làm GIẢM biên LN)`);
+    for (const id of c.inputs) { const m = COMMODITY[id]; if (m) out.push(`- ${m.name} (${m.unit}) — nguồn: ${m.source}`); }
+  }
+  if (c.outputs.length) {
+    out.push(`### ĐẦU RA (sản phẩm — giá ↑ làm TĂNG doanh thu/LN)`);
+    for (const id of c.outputs) { const m = COMMODITY[id]; if (m) out.push(`- ${m.name} (${m.unit}) — nguồn: ${m.source}`); }
+  }
+  if (c.macro?.length) {
+    out.push(`### YẾU TỐ VĨ MÔ tác động`);
+    for (const d of c.macro) out.push(`- ${d.factor} (${d.sign === "+" ? "thuận chiều ↑" : "ngược chiều ↓"}): ${d.mechanism}`);
+  }
+  out.push(`> Cơ chế biên LN: chi phí đầu vào ↑ → biên ↓; giá đầu ra ↑ → LN ↑. (Khung luôn áp dụng; bật tool "Giá hàng hóa" để có SỐ giá realtime của các mục trên.)`);
+  return out.join("\n");
+}
+
+/** Báo cáo chuỗi giá trị + GIÁ THẬT cho 1 mã. Trả "" nếu ngành không gắn chuỗi hàng hóa (vd ngân hàng/CN tech). */
+export async function valueChainReport(_sb: unknown, symbol: string, appSectorName?: string): Promise<string> {
+  const sym = symbol.toUpperCase().trim();
+  const sector = resolveSector(sym, appSectorName);
+  if (!sector) return "";
   return (await chainLines(sym, sector)).join("\n");
 }

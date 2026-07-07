@@ -58,16 +58,16 @@ export const tools: Tool[] = [
   },
   {
     id: "value-chain",
-    name: "Chuỗi cung ứng & yếu tố tác động",
-    oneliner: "Nguyên liệu đầu vào, sản phẩm đầu ra và yếu tố vĩ mô tác động biên lợi nhuận theo ngành",
-    longDescription: "Nguyên liệu đầu vào và sản phẩm đầu ra theo từng ngành (thép: quặng, than cốc đến HRC; cảng, hàng không: dầu, nhiên liệu; phân bón: khí đến ure...), cùng giá cước và yếu tố vĩ mô tác động biên lợi nhuận.",
+    name: "Giá hàng hóa (chuỗi cung ứng)",
+    oneliner: "Kéo giá realtime nguyên liệu đầu vào & sản phẩm đầu ra theo ngành (khung tác động luôn áp dụng)",
+    longDescription: "Kéo GIÁ thị trường realtime của nguyên liệu đầu vào và sản phẩm đầu ra theo từng ngành (thép: quặng, than cốc đến HRC; cảng, hàng không: dầu, nhiên liệu; phân bón: khí đến ure...). Khung suy luận chuỗi cung ứng & yếu tố vĩ mô tác động biên lợi nhuận LUÔN được agent áp dụng — tool này chỉ bổ sung số giá thị trường realtime.",
     category: "Tài chính",
     icon: Activity,
     backendToolId: "value_chain",
     breakdown: [
-      { title: "Nguyên liệu đầu vào", desc: "Chi phí đầu vào chính theo từng ngành." },
-      { title: "Sản phẩm đầu ra", desc: "Nguồn doanh thu chính theo từng ngành." },
-      { title: "Yếu tố vĩ mô tác động", desc: "Giá cước, tỷ giá và các yếu tố ảnh hưởng biên lợi nhuận." },
+      { title: "Giá nguyên liệu đầu vào", desc: "Số giá realtime chi phí đầu vào theo ngành (Yahoo/benchmark)." },
+      { title: "Giá sản phẩm đầu ra", desc: "Số giá realtime nguồn doanh thu chính theo ngành." },
+      { title: "Khung tác động: luôn áp dụng", desc: "Cấu trúc nhân-quả input→output→vĩ mô là năng lực nền, không cần bật." },
     ],
   },
   {

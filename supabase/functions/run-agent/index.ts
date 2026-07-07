@@ -9,7 +9,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
-import { valueChainReport } from "../_shared/value-chain.ts";
+import { valueChainReport, valueChainFrame } from "../_shared/value-chain.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
 import { zaloSend } from "../_shared/zalo.ts";
 import { buildPriceContext, buildNewsContext, faUrl } from "../_shared/market-context.ts";
@@ -691,8 +691,14 @@ async function prefetchToolContext(
       add(`BÁO CÁO TÀI CHÍNH ${sym}`, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter, financialsDepth));
     if (want.has("insider_trades"))
       add(`CỔ TỨC & GIAO DỊCH NỘI BỘ ${sym}`, executeToolCall("insider_trades", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
-    if (want.has("value_chain"))
+    if (want.has("value_chain")) {
+      // Bật tool "Giá hàng hóa" → báo cáo ĐẦY ĐỦ (khung + GIÁ realtime Yahoo)
       add(`CHUỖI GIÁ TRỊ ${sym}`, executeToolCall("value_chain", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
+    } else {
+      // KHUNG TƯ DUY luôn áp dụng (cấu trúc nhân-quả, không network) — kể cả khi không bật tool giá.
+      const frame = valueChainFrame(sym);
+      if (frame) add(`KHUNG CHUỖI GIÁ TRỊ ${sym}`, Promise.resolve(frame));
+    }
   }
   if (want.has("kb_search") && kbQuery)
     add("KNOWLEDGE BASE", executeToolCall("kb_search", { query: kbQuery }, registry, sources, userId, kbDocIds, newsFilter));
