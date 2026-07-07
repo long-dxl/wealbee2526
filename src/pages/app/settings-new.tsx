@@ -106,13 +106,6 @@ export function Settings() {
   const [fullName, setFullName] = useState("");
   const [phone,    setPhone]    = useState("");
 
-  const [notifs, setNotifs] = useState({
-    email:        true,
-    push:         true,
-    weeklyReport: false,
-    agentAlert:   true,
-  });
-
   // ── Ví Beeny (real from Supabase) ─────────────────────────────────────────
   interface UsageRow { day: string; beeny: number; }
   interface UsageLog { created_at: string; beeny: number; label: string }
@@ -302,24 +295,6 @@ export function Settings() {
         .single();
 
       setFullName(profile?.full_name ?? user.user_metadata?.full_name ?? "");
-
-      // Load notification settings from JSON column
-      const { data: settings } = await supabase
-        .from("user_settings")
-        .select("notifications")
-        .eq("user_id", user.id)
-        .single();
-
-      if (settings?.notifications && typeof settings.notifications === "object") {
-        const n = settings.notifications as Record<string, boolean>;
-        setNotifs(prev => ({
-          ...prev,
-          email:        n.email_digest    ?? prev.email,
-          push:         n.push            ?? prev.push,
-          agentAlert:   n.inbox_alerts    ?? prev.agentAlert,
-          weeklyReport: n.weekly_report   ?? prev.weeklyReport,
-        }));
-      }
     } finally {
       setLoadingProfile(false);
     }
@@ -344,20 +319,6 @@ export function Settings() {
     } finally {
       setSavingProfile(false);
     }
-  };
-
-  const saveNotifSettings = async (key: string, value: boolean) => {
-    const newNotifs = { ...notifs, [key]: value };
-    setNotifs(newNotifs);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const notifJson: Record<string, boolean> = {
-      email_digest:  newNotifs.email,
-      push:          newNotifs.push,
-      inbox_alerts:  newNotifs.agentAlert,
-      weekly_report: newNotifs.weeklyReport,
-    };
-    await supabase.from("user_settings").update({ notifications: notifJson }).eq("user_id", user.id);
   };
 
   const cardBg       = isDark ? "#131824" : "#fff";
@@ -498,24 +459,6 @@ export function Settings() {
                   </p>
                 </div>
               )}
-
-              {[
-                { key: "email"       as const, label: "Email digest",        desc: "Nhận tóm tắt từ agent qua email sau mỗi lần chạy" },
-                { key: "push"        as const, label: "Push notification",   desc: "Thông báo trên thiết bị" },
-                { key: "agentAlert"  as const, label: "Agent alerts",        desc: "Nhận alert khi agent hoàn thành — lưu vào Inbox" },
-                { key: "weeklyReport"as const, label: "Báo cáo tuần",        desc: "Email tổng kết mỗi thứ 2" },
-              ].map(item => (
-                <div key={item.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "0.5px solid " + borderColor }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: headingColor, marginBottom: 2 }}>{item.label}</div>
-                    <div style={{ fontSize: 13, color: subtleColor }}>{item.desc}</div>
-                  </div>
-                  <Toggle
-                    checked={notifs[item.key]}
-                    onChange={v => saveNotifSettings(item.key, v)}
-                  />
-                </div>
-              ))}
 
               {/* ── Kết nối Zalo ── */}
               <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid " + borderColor }}>
