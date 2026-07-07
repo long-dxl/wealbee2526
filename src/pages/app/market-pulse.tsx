@@ -141,10 +141,13 @@ export function MarketPulse({
         d.setDate(d.getDate() - 10);
         return d.toISOString().slice(0, 10);
       })();
+      // Tiebreaker phụ (id) bắt buộc: hàng nghìn dòng trùng "date" mỗi ngày,
+      // chỉ order theo date thì Postgres không đảm bảo thứ tự ổn định giữa các
+      // trang .range() → có thể làm rớt hẳn 1 dòng của 1 mã ở ranh giới trang.
       const rows: any[] = [];
       for (let from = 0; from < 16000; from += 1000) {
         const { data } = await supabase.from("prices_daily").select("symbol,date,open,close,volume")
-          .gte("date", windowCutoff).order("date", { ascending: false }).range(from, from + 999);
+          .gte("date", windowCutoff).order("date", { ascending: false }).order("id", { ascending: false }).range(from, from + 999);
         if (!data?.length) break;
         rows.push(...data);
         if (data.length < 1000) break;
