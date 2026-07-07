@@ -9,12 +9,20 @@ CRON_TZ=Asia/Ho_Chi_Minh
 0 12 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_runner.py >> /var/log/wealbee/pipeline.log 2>&1
 0 18 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python pipeline_runner.py >> /var/log/wealbee/pipeline.log 2>&1
 
-# ── BÁO CÁO phân tích Vietstock: 1 lần/ngày, 06:00 ──
+# ── BÁO CÁO phân tích Vietstock: 3 lần/ngày (06:00, 12:00, 18:00) — báo cáo đăng trong ngày
+#    được kéo về sớm, không trễ tới hôm sau ──
 0 6 * * *    cd __APP__/toolcrawldata && __VENV__/bin/python sync_vietstock_reports.py --pages 2 >> /var/log/wealbee/reports.log 2>&1
+0 12 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python sync_vietstock_reports.py --pages 2 >> /var/log/wealbee/reports.log 2>&1
+0 18 * * *   cd __APP__/toolcrawldata && __VENV__/bin/python sync_vietstock_reports.py --pages 2 >> /var/log/wealbee/reports.log 2>&1
 
 # ── GIÁ đóng cửa cuối phiên (phủ 400+ HOSE): 1 lần/ngày 15:00, T2–T6 ──
 # (ATC chốt giá đóng cửa 14:45–15:00; 15:00 lấy giá đóng cửa cuối phiên)
 0 15 * * 1-5 cd __APP__/toolcrawldata && __VENV__/bin/python seed_prices_dnse.py >> /var/log/wealbee/prices.log 2>&1
+
+# ── GIÁ REALTIME trong phiên: mỗi 15' khung 9-11h & 13-14h, T2–T6 (toàn bộ ~702 mã) ──
+# Gộp nến 1' của hôm nay → ghi đè dòng ngày hôm nay (job 15:00 chốt lại cuối ngày).
+# Script tự bỏ qua ngoài giờ/lễ/cuối tuần (is_in_session). Phục vụ Top tăng/giảm + heatmap ngành.
+*/15 9-11,13-14 * * 1-5 cd __APP__/toolcrawldata && __VENV__/bin/python seed_prices_dnse.py --intraday >> /var/log/wealbee/prices.log 2>&1
 
 # Lưu ý: agent theo lịch của NGƯỜI DÙNG do scheduler_local.py (systemd wealbee-scheduler)
 #        tự chạy — KHÔNG đặt ở cron này.
