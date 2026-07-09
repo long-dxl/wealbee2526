@@ -34,6 +34,19 @@ export async function macroContext(sb: any, registry?: Reg): Promise<string> {
     }
   } catch { /* bảng chưa có → bỏ qua */ }
 
+  // 1b) VN macro dạng SỐ (vn_macro — trích từ tin, có nguồn verify)
+  try {
+    const { data } = await sb.from("vn_macro")
+      .select("code,name,value,unit,period,note,source_title,source_url,as_of").order("code");
+    if (data?.length) {
+      out.push("### Vĩ mô Việt Nam (số liệu, trích từ tin — có nguồn kèm)");
+      for (const r of data) {
+        const ref = (registry && r.source_url) ? ` ${registry.add(r.source_title || "Tin vĩ mô VN", r.source_url)}` : "";
+        out.push(`- ${r.name}: **${r.value}${r.unit ? " " + r.unit : ""}**${r.period ? ` (${r.period})` : ""}${r.note ? ` — ${r.note}` : ""}${ref}`);
+      }
+    }
+  } catch { /* bảng chưa có → bỏ qua */ }
+
   // 2) VN-Index / HNX (market_indices — không lặp macro_indicators)
   try {
     const codes = ["VNINDEX", "HNX", "VN30"];

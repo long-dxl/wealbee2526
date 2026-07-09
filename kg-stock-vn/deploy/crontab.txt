@@ -32,5 +32,9 @@ CRON_TZ=Asia/Ho_Chi_Minh
 # USD/VND, DXY, lợi suất Mỹ 10Y, Brent, vàng, S&P500, VIX. Dùng cho tool "Vĩ mô" của agent + dashboard.
 30 7 * * *  cd __APP__/toolcrawldata && __VENV__/bin/python seed_macro.py >> /var/log/wealbee/macro.log 2>&1
 
+# ── VN macro dạng SỐ: 08:00 (sau pipeline tin 06:00) — trích GDP/CPI/lãi suất/tín dụng/PMI/TM/FDI ──
+# từ market_news bằng GPT-4.1-mini (không có API free sạch), lưu nguồn để verify → bảng vn_macro.
+0 8 * * *  cd __APP__/toolcrawldata && __VENV__/bin/python seed_vn_macro.py >> /var/log/wealbee/macro.log 2>&1
+
 # Lưu ý: agent theo lịch của NGƯỜI DÙNG do scheduler_local.py (systemd wealbee-scheduler)
 #        tự chạy — KHÔNG đặt ở cron này.
