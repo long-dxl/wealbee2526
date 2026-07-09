@@ -395,16 +395,22 @@ async function fetchWatchlist(userId: string): Promise<WatchRow[]> {
 
   // Giá mới nhất THEO TỪNG MÃ (mỗi mã có phiên cuối khác nhau → không dùng 1 ngày global)
   const [pricesRes, tickersRes] = await Promise.all([
-    supabase.from("prices_daily").select("symbol,date,open,close")
+    supabase.from("prices_daily").select("symbol,date,close")
       .in("symbol", symbols).order("date", { ascending: false }).limit(symbols.length * 4),
     supabase.from("tickers").select("symbol,name").in("symbol", symbols),
   ]);
-  const seen = new Set<string>();
+  // % thay đổi = so với giá đóng cửa phiên TRƯỚC (close-to-close), đồng nhất với dashboard-highlight
+  const bySymbol = new Map<string, { date: string; close: number }[]>();
   pricesRes.data?.forEach((p: any) => {
-    if (seen.has(p.symbol) || p.close == null) return;
-    seen.add(p.symbol);
-    latestPrices[p.symbol] = Number(p.close);
-    latestChanges[p.symbol] = p.open > 0 ? ((p.close - p.open) / p.open) * 100 : 0;
+    if (p.close == null) return;
+    const arr = bySymbol.get(p.symbol) ?? [];
+    if (arr.length < 2) arr.push({ date: p.date, close: Number(p.close) });
+    bySymbol.set(p.symbol, arr);
+  });
+  bySymbol.forEach((rowsForSymbol, symbol) => {
+    const [latest, prev] = rowsForSymbol;
+    latestPrices[symbol] = latest.close;
+    latestChanges[symbol] = prev && prev.close > 0 ? ((latest.close - prev.close) / prev.close) * 100 : 0;
   });
   tickersRes.data?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
 
@@ -431,6 +437,8 @@ async function fetchAnalystReports(): Promise<AnalystReport[]> {
   const { data } = await supabase
     .from("analyst_reports")
     .select("id,ticker,title,source_firm,recommendation,target_price,report_date,pdf_url")
+    // Sắp theo edocs id (thứ tự Vietstock thêm báo cáo), KHÔNG theo report_date — nhiều
+    // báo cáo report_date null/sai (parse từ PDF cũ) sẽ bị đẩy lệch vị trí. Khớp trang /app/reports.
     .order("id", { ascending: false })
     .limit(12);
   return (data ?? []) as AnalystReport[];

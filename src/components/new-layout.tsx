@@ -180,7 +180,7 @@ function NewLayoutInner() {
             background: theme.topBarBg,
             backdropFilter: isDark ? "blur(12px)" : "none",
             borderBottom: "0.5px solid " + theme.topBarBorder,
-            zIndex: 20, position: "relative",
+            zIndex: 30, position: "relative",
           }}>
             <GlobalSearch
               onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)}
