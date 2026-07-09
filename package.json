@@ -74,12 +74,14 @@
             "happy-dom": "^20.10.6",
             "jsdom": "^27.0.1",
             "tailwindcss": "^4.1.12",
+            "typescript": "^5.6.3",
             "vite": "6.3.5",
             "vitest": "^4.1.9"
       },
       "scripts": {
             "dev": "vite",
-            "build": "vite build",
+            "check": "node scripts/check-refs.mjs",
+            "build": "node scripts/check-refs.mjs && vite build",
             "test": "vitest run",
             "test:watch": "vitest",
             "test:coverage": "vitest run --coverage"

@@ -18,5 +18,6 @@
     }
   },
   "include": ["src"],
+  "exclude": ["src/supabase/functions"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

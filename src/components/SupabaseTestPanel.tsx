@@ -6,7 +6,8 @@
 import { useState } from 'react';
 import { Database, CheckCircle, XCircle, Loader, TrendingUp } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
-import type { StockSummary } from '../lib/supabase/types';
+// StockSummary không có trong types sinh tự động → type tối thiểu tại chỗ (panel test).
+type StockSummary = { symbol?: string; [k: string]: unknown };
 
 export function SupabaseTestPanel() {
   const [isLoading, setIsLoading] = useState(false);

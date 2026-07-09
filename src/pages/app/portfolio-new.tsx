@@ -1047,7 +1047,7 @@ export function Portfolio({
       {/* Modal */}
       {showModal && (
         <div
-          style={{ position: "fixed", inset: 0, background: "#3D3D52", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+          style={{ position: "fixed", inset: 0, background: "rgba(26,26,46,0.55)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
         >
           <div style={{ background: "#fff", borderRadius: 20, padding: 28, width: 480, boxShadow: "0 20px 60px rgba(8,73,172,0.16), 0 4px 12px rgba(0,0,0,0.08)" }}>

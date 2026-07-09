@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import {
   TrendingUp, FileText, Calculator, Newspaper, Globe,
-  Activity, GitBranch, Search, Check, ChevronRight,
+  Activity, GitBranch, Search, Check, ChevronRight, Users,
 } from "lucide-react";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 
@@ -44,30 +44,43 @@ export const tools: Tool[] = [
   },
   {
     id: "financials",
-    name: "BCTC & Nội bộ",
-    oneliner: "Báo cáo tài chính, giao dịch nội bộ và lịch sử cổ tức theo quý/năm",
-    longDescription: "Báo cáo kết quả kinh doanh, bảng cân đối kế toán, lưu chuyển tiền tệ 5 năm gần nhất theo đúng 4 loại hình doanh nghiệp, cùng giao dịch nội bộ và lịch sử cổ tức.",
+    name: "BCTC",
+    oneliner: "Phân tích sâu như Analyst: IS/BS/CF + chỉ số riêng theo 4 loại hình doanh nghiệp",
+    longDescription: "Báo cáo kết quả kinh doanh, bảng cân đối kế toán, lưu chuyển tiền tệ theo cả Năm và 5 Quý gần nhất, kèm chỉ số tài chính RIÊNG theo 4 loại hình (ngân hàng: NIM/CIR/NPL; chứng khoán: margin/VCSH; bảo hiểm: combined ratio; doanh nghiệp thường: ROE/ROA/biên LN).",
     category: "Tài chính",
     icon: FileText,
     backendToolId: "financials",
     breakdown: [
-      { title: "Báo cáo tài chính", desc: "BCKQKD, BCĐKT, LCTTT theo quý/năm, chỉ số riêng theo 4 loại hình doanh nghiệp (ngân hàng, chứng khoán, bảo hiểm, doanh nghiệp thường)." },
-      { title: "Giao dịch nội bộ", desc: "Theo dõi giao dịch mua/bán của ban lãnh đạo, người nội bộ và cổ đông lớn." },
-      { title: "Lịch sử cổ tức", desc: "Lịch sử chi trả cổ tức và tỷ suất cổ tức theo giá hiện tại." },
+      { title: "BCTC theo năm", desc: "Doanh thu, LNST, EPS, ROE… 5 năm gần nhất." },
+      { title: "BCTC 5 quý gần nhất", desc: "So sánh YoY theo quý." },
+      { title: "Chỉ số theo loại hình", desc: "Ngân hàng (NIM/CIR/NPL), chứng khoán, bảo hiểm, doanh nghiệp thường." },
+    ],
+  },
+  {
+    id: "insider-trades",
+    name: "Cổ tức & Giao dịch nội bộ",
+    oneliner: "Lịch sử chi trả cổ tức và giao dịch mua/bán của lãnh đạo, cổ đông nội bộ",
+    longDescription: "Lịch sử chi trả cổ tức (tiền mặt/cổ phiếu) và giao dịch mua/bán của ban lãnh đạo, người nội bộ, cổ đông lớn — dữ liệu tự làm mới hằng ngày cho toàn bộ mã niêm yết.",
+    category: "Tài chính",
+    icon: Users,
+    backendToolId: "insider_trades",
+    breakdown: [
+      { title: "Lịch sử cổ tức", desc: "Chi trả cổ tức tiền mặt/cổ phiếu và tỷ suất theo giá hiện tại." },
+      { title: "Giao dịch nội bộ", desc: "Mua/bán của ban lãnh đạo, người nội bộ và cổ đông lớn (MUA/BÁN)." },
     ],
   },
   {
     id: "value-chain",
-    name: "Chuỗi cung ứng & yếu tố tác động",
-    oneliner: "Nguyên liệu đầu vào, sản phẩm đầu ra và yếu tố vĩ mô tác động biên lợi nhuận theo ngành",
-    longDescription: "Nguyên liệu đầu vào và sản phẩm đầu ra theo từng ngành (thép: quặng, than cốc đến HRC; cảng, hàng không: dầu, nhiên liệu; phân bón: khí đến ure...), cùng giá cước và yếu tố vĩ mô tác động biên lợi nhuận.",
+    name: "Giá hàng hóa (chuỗi cung ứng)",
+    oneliner: "Kéo giá realtime nguyên liệu đầu vào & sản phẩm đầu ra theo ngành (khung tác động luôn áp dụng)",
+    longDescription: "Kéo GIÁ thị trường realtime của nguyên liệu đầu vào và sản phẩm đầu ra theo từng ngành (thép: quặng, than cốc đến HRC; cảng, hàng không: dầu, nhiên liệu; phân bón: khí đến ure...). Khung suy luận chuỗi cung ứng & yếu tố vĩ mô tác động biên lợi nhuận LUÔN được agent áp dụng — tool này chỉ bổ sung số giá thị trường realtime.",
     category: "Tài chính",
     icon: Activity,
     backendToolId: "value_chain",
     breakdown: [
-      { title: "Nguyên liệu đầu vào", desc: "Chi phí đầu vào chính theo từng ngành." },
-      { title: "Sản phẩm đầu ra", desc: "Nguồn doanh thu chính theo từng ngành." },
-      { title: "Yếu tố vĩ mô tác động", desc: "Giá cước, tỷ giá và các yếu tố ảnh hưởng biên lợi nhuận." },
+      { title: "Giá nguyên liệu đầu vào", desc: "Số giá realtime chi phí đầu vào theo ngành (Yahoo/benchmark)." },
+      { title: "Giá sản phẩm đầu ra", desc: "Số giá realtime nguồn doanh thu chính theo ngành." },
+      { title: "Khung tác động: luôn áp dụng", desc: "Cấu trúc nhân-quả input→output→vĩ mô là năng lực nền, không cần bật." },
     ],
   },
   {
@@ -106,12 +119,18 @@ export const tools: Tool[] = [
   {
     id: "macro",
     name: "Vĩ mô",
-    oneliner: "CPI, lãi suất điều hành & tỷ giá USD/VND từ NHNN",
-    longDescription: "CPI, lãi suất điều hành và tỷ giá USD/VND từ Ngân hàng Nhà nước. Đang được phát triển, chưa thể dùng trong Agent.",
+    oneliner: "Bối cảnh vĩ mô hằng ngày: tỷ giá, lãi suất Mỹ, dầu/vàng, VIX, VN-Index + tin vĩ mô",
+    longDescription: "Chỉ số vĩ mô toàn cầu cập nhật hằng ngày (nguồn Yahoo Finance miễn phí): tỷ giá USD/VND, chỉ số USD (DXY), lợi suất TPCP Mỹ 10 năm, giá dầu Brent, vàng, S&P500, VIX — kèm %YTD/%YoY. Cùng VN-Index/HNX và top tin vĩ mô nổi bật để đặt nền bối cảnh khi phân tích thị trường/ngành/mã.",
     category: "Vĩ mô",
     icon: Globe,
     backendToolId: "macro",
-    available: false,
+    available: true,
+    breakdown: [
+      { title: "Tỷ giá & DXY", desc: "USD/VND và chỉ số sức mạnh USD (DXY) — áp lực tỷ giá/khối ngoại." },
+      { title: "Lãi suất Mỹ & rủi ro", desc: "Lợi suất TPCP Mỹ 10 năm (proxy Fed) và VIX (khẩu vị rủi ro)." },
+      { title: "Dầu, vàng, S&P500", desc: "Giá dầu Brent, vàng và chứng khoán Mỹ + %YTD/%YoY." },
+      { title: "VN-Index + tin vĩ mô", desc: "VN-Index/HNX và top tin vĩ mô nổi bật (impact cao) 3 ngày gần nhất." },
+    ],
   },
   {
     id: "rsi",
