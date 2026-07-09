@@ -38,12 +38,17 @@ SYSTEM = (
 )
 
 
-def fetch_news(days: int = 45, limit: int = 120) -> list[dict]:
+KEYWORDS = ["GDP", "CPI", "lạm phát", "lãi suất", "tín dụng", "PMI", "FDI",
+            "xuất siêu", "nhập siêu", "cán cân thương mại", "tỷ giá", "tăng trưởng"]
+
+
+def fetch_news(days: int = 45, limit: int = 150) -> list[dict]:
+    """Quét tin có TỪ KHÓA vĩ mô (bất kể news_type — nhiều tin GDP/FDI/Fed là null)."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    or_filter = ",".join(f"title.ilike.%{k}%" for k in KEYWORDS)
     rows = (sb.table("market_news")
             .select("title,content_summary,article_url,published_at")
-            .in_("news_type", ["vi_mo", "du_bao", "thi_truong", "vi_mo_dn"])
-            .gte("published_at", since)
+            .gte("published_at", since).or_(or_filter)
             .order("published_at", desc=True).limit(limit).execute().data) or []
     return rows
 
@@ -55,18 +60,20 @@ def main():
     news = fetch_news()
     if not news:
         print("Không có tin vĩ mô để trích."); return
+    # Đánh SỐ mỗi tin → LLM trích 'src' = số này → attribution chính xác
     ctx = "\n".join(
-        f"- [{(n.get('published_at') or '')[:10]}] {n.get('title','')} :: "
-        f"{(n.get('content_summary') or '')[:200]} :: {n.get('article_url','')}"
-        for n in news
-    )[:14000]
+        f"[{i}] ({(n.get('published_at') or '')[:10]}) {n.get('title','')} — "
+        f"{(n.get('content_summary') or '')[:220]}"
+        for i, n in enumerate(news)
+    )[:16000]
 
-    schema_hint = json.dumps({k: {"value": None, "unit": "", "period": "", "note": "",
-                                  "source_title": "", "source_url": ""} for k in TARGETS}, ensure_ascii=False)
+    schema_hint = json.dumps({k: {"value": None, "unit": "", "period": "", "note": "", "src": None} for k in TARGETS}, ensure_ascii=False)
     user = (f"CHỈ SỐ CẦN TRÍCH (code → tên):\n" +
             "\n".join(f"  {k}: {v}" for k, v in TARGETS.items()) +
-            f"\n\nTIN (mới → cũ):\n{ctx}\n\n"
-            f"Trả về DUY NHẤT JSON đúng khung sau (giữ nguyên code, value là số hoặc null):\n{schema_hint}")
+            f"\n\nTIN (mỗi tin có số [i]):\n{ctx}\n\n"
+            f"Với mỗi chỉ số, trích 'value' (số) + 'unit' + 'period' + 'note' (<=12 từ) + "
+            f"'src' = SỐ [i] của tin chứa con số đó. Nếu không tin nào nêu → value=null, src=null. "
+            f"Trả DUY NHẤT JSON đúng khung:\n{schema_hint}")
 
     resp = oai.chat.completions.create(
         model="gpt-4.1-mini", temperature=0,
@@ -81,17 +88,19 @@ def main():
         d = data.get(code) or {}
         val = d.get("value")
         if val is None:
-            print(f"  {code:15} — không có trong tin (giữ giá trị cũ nếu có)")
+            print(f"  {code:15} — không có trong tin")
             continue
+        src = d.get("src")
+        n = news[src] if isinstance(src, int) and 0 <= src < len(news) else {}
         rows.append({
             "code": code, "name": name, "value": val,
             "unit": d.get("unit") or ("%" if code not in ("pmi", "trade_balance", "fdi") else ("điểm" if code == "pmi" else "tỷ USD")),
             "period": d.get("period"), "note": (d.get("note") or "")[:120],
-            "source_title": (d.get("source_title") or "")[:200], "source_url": d.get("source_url"),
+            "source_title": (n.get("title") or "")[:200], "source_url": n.get("article_url"),
             "as_of": today, "updated_at": datetime.now(timezone.utc).isoformat(),
         })
         ok += 1
-        print(f"  {code:15} {val} {rows[-1]['unit']:7} | {d.get('period')} | {(d.get('source_title') or '')[:45]}")
+        print(f"  {code:15} {val} {rows[-1]['unit']:7} | {d.get('period')} | src[{src}] {(n.get('title') or '')[:45]}")
     if rows:
         sb.table("vn_macro").upsert(rows, on_conflict="code").execute()
     print(f"\n✅ {ok}/{len(TARGETS)} chỉ số VN macro cập nhật (vn_macro)")
