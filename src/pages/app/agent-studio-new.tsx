@@ -217,9 +217,9 @@ const TOOL_GROUPS = [
       },
       {
         id: "macro", name: "Vĩ mô", Icon: Globe,
-        desc: "Lãi suất, tỷ giá, CPI, FDI và chính sách tiền tệ của NHNN",
-        available: false,
-        includes: [],
+        desc: "Bối cảnh vĩ mô hằng ngày: tỷ giá USD/VND, DXY, lợi suất Mỹ 10Y, giá dầu/vàng, S&P500, VIX (+%YTD/YoY), VN-Index/HNX và top tin vĩ mô nổi bật",
+        available: true,
+        includes: ["Tỷ giá & DXY", "Lãi suất Mỹ 10Y & VIX", "Dầu/vàng/S&P500", "VN-Index + tin vĩ mô"],
       },
     ],
   },

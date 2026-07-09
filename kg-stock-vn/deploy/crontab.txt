@@ -28,5 +28,9 @@ CRON_TZ=Asia/Ho_Chi_Minh
 # seed_financials.py tự đọc mã từ bảng tickers (không cần bảo trì tay); đã bỏ financials_annual.
 30 16 * * *  cd __APP__/toolcrawldata && __VENV__/bin/python seed_financials.py >> /var/log/wealbee/financials.log 2>&1
 
+# ── CHỈ SỐ VĨ MÔ toàn cầu (Yahoo, FREE): 1 lần/ngày 07:30 → bảng macro_indicators ──
+# USD/VND, DXY, lợi suất Mỹ 10Y, Brent, vàng, S&P500, VIX. Dùng cho tool "Vĩ mô" của agent + dashboard.
+30 7 * * *  cd __APP__/toolcrawldata && __VENV__/bin/python seed_macro.py >> /var/log/wealbee/macro.log 2>&1
+
 # Lưu ý: agent theo lịch của NGƯỜI DÙNG do scheduler_local.py (systemd wealbee-scheduler)
 #        tự chạy — KHÔNG đặt ở cron này.

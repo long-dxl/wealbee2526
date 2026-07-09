@@ -10,6 +10,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { valueChainReport, valueChainFrame } from "../_shared/value-chain.ts";
+import { macroContext } from "../_shared/macro.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
 import { zaloSend } from "../_shared/zalo.ts";
 import { buildPriceContext, buildNewsContext, faUrl } from "../_shared/market-context.ts";
@@ -513,6 +514,14 @@ const OPENAI_TOOL_DEFS: Record<string, object> = {
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
+  macro: {
+    type: "function",
+    function: {
+      name: "macro",
+      description: "Bối cảnh VĨ MÔ hôm nay: tỷ giá USD/VND, DXY, lợi suất Mỹ 10Y, giá dầu/vàng, S&P500, VIX (+%YTD/YoY), VN-Index/HNX, và top tin vĩ mô nổi bật. Dùng để đặt nền bối cảnh khi phân tích thị trường/ngành/mã.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
   kb_search: {
     type: "function",
     function: {
@@ -531,7 +540,7 @@ const OPENAI_TOOL_DEFS: Record<string, object> = {
 
 function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
   const defs: object[] = [];
-  for (const name of ["price_feed", "news_feed", "financials", "insider_trades", "value_chain", "portfolio_read"]) {
+  for (const name of ["price_feed", "news_feed", "financials", "insider_trades", "value_chain", "macro", "portfolio_read"]) {
     if (enabled.includes(name) && OPENAI_TOOL_DEFS[name]) defs.push(OPENAI_TOOL_DEFS[name]);
   }
   if (hasKb) defs.push(OPENAI_TOOL_DEFS.kb_search);
@@ -590,6 +599,9 @@ async function executeToolCall(
   }
   if (name === "portfolio_read") {
     return (await buildPortfolioContext(userId)) || "Chưa có danh mục đầu tư";
+  }
+  if (name === "macro") {
+    return (await macroContext(sb, registry)) || "Chưa có dữ liệu vĩ mô";
   }
   if (name === "kb_search") {
     if (!kbDocIds.length) return "Knowledge Base chưa được cấu hình cho agent này";
@@ -686,6 +698,8 @@ async function prefetchToolContext(
     add("TIN TỨC (48H)", executeToolCall("news_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
   if (want.has("portfolio_read"))
     add("DANH MỤC ĐẦU TƯ", executeToolCall("portfolio_read", {}, registry, sources, userId, kbDocIds, newsFilter));
+  if (want.has("macro"))
+    add("BỐI CẢNH VĨ MÔ", executeToolCall("macro", {}, registry, sources, userId, kbDocIds, newsFilter));
   for (const sym of syms) {
     if (want.has("financials"))
       add(`BÁO CÁO TÀI CHÍNH ${sym}`, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter, financialsDepth));
@@ -717,6 +731,7 @@ function toolStepLabel(name: string, args: Record<string, any>): string {
     case "financials":     return `Báo cáo tài chính: ${args.symbol ?? ""}`;
     case "value_chain":    return `Chuỗi cung ứng & yếu tố tác động: ${args.symbol ?? ""}`;
     case "portfolio_read": return "Danh mục đầu tư";
+    case "macro":          return "Bối cảnh vĩ mô (tỷ giá, lãi suất, dầu, VN-Index)";
     case "kb_search":      return `Knowledge Base: "${String(args.query ?? "").slice(0, 40)}"`;
     default: return name;
   }

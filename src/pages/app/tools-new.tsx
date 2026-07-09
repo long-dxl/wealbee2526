@@ -119,12 +119,18 @@ export const tools: Tool[] = [
   {
     id: "macro",
     name: "Vĩ mô",
-    oneliner: "CPI, lãi suất điều hành & tỷ giá USD/VND từ NHNN",
-    longDescription: "CPI, lãi suất điều hành và tỷ giá USD/VND từ Ngân hàng Nhà nước. Đang được phát triển, chưa thể dùng trong Agent.",
+    oneliner: "Bối cảnh vĩ mô hằng ngày: tỷ giá, lãi suất Mỹ, dầu/vàng, VIX, VN-Index + tin vĩ mô",
+    longDescription: "Chỉ số vĩ mô toàn cầu cập nhật hằng ngày (nguồn Yahoo Finance miễn phí): tỷ giá USD/VND, chỉ số USD (DXY), lợi suất TPCP Mỹ 10 năm, giá dầu Brent, vàng, S&P500, VIX — kèm %YTD/%YoY. Cùng VN-Index/HNX và top tin vĩ mô nổi bật để đặt nền bối cảnh khi phân tích thị trường/ngành/mã.",
     category: "Vĩ mô",
     icon: Globe,
     backendToolId: "macro",
-    available: false,
+    available: true,
+    breakdown: [
+      { title: "Tỷ giá & DXY", desc: "USD/VND và chỉ số sức mạnh USD (DXY) — áp lực tỷ giá/khối ngoại." },
+      { title: "Lãi suất Mỹ & rủi ro", desc: "Lợi suất TPCP Mỹ 10 năm (proxy Fed) và VIX (khẩu vị rủi ro)." },
+      { title: "Dầu, vàng, S&P500", desc: "Giá dầu Brent, vàng và chứng khoán Mỹ + %YTD/%YoY." },
+      { title: "VN-Index + tin vĩ mô", desc: "VN-Index/HNX và top tin vĩ mô nổi bật (impact cao) 3 ngày gần nhất." },
+    ],
   },
   {
     id: "rsi",
