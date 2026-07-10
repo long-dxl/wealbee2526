@@ -342,6 +342,13 @@ def cleanup_dividend_announcements(sb, symbol: str) -> None:
 
 # ── Insider transactions ────────────────────────────────────────────────────────
 
+MIN_INSIDER_DATE = "2020-01-01"  # insider cũ hơn không còn giá trị phân tích (tín
+                                  # hiệu giao dịch nội bộ chỉ hữu ích khi gần thời
+                                  # điểm hiện tại) — lọc ngay tại nguồn để không phí
+                                  # dung lượng DB, KHÁC với dividends (giữ từ 2015,
+                                  # lịch sử cổ tức vẫn có giá trị tra cứu dài hạn).
+
+
 def fetch_insider(symbol: str, events: list[dict]) -> list[dict]:
     """Lọc DDIND / DDINS / DDRP events → insider_transactions rows.
 
@@ -367,7 +374,7 @@ def fetch_insider(symbol: str, events: list[dict]) -> list[dict]:
             continue
 
         trade_date = parse_date(ev.get("publicDate") or ev.get("displayDate1"))
-        if not trade_date:
+        if not trade_date or trade_date < MIN_INSIDER_DATE:
             continue
 
         reg_start_date = parse_date(ev.get("startDate"))
