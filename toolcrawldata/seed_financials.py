@@ -343,7 +343,17 @@ def cleanup_dividend_announcements(sb, symbol: str) -> None:
 # ── Insider transactions ────────────────────────────────────────────────────────
 
 def fetch_insider(symbol: str, events: list[dict]) -> list[dict]:
-    """Lọc DDIND / DDINS events → insider_transactions rows."""
+    """Lọc DDIND / DDINS / DDRP events → insider_transactions rows.
+
+    QUAN TRỌNG — giới hạn nguồn: VCI's events API chỉ có sự kiện "Đăng kí
+    Mua/Bán" (ý định đăng ký), KHÔNG có sự kiện "đã hoàn tất" tách riêng với
+    khối lượng thực hiện thật (đã verify: 100% event MBS/MBB gần đây chỉ có
+    chữ "Đăng kí" trong title, không có bản ghi xác nhận kết quả). volume ở
+    đây là KL ĐĂNG KÝ, có thể khác KL thực hiện thật ngoài đời (case MBB Phạm
+    Thị Trung Hà: đăng ký bán 1.000.000, thực tế bán 678.900 — VCI không có
+    con số 678.900 này). reg_start_date/reg_end_date lấy từ startDate/endDate
+    — khoảng thời gian ĐĂNG KÝ, đã verify khớp đúng cột "Ngày đăng ký" trên
+    trang tham chiếu."""
     rows = []
     seen = set()
 
@@ -359,6 +369,9 @@ def fetch_insider(symbol: str, events: list[dict]) -> list[dict]:
         trade_date = parse_date(ev.get("publicDate") or ev.get("displayDate1"))
         if not trade_date:
             continue
+
+        reg_start_date = parse_date(ev.get("startDate"))
+        reg_end_date = parse_date(ev.get("endDate"))
 
         title_vi = ev.get("eventTitleVi", "") or ""
         title_en = ev.get("eventTitleEn", "") or ""
@@ -383,15 +396,17 @@ def fetch_insider(symbol: str, events: list[dict]) -> list[dict]:
         seen.add(key)
 
         rows.append({
-            "symbol":       symbol,
-            "trade_date":   trade_date,
-            "insider_name": insider_name,
-            "position":     "Người liên quan" if code == "DDRP" else "",
-            "trade_type":   trade_type,
-            "volume":       volume,
-            "price":        None,
-            "total_value":  None,
-            "source_url":   None,
+            "symbol":         symbol,
+            "trade_date":     trade_date,
+            "reg_start_date": reg_start_date,
+            "reg_end_date":   reg_end_date,
+            "insider_name":   insider_name,
+            "position":       "Người liên quan" if code == "DDRP" else "",
+            "trade_type":     trade_type,
+            "volume":         volume,
+            "price":          None,
+            "total_value":    None,
+            "source_url":     None,
         })
 
     return rows

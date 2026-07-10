@@ -758,7 +758,7 @@ export function TickerDetailPage() {
         supabase.from("financial_statements").select("statement,period,item_code,value").eq("symbol", s).eq("period_type", "FY").limit(2000),
         supabase.from("dividends").select("id,ex_date,payment_date,dividend_type,amount").eq("symbol", s).order("ex_date", { ascending: false }).limit(10),
         supabase.from("dividend_announcements").select("id,dividend_type,amount,announced_date").eq("symbol", s).order("announced_date", { ascending: false }).limit(5),
-        supabase.from("insider_transactions").select("id,trade_date,insider_name,trade_type,volume").eq("symbol", s).order("trade_date", { ascending: false }).limit(10),
+        supabase.from("insider_transactions").select("id,trade_date,reg_start_date,reg_end_date,insider_name,trade_type,volume").eq("symbol", s).order("trade_date", { ascending: false }).limit(10),
         supabase.from("market_news").select("title,published_at,impact_score,label,article_url").contains("affected_symbols", [s]).neq("label", "trash").not("label", "is", null).order("published_at", { ascending: false }).limit(10),
         supabase.from("market_indices").select("date,close").eq("index_code", "VNINDEX").order("date", { ascending: true }).limit(2000),
         supabase.from("market_indices").select("date,close").eq("index_code", "HNX").order("date", { ascending: true }).limit(2000),
@@ -1310,7 +1310,7 @@ export function TickerDetailPage() {
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                       <thead>
                         <tr style={{ background: tk.CARD2 }}>
-                          {["Ngày GD", "Người nội bộ", "Loại GD", "Khối lượng"].map(h => (
+                          {["Ngày đăng ký", "Người nội bộ", "Loại GD", "KL đăng ký"].map(h => (
                             <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: tk.MUTED2, letterSpacing: "0.06em", textTransform: "uppercase", borderBottom: `0.5px solid ${tk.BORDER}` }}>{h}</th>
                           ))}
                         </tr>
@@ -1318,7 +1318,11 @@ export function TickerDetailPage() {
                       <tbody>
                         {insiders.map((ins: any, i: number) => (
                           <tr key={ins.id} style={{ background: i % 2 === 0 ? "transparent" : tk.ROW_HOV, borderBottom: `0.5px solid ${tk.BORDER}` }}>
-                            <td style={{ padding: "10px 16px", fontWeight: 600, color: tk.TEXT }}>{fmtDate(ins.trade_date)}</td>
+                            <td style={{ padding: "10px 16px", fontWeight: 600, color: tk.TEXT }}>
+                              {ins.reg_start_date && ins.reg_end_date
+                                ? (ins.reg_start_date === ins.reg_end_date ? fmtDate(ins.reg_end_date) : `${fmtShort(ins.reg_start_date)} - ${fmtDate(ins.reg_end_date)}`)
+                                : fmtDate(ins.trade_date)}
+                            </td>
                             <td style={{ padding: "10px 16px", color: tk.MUTED, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ins.insider_name}</td>
                             <td style={{ padding: "10px 16px" }}>
                               <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 700, background: ins.trade_type === "buy" ? "rgba(52,199,89,0.12)" : "rgba(255,59,48,0.1)", color: ins.trade_type === "buy" ? "#16a34a" : "#FF3B30" }}>
@@ -1332,6 +1336,9 @@ export function TickerDetailPage() {
                         ))}
                       </tbody>
                     </table>
+                    <div style={{ padding: "8px 16px", fontSize: 11.5, color: tk.MUTED2, fontStyle: "italic" }}>
+                      * KL đăng ký là khối lượng ĐÃ CÔNG BỐ Ý ĐỊNH giao dịch — có thể khác khối lượng thực hiện thật ngoài đời (nguồn hiện chưa có dữ liệu xác nhận kết quả).
+                    </div>
                   </div>
                 )
               )}
