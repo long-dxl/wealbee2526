@@ -590,6 +590,32 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
     e.dataTransfer.effectAllowed = "copy";
   };
 
+  // Kéo 1 dòng trong "Điểm nổi bật hôm nay" / "Cần theo dõi" vào Action Hub
+  const handleHighlightDragStart = (e: React.DragEvent, item: NewsHighlight, idPrefix: string) => {
+    const card: ContextCard = {
+      id: `${idPrefix}-${item.title.slice(0, 20)}`,
+      type: "news",
+      label: item.title.length > 32 ? item.title.slice(0, 32) + "…" : item.title,
+      badge: item.source_name ?? undefined,
+      summary: [item.source_name, item.published_at ? `${relativeTime(item.published_at)} trước` : null].filter(Boolean).join(" · "),
+    };
+    e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
+    e.dataTransfer.effectAllowed = "copy";
+  };
+
+  // Kéo 1 dòng trong "Ý nghĩa với danh mục" vào Action Hub
+  const handlePortfolioInsightDragStart = (e: React.DragEvent, p: PortfolioInsight) => {
+    const card: ContextCard = {
+      id: `insight-${p.symbol}`,
+      type: "mover",
+      label: p.symbol,
+      badge: `${p.pct >= 0 ? "+" : ""}${p.pct.toFixed(2)}%`,
+      summary: [p.insight, p.insight_source].filter(Boolean).join(" · "),
+    };
+    e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
+    e.dataTransfer.effectAllowed = "copy";
+  };
+
   const handleReportDragStart = (e: React.DragEvent, card: ContextCard) => {
     e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
     e.dataTransfer.effectAllowed = "copy";
@@ -661,7 +687,14 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
             {(highlight?.highlights ?? []).length > 0 && (
               <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
                 {highlight!.highlights.map((h, i) => (
-                  <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 15, color: fg, lineHeight: 1.5 }}>
+                  <li key={i} draggable
+                    onDragStart={e => handleHighlightDragStart(e, h, "highlight")}
+                    onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+                    onDragStartCapture={e => { (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
+                    style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 15, color: fg, lineHeight: 1.5, position: "relative", cursor: "grab", userSelect: "none", borderRadius: 8, padding: "3px 6px", margin: "-3px -6px", transition: "background 100ms ease" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "1"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "0"; }}>
+                    <DragHint />
                     <span style={{ color: brand, marginTop: 2, flexShrink: 0 }}>•</span>
                     <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word", overflowWrap: "break-word" }}>
                       {h.title}
@@ -688,10 +721,17 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                 </div>
                 <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
                   {highlight!.portfolio_insights.map((p) => (
-                    <li key={p.symbol} style={{ fontSize: 14, lineHeight: 1.8 }}>
+                    <li key={p.symbol} draggable
+                      onDragStart={e => handlePortfolioInsightDragStart(e, p)}
+                      onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+                      onDragStartCapture={e => { (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
+                      style={{ fontSize: 14, lineHeight: 1.8, position: "relative", cursor: "grab", userSelect: "none", borderRadius: 8, padding: "3px 6px", margin: "-3px -6px", transition: "background 100ms ease" }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "1"; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "0"; }}>
                       {/* Không dùng display:flex ở đây — flex item không tự reflow theo
                           từ khi wrap (cả span bị đẩy nguyên khối xuống dòng mới), phải
                           để inline flow tự nhiên như văn bản thường mới "cùng 1 dòng". */}
+                      <DragHint />
                       <span style={{ fontWeight: 700, color: fg, marginRight: 8 }}>{p.symbol}</span>
                       <span style={{ display: "inline-flex", verticalAlign: "middle", marginRight: 8 }}><PctBadge value={p.pct} /></span>
                       {p.insight && (
@@ -723,7 +763,14 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                 </div>
                 <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
                   {highlight!.watchlist.map((w, i) => (
-                    <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <li key={i} draggable
+                      onDragStart={e => handleHighlightDragStart(e, w, "watch")}
+                      onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+                      onDragStartCapture={e => { (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
+                      style={{ display: "flex", alignItems: "flex-start", gap: 8, position: "relative", cursor: "grab", userSelect: "none", borderRadius: 8, padding: "3px 6px", margin: "-3px -6px", transition: "background 100ms ease" }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "1"; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "0"; }}>
+                      <DragHint />
                       <span style={{ color: "#FF9500", marginTop: 2, flexShrink: 0 }}>•</span>
                       <span style={{ fontSize: 15, color: fg, lineHeight: 1.5, flex: 1, minWidth: 0, wordBreak: "break-word", overflowWrap: "break-word" }}>
                         {w.title}

@@ -32,9 +32,9 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: "dashboard", icon: House,      label: "Tổng quan" },
   // { id: "tickers",   icon: List,       label: "Cổ phiếu" },
+  { id: "portfolio", icon: Wallet,     label: "Danh mục" },
   { id: "inbox",     icon: Inbox,      label: "Hộp thư" },
   { id: "agents",    icon: Bot,        label: "Agent của tôi" },
-  { id: "portfolio", icon: Wallet,     label: "Danh mục" },
   { id: "divider-studio", section: "AGENT STUDIO", icon: Plus, label: "" },
   { id: "create-agent", icon: Plus, label: "Tạo Agent" },
   { id: "templates", icon: LayoutTemplate, label: "Mẫu Agent" },
