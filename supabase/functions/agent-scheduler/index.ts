@@ -9,11 +9,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { buildPriceContext, buildNewsContext } from "../_shared/market-context.ts";
+import { getModelConfig, isProviderAvailable } from "../_shared/llm-adapter.ts";
+import { ProviderLLMRuntime } from "../_shared/llm-runtime.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const OPENAI_API_KEY    = Deno.env.get("OPENAI_API_KEY")!;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const RESEND_API_KEY    = Deno.env.get("RESEND_API_KEY") ?? "";
 const EMAIL_FROM        = Deno.env.get("EMAIL_FROM") ?? "Wealbee <no-reply@wealbee.com>";
 
@@ -24,15 +24,7 @@ const CORS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const MODEL_MAP: Record<string, { provider: "openai" | "anthropic"; apiModel: string }> = {
-  "gpt-4o-mini":   { provider: "openai",    apiModel: "gpt-4o-mini"       },
-  "gpt-4o":        { provider: "openai",    apiModel: "gpt-4o"            },
-  "claude-sonnet": { provider: "anthropic", apiModel: "claude-sonnet-4-6" },
-  "claude-opus":   { provider: "anthropic", apiModel: "claude-opus-4-7"   },
-  "gemini-pro":    { provider: "openai",    apiModel: "gpt-4.1-mini"      },
-  "gemini-flash":  { provider: "openai",    apiModel: "gpt-4.1-mini"      },
-};
-const DEFAULT_MODEL = { provider: "openai" as const, apiModel: "gpt-4.1-mini" };
+const LLM_RUNTIME = new ProviderLLMRuntime();
 
 const faUrl = (sym: string) => `https://fireant.vn/ma-chung-khoan/${sym}`;
 
@@ -288,35 +280,16 @@ ${priceCtx}${newsCtx}${financialsCtx}${insiderCtx}${kbCtx}
       : `Thực hiện nhiệm vụ CHỈ dựa trên NGUỒN DỮ LIỆU. Mọi số liệu phải có [ref:N]. Trả lời tiếng Việt.`;
 
     // Gọi LLM
-    let { provider, apiModel } = MODEL_MAP[model] ?? DEFAULT_MODEL;
-    if (provider === "anthropic" && !ANTHROPIC_API_KEY) { provider = "openai"; apiModel = "gpt-4o-mini"; }
-
-    let fullOutput = "";
-    let tokens = 0;
-
-    if (provider === "anthropic" && ANTHROPIC_API_KEY) {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: apiModel, max_tokens: 2000, temperature: 0, system: systemPrompt, messages: [{ role: "user", content: userMessage }] }),
-      });
-      if (res.ok) {
-        const j = await res.json();
-        fullOutput = j.content?.[0]?.text ?? "";
-        tokens = (j.usage?.input_tokens ?? 0) + (j.usage?.output_tokens ?? 0);
-      }
-    } else {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: apiModel, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userMessage }], max_tokens: 2000, temperature: 0 }),
-      });
-      if (res.ok) {
-        const j = await res.json();
-        fullOutput = j.choices?.[0]?.message?.content ?? "";
-        tokens = j.usage?.total_tokens ?? 0;
-      }
-    }
+    const modelConfig = getModelConfig(model);
+    if (!isProviderAvailable(modelConfig.provider)) throw new Error(`${modelConfig.provider} chưa được cấu hình API key`);
+    const llmResult = await LLM_RUNTIME.complete({
+      model: modelConfig,
+      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userMessage }],
+      maxTokens: 2000,
+      temperature: 0,
+    });
+    const fullOutput = llmResult.content;
+    const tokens = llmResult.usage.inputTokens + llmResult.usage.outputTokens;
 
     const durationMs = Date.now() - startedAt;
 

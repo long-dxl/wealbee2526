@@ -19,13 +19,13 @@ import { SourceRegistry } from "../_shared/source-registry.ts";
 import { CORS } from "../_shared/cors.ts";
 import { buildFinancialsContext, buildInsiderContext } from "../_shared/context-builders.ts";
 import { DEFAULT_DAILY_DIGEST_PROMPT, GROUNDING_FORMAT_MARKDOWN, GROUNDING_FORMAT_COLOR } from "../_shared/prompts.ts";
-import { getModelConfig, costVndForModel, toAnthropicToolDef } from "../_shared/llm-adapter.ts";
+import { getModelConfig, costVndForModel, isProviderAvailable } from "../_shared/llm-adapter.ts";
+import { ProviderLLMRuntime, type LLMMessage } from "../_shared/llm-runtime.ts";
 import { registryFromOpenAIDefinitions } from "../_shared/tool-registry.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_API_KEY    = Deno.env.get("OPENAI_API_KEY")!;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const RESEND_API_KEY    = Deno.env.get("RESEND_API_KEY") ?? "";
 const EMAIL_FROM        = Deno.env.get("EMAIL_FROM") ?? "Wealbee <no-reply@wealbee.com>";
 const APP_URL           = Deno.env.get("APP_URL") ?? "https://wealbee.com";
@@ -502,14 +502,13 @@ const OPENAI_TOOL_DEFS: Record<string, object> = {
 };
 
 const TOOL_REGISTRY = registryFromOpenAIDefinitions(OPENAI_TOOL_DEFS);
+const LLM_RUNTIME = new ProviderLLMRuntime();
 
 function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
   const allowed = enabled.filter(name => name !== "kb_search");
   if (hasKb) allowed.push("kb_search");
   return TOOL_REGISTRY.definitions(allowed);
 }
-
-// toAnthropicToolDef imported từ _shared/llm-adapter.ts
 
 async function executeToolCall(
   name: string,
@@ -984,20 +983,14 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
         // ── Model selection ───────────────────────────────────────────────────
 
         const modelCfg = getModelConfig(agent.model);
-        let { provider, apiModel } = modelCfg;
-        if (provider === "anthropic" && !ANTHROPIC_API_KEY) {
-          console.warn(`[run-agent] ANTHROPIC_API_KEY not set, falling back to gpt-4o-mini`);
-          provider = "openai";
-          apiModel  = "gpt-4.1-mini";
-          emit({ type: "step", step: "gpt", status: "loading", label: `⚠ ${agent.model} chưa có API key → dùng GPT-4o mini` });
-        } else {
-          emit({ type: "step", step: "gpt", status: "loading", label: `Đang phân tích...` });
-        }
+        const { provider, apiModel } = modelCfg;
+        if (!isProviderAvailable(provider)) throw new Error(`${provider} chưa được cấu hình API key`);
+        emit({ type: "step", step: "gpt", status: "loading", label: `Đang phân tích bằng ${apiModel}...` });
 
         // ── True tool-call loop ───────────────────────────────────────────────
         // LLM decides WHEN and WHICH tools to call. No pre-fetching.
 
-        const messages: any[] = [
+        const messages: LLMMessage[] = [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
         ];
@@ -1011,51 +1004,23 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
         const MAX_TOOL_ITERS = 8; // max tool-call rounds before forcing final answer
 
         for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
-          // ── OpenAI tool-calling (non-streaming for intermediate, streaming for final) ──
-          if (provider === "openai" || (provider === "anthropic" && toolDefs.length > 0)) {
-            const useOpenAI = provider === "openai" || !ANTHROPIC_API_KEY;
-            const callModel = useOpenAI ? apiModel : "gpt-4.1-mini"; // use OpenAI for tool loop even if final is Anthropic
+          const result = await LLM_RUNTIME.complete({ model: modelCfg, messages, tools: toolDefs as any, maxTokens: 8000, temperature: 0 });
+          tokensIn += result.usage.inputTokens;
+          tokensOut += result.usage.outputTokens;
+          cachedIn += result.usage.cachedInputTokens;
+          tokens += result.usage.inputTokens + result.usage.outputTokens;
 
-            const callBody: Record<string, any> = {
-              model: callModel,
-              messages,
-              temperature: 0,
-              max_tokens: 8000,
-            };
-            if (toolDefs.length > 0) {
-              callBody.tools = toolDefs;
-              callBody.tool_choice = "auto";
-            }
+          if (!result.toolCalls.length) {
+            fullOutput = result.content;
+            emit({ type: "chunk", text: fullOutput });
+            break;
+          }
 
-            const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-              method: "POST",
-              headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify(callBody),
-            });
-            if (!aiRes.ok) throw new Error(`OpenAI ${aiRes.status}: ${await aiRes.text()}`);
-
-            const json = await aiRes.json();
-            tokens += json.usage?.total_tokens ?? 0;
-            tokensIn  += json.usage?.prompt_tokens ?? 0;
-            tokensOut += json.usage?.completion_tokens ?? 0;
-            cachedIn  += json.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-            const assistantMsg = json.choices?.[0]?.message;
-
-            if (!assistantMsg?.tool_calls?.length) {
-              // No tool calls → this is the final answer
-              fullOutput = assistantMsg?.content ?? "";
-              emit({ type: "chunk", text: fullOutput });
-              break;
-            }
-
-            // Has tool calls → execute all in parallel
-            messages.push(assistantMsg);
-
-            const toolResults = await Promise.all(
-              (assistantMsg.tool_calls as any[]).map(async (tc) => {
-                const name: string = tc.function.name;
-                let args: Record<string, any> = {};
-                try { args = JSON.parse(tc.function.arguments ?? "{}"); } catch { /* ignore */ }
+          messages.push({ role: "assistant", content: result.content, toolCalls: result.toolCalls });
+          const toolResults = await Promise.all(
+            result.toolCalls.map(async (tc) => {
+                const name = tc.name;
+                const args = tc.arguments as Record<string, any>;
 
                 const label = toolStepLabel(name, args);
                 emit({ type: "step", step: name, status: "loading", label: `Đang lấy: ${label}...` });
@@ -1075,61 +1040,10 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
                 }
 
                 emit({ type: "step", step: name, status: "done", label });
-                return { role: "tool", tool_call_id: tc.id, content };
+                return { role: "tool" as const, toolCallId: tc.id, toolName: name, content };
               })
-            );
-
-            messages.push(...toolResults);
-
-          } else {
-            // ── Anthropic streaming (no tools or Anthropic-native final answer) ──
-            const anthropicMessages = messages
-              .filter(m => m.role !== "system")
-              .map(m => ({ role: m.role, content: m.content ?? "" }));
-
-            const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: {
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-              },
-              body: JSON.stringify({
-                model: apiModel,
-                max_tokens: 8000,
-                temperature: 0,
-                system: systemPrompt,
-                messages: anthropicMessages,
-                stream: true,
-              }),
-            });
-            if (!aiRes.ok) throw new Error(`Anthropic ${aiRes.status}: ${await aiRes.text()}`);
-
-            const reader = aiRes.body!.getReader();
-            const dec = new TextDecoder();
-            let buf = "";
-            while (true) {
-              const { done, value } = await reader.read();
-              if (value) buf += dec.decode(value, { stream: !done });
-              const lines = buf.split("\n");
-              buf = done ? "" : (lines.pop() ?? "");
-              for (const line of lines) {
-                if (!line.startsWith("data: ")) continue;
-                try {
-                  const parsed = JSON.parse(line.slice(6).trim());
-                  if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
-                    const chunk = parsed.delta.text ?? "";
-                    if (chunk) { fullOutput += chunk; emit({ type: "chunk", text: chunk }); }
-                  }
-                  if (parsed.type === "message_delta" && parsed.usage) {
-                    tokens = (parsed.usage.input_tokens ?? 0) + (parsed.usage.output_tokens ?? 0);
-                  }
-                } catch { /* ignore */ }
-              }
-              if (done) break;
-            }
-            break; // Anthropic streaming always produces final answer
-          }
+          );
+          messages.push(...toolResults);
         }
 
         emit({ type: "step", step: "gpt", status: "done", label: "Phân tích hoàn tất" });

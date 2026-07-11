@@ -10,7 +10,7 @@
 const USD_VND = 26000;
 
 export interface ModelConfig {
-  provider: "openai" | "anthropic";
+  provider: "openai" | "anthropic" | "gemini";
   /** Model ID gửi tới API provider */
   apiModel: string;
   /** USD per token */
@@ -37,12 +37,12 @@ export const MODEL_CONFIG: Record<string, ModelConfig> = {
     priceIn: 15.00 / 1e6, priceOut: 75.00 / 1e6, priceCached: 1.50 / 1e6,
   },
   "gemini-pro": {
-    provider: "openai", apiModel: "gpt-4.1-mini",  // placeholder — chưa có Gemini key
-    priceIn: 0.40 / 1e6, priceOut: 1.60 / 1e6, priceCached: 0.10 / 1e6,
+    provider: "gemini", apiModel: "gemini-2.5-pro",
+    priceIn: 1.25 / 1e6, priceOut: 10.00 / 1e6, priceCached: 0.31 / 1e6,
   },
   "gemini-flash": {
-    provider: "openai", apiModel: "gpt-4.1-mini",  // placeholder
-    priceIn: 0.40 / 1e6, priceOut: 1.60 / 1e6, priceCached: 0.10 / 1e6,
+    provider: "gemini", apiModel: "gemini-2.5-flash",
+    priceIn: 0.30 / 1e6, priceOut: 2.50 / 1e6, priceCached: 0.075 / 1e6,
   },
 };
 
@@ -91,8 +91,9 @@ export function toAnthropicToolDef(tool: any): any {
  * Kiểm tra provider có khả dụng không (key đã được set).
  * Dùng để disable model trong UI hoặc fallback khi chạy.
  */
-export function isProviderAvailable(provider: "openai" | "anthropic"): boolean {
+export function isProviderAvailable(provider: "openai" | "anthropic" | "gemini"): boolean {
   if (provider === "openai") return !!(Deno.env.get("OPENAI_API_KEY"));
   if (provider === "anthropic") return !!(Deno.env.get("ANTHROPIC_API_KEY"));
+  if (provider === "gemini") return !!(Deno.env.get("GEMINI_API_KEY"));
   return false;
 }
