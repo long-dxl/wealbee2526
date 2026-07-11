@@ -47,6 +47,25 @@ export async function macroContext(sb: any, registry?: Reg): Promise<string> {
     }
   } catch { /* bảng chưa có → bỏ qua */ }
 
+  // 1c) VN macro NỀN LỊCH SỬ (vn_macro_history — World Bank, chính chủ). Hiện 3 năm gần nhất/chỉ số.
+  try {
+    const { data } = await sb.from("vn_macro_history")
+      .select("code,name,value,unit,year").order("year", { ascending: false });
+    if (data?.length) {
+      const byCode = new Map<string, { name: string; unit: string; pts: string[] }>();
+      for (const r of data as any[]) {
+        const g = byCode.get(r.code) ?? { name: r.name, unit: r.unit, pts: [] };
+        if (g.pts.length < 3) g.pts.push(`${r.year}: ${r.value}${r.unit === "%" ? "%" : " " + r.unit}`);
+        byCode.set(r.code, g);
+      }
+      if (byCode.size) {
+        const ref = registry ? ` ${registry.add("World Bank (dữ liệu VN)", "https://data.worldbank.org/country/vietnam")}` : "";
+        out.push(`### Vĩ mô Việt Nam — nền lịch sử theo năm (World Bank)${ref}`);
+        for (const g of byCode.values()) out.push(`- ${g.name}: ${g.pts.join(" · ")}`);
+      }
+    }
+  } catch { /* bảng chưa có → bỏ qua */ }
+
   // 2) VN-Index / HNX (market_indices — không lặp macro_indicators)
   try {
     const codes = ["VNINDEX", "HNX", "VN30"];

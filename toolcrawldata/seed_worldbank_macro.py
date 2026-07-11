@@ -33,19 +33,23 @@ FROM_YEAR = datetime.now().year - 7   # ~7 năm gần nhất
 
 
 def fetch_wb(wb_code: str) -> list[tuple[int, float]]:
-    """Trả [(year, value)] non-null, mới→cũ. [] nếu lỗi."""
-    try:
-        url = (f"https://api.worldbank.org/v2/country/VNM/indicator/{wb_code}"
-               f"?format=json&date={FROM_YEAR}:{datetime.now().year}&per_page=100")
-        r = requests.get(url, timeout=25)
-        if not r.ok:
-            return []
-        js = r.json()
-        rows = js[1] if isinstance(js, list) and len(js) > 1 and js[1] else []
-        return [(int(x["date"]), float(x["value"])) for x in rows if x.get("value") is not None]
-    except Exception as e:
-        print(f"  {wb_code}: ERROR {e}")
-        return []
+    """Trả [(year, value)] non-null, mới→cũ. [] nếu lỗi. Retry 3 lần chống lỗi tạm thời."""
+    url = (f"https://api.worldbank.org/v2/country/VNM/indicator/{wb_code}"
+           f"?format=json&date={FROM_YEAR}:{datetime.now().year}&per_page=100")
+    for attempt in range(3):
+        try:
+            r = requests.get(url, timeout=25)
+            if r.ok:
+                js = r.json()
+                rows = js[1] if isinstance(js, list) and len(js) > 1 and js[1] else []
+                out = [(int(x["date"]), float(x["value"])) for x in rows if x.get("value") is not None]
+                if out:
+                    return out
+        except Exception as e:
+            if attempt == 2:
+                print(f"  {wb_code}: ERROR {e}")
+        time.sleep(1.5)
+    return []
 
 
 def main():
