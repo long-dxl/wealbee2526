@@ -11,7 +11,14 @@ const args = (raw: unknown): Record<string, unknown> => {
 };
 
 export class ProviderLLMRuntime implements LLMRuntime, LLMAdapter {
-  constructor(private readonly fetcher: typeof fetch = fetch) {}
+  private readonly adapters: Record<ModelConfig["provider"], LLMAdapter>;
+  constructor(private readonly fetcher: typeof fetch = fetch) {
+    this.adapters = {
+      openai: new OpenAIAdapter(fetcher),
+      anthropic: new AnthropicAdapter(fetcher),
+      gemini: new GeminiAdapter(fetcher),
+    };
+  }
   complete(req: LLMRequest): Promise<LLMResult> {
     if (req.model.provider === "openai") return this.openAI(req);
     if (req.model.provider === "anthropic") return this.anthropic(req);
@@ -20,7 +27,10 @@ export class ProviderLLMRuntime implements LLMRuntime, LLMAdapter {
   }
 
   async *call(req: LLMRequest): AsyncIterable<LLMEvent> {
-    const result = await this.complete(req);
+    yield* this.adapters[req.model.provider].call(req);
+  }
+
+  async *eventsFrom(result: LLMResult): AsyncIterable<LLMEvent> {
     if (result.content) yield { type: "text", text: result.content };
     if (result.toolCalls.length) yield { type: "tool_calls", calls: result.toolCalls };
     yield { type: "usage", usage: result.usage };
@@ -44,11 +54,18 @@ export class ProviderLLMRuntime implements LLMRuntime, LLMAdapter {
     const key = Deno.env.get("ANTHROPIC_API_KEY");
     if (!key) throw new Error("ANTHROPIC_API_KEY chưa được cấu hình");
     const system = req.messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
-    const messages = req.messages.filter(m => m.role !== "system").map(m => {
-      if (m.role === "assistant" && m.toolCalls?.length) return { role: "assistant", content: [{ type: "text", text: m.content }, ...m.toolCalls.map(t => ({ type: "tool_use", id: t.id, name: t.name, input: t.arguments }))] };
-      if (m.role === "tool") return { role: "user", content: [{ type: "tool_result", tool_use_id: m.toolCallId, content: m.content }] };
-      return { role: m.role, content: m.content };
-    });
+    const messages: any[] = [];
+    for (const m of req.messages.filter(m => m.role !== "system")) {
+      if (m.role === "assistant" && m.toolCalls?.length) {
+        const content = [...(m.content ? [{ type: "text", text: m.content }] : []), ...m.toolCalls.map(t => ({ type: "tool_use", id: t.id, name: t.name, input: t.arguments }))];
+        messages.push({ role: "assistant", content });
+      } else if (m.role === "tool") {
+        const block = { type: "tool_result", tool_use_id: m.toolCallId, content: m.content };
+        const previous = messages[messages.length - 1];
+        if (previous?.role === "user" && Array.isArray(previous.content) && previous.content.every((x: any) => x.type === "tool_result")) previous.content.push(block);
+        else messages.push({ role: "user", content: [block] });
+      } else messages.push({ role: m.role, content: m.content });
+    }
     const res = await this.fetcher("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: req.model.apiModel, system, messages, tools: req.tools?.map(toAnthropicToolDef), max_tokens: req.maxTokens ?? 8000, temperature: req.temperature ?? 0 }) });
     if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
     const j = await res.json(); const blocks = j.content ?? [];
@@ -69,4 +86,28 @@ export class ProviderLLMRuntime implements LLMRuntime, LLMAdapter {
     const j = await res.json(); const parts = j.candidates?.[0]?.content?.parts ?? [];
     return { content: parts.map((p: any) => p.text ?? "").join(""), toolCalls: parts.filter((p: any) => p.functionCall).map((p: any, i: number) => ({ id: `gemini-${i}`, name: p.functionCall.name, arguments: args(p.functionCall.args) })), usage: usage(j.usageMetadata?.promptTokenCount, j.usageMetadata?.candidatesTokenCount, j.usageMetadata?.cachedContentTokenCount), model: req.model.apiModel, provider: "gemini" };
   }
+}
+
+abstract class BaseProviderAdapter implements LLMAdapter {
+  constructor(protected readonly fetcher: typeof fetch = fetch) {}
+  protected abstract provider: ModelConfig["provider"];
+  async *call(request: LLMRequest): AsyncIterable<LLMEvent> {
+    if (request.model.provider !== this.provider) throw new Error(`Adapter ${this.provider} không thể chạy ${request.model.provider}`);
+    const runtime = new ProviderLLMRuntimeWithoutRouter(this.fetcher);
+    const result = await runtime.complete(request);
+    if (result.content) yield { type: "text", text: result.content };
+    if (result.toolCalls.length) yield { type: "tool_calls", calls: result.toolCalls };
+    yield { type: "usage", usage: result.usage };
+    yield { type: "done", model: result.model, provider: result.provider };
+  }
+}
+
+export class OpenAIAdapter extends BaseProviderAdapter { protected provider = "openai" as const; }
+export class AnthropicAdapter extends BaseProviderAdapter { protected provider = "anthropic" as const; }
+export class GeminiAdapter extends BaseProviderAdapter { protected provider = "gemini" as const; }
+
+// Internal executor avoids recursively constructing the public provider router.
+class ProviderLLMRuntimeWithoutRouter extends ProviderLLMRuntime {
+  constructor(fetcher: typeof fetch) { super(fetcher); }
+  override async *call(): AsyncIterable<LLMEvent> { throw new Error("internal executor has no event router"); }
 }

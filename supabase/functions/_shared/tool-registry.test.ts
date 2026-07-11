@@ -42,5 +42,10 @@ describe("ToolRegistry", () => {
     await expect(registry.execute("financials", { symbol: "HPG" }, {
       userId: "user-1", enabledToolIds: new Set(["financials"]),
     })).resolves.toBe("ok:HPG");
+    const contract = registry.asToolDef("financials");
+    expect(contract.name).toBe("financials");
+    await expect(contract.execute({ symbol: "HPG" }, {
+      userId: "user-1", enabledToolIds: new Set(["financials"]),
+    })).resolves.toBe("ok:HPG");
   });
 });

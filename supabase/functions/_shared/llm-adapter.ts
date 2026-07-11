@@ -92,8 +92,9 @@ export function toAnthropicToolDef(tool: any): any {
  * Dùng để disable model trong UI hoặc fallback khi chạy.
  */
 export function isProviderAvailable(provider: "openai" | "anthropic" | "gemini"): boolean {
-  if (provider === "openai") return !!(Deno.env.get("OPENAI_API_KEY"));
-  if (provider === "anthropic") return !!(Deno.env.get("ANTHROPIC_API_KEY"));
-  if (provider === "gemini") return !!(Deno.env.get("GEMINI_API_KEY"));
+  const env = (globalThis as any).Deno?.env;
+  if (provider === "openai") return !!env?.get("OPENAI_API_KEY");
+  if (provider === "anthropic") return !!env?.get("ANTHROPIC_API_KEY");
+  if (provider === "gemini") return !!env?.get("GEMINI_API_KEY");
   return false;
 }

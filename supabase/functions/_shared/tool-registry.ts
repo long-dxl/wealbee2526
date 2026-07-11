@@ -3,6 +3,7 @@
  * Provider-specific schema chỉ được tạo ở rìa hệ thống (OpenAI/Anthropic/Gemini).
  * deno-lint-ignore-file no-explicit-any
  */
+import type { ToolDef } from "./contracts.ts";
 
 export interface ToolFunctionDefinition {
   name: string;
@@ -60,6 +61,17 @@ export class ToolRegistry {
     const tool = this.assertCallable(id, args, context);
     if (!tool.handler) throw new Error(`Tool chưa có handler: ${id}`);
     return tool.handler(args, context);
+  }
+
+  asToolDef(id: string): ToolDef {
+    const tool = this.tools.get(id);
+    if (!tool) throw new Error(`Tool không được hỗ trợ: ${id}`);
+    return {
+      name: id,
+      description: tool.definition.function.description,
+      schema: tool.definition,
+      execute: (args, context) => this.execute(id, args, context),
+    };
   }
 
   definitions(ids: Iterable<string>): ToolDefinition[] {
