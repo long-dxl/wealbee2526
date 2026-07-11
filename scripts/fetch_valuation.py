@@ -45,8 +45,12 @@ def _qkey(p):  # "Q1/2025" -> (2025,1)
 
 def load_financials(syms):
     """Bulk: {symbol: {net_profit(FY), equity, revenue(FY), fcf, ttm_np, ttm_rev, fy}}.
-    TTM = tổng 4 quý gần nhất (net profit & doanh thu)."""
-    codes="IS_NET_PROFIT_PARENT,IS_NET_PROFIT,BS_EQUITY,IS_REVENUE,BANK_TOI,CF_FCF"
+    TTM = tổng 4 quý gần nhất (net profit & doanh thu). Equity ưu tiên BS_EQUITY_PARENT
+    (loại NCI — VCSH tổng gồm cả lợi ích cổ đông thiểu số không thuộc về cổ đông sở hữu
+    CP, chuẩn CFA/IFRS cho BVPS/PB) của QUÝ MỚI NHẤT nếu mới hơn FY (equity là số dư tại
+    1 thời điểm, không cộng dồn như TTM — verify VHM Q1/2026: BVPS=63.864đ vs Simplize
+    thật=63.850đ, lệch 0.02%; trong khi dùng VCSH tổng của FY cũ lệch tới ~12-27%)."""
+    codes="IS_NET_PROFIT_PARENT,IS_NET_PROFIT,BS_EQUITY,BS_EQUITY_PARENT,IS_REVENUE,BANK_TOI,CF_FCF"
     rows=[]; step=1000; off=0
     while True:
         page=db_get(f"/rest/v1/financial_statements?item_code=in.({codes})"
@@ -66,7 +70,8 @@ def load_financials(syms):
             d=years[yr]
             np_=d.get("IS_NET_PROFIT_PARENT") or d.get("IS_NET_PROFIT")
             if np_:
-                rec=dict(net_profit=np_, equity=d.get("BS_EQUITY"),
+                equity=d.get("BS_EQUITY_PARENT") or d.get("BS_EQUITY")
+                rec=dict(net_profit=np_, equity=equity,
                          revenue=d.get("IS_REVENUE") or d.get("BANK_TOI"), fcf=d.get("CF_FCF"),
                          fy=yr, ttm_np=None, ttm_rev=None)
                 qs=q.get(s,{})
@@ -76,6 +81,11 @@ def load_financials(syms):
                     rvs=[ (qs[p].get("IS_REVENUE") or qs[p].get("BANK_TOI")) for p in last4]
                     if all(x is not None for x in nps): rec["ttm_np"]=sum(nps)
                     if all(x is not None for x in rvs): rec["ttm_rev"]=sum(rvs)
+                if qs:
+                    latest_q=max(qs,key=_qkey)
+                    if _qkey(latest_q)>_qkey(f"Q4/{yr}"):
+                        eq_q=qs[latest_q].get("BS_EQUITY_PARENT") or qs[latest_q].get("BS_EQUITY")
+                        if eq_q is not None: rec["equity"]=eq_q
                 out[s]=rec
                 break
     return out

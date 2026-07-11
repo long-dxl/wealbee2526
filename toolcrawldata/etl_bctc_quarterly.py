@@ -50,12 +50,14 @@ LABEL_MAPS = {
         "Giá vốn hàng bán": "IS_COGS",
         "Lợi nhuận gộp": "IS_GROSS_PROFIT",
         "Doanh thu hoạt động tài chính": "IS_FIN_INCOME",
+        "Chi phí tài chính": "IS_FIN_EXPENSE",
         "Chi phí lãi vay": "IS_INTEREST_EXPENSE",
         "Chi phí bán hàng": "IS_SELLING_EXP",
         "Chi phí quản lý doanh nghiệp": "IS_ADMIN_EXP",
         "Thu nhập khác": "IS_OTHER_INCOME",
         "Chi phí khác": "IS_OTHER_EXPENSE",
         "Lãi/(lỗ) trước thuế": "IS_PRETAX",
+        "Chi phí thuế thu nhập doanh nghiệp": "IS_TAX",
         "Lãi/(lỗ) thuần sau thuế": "IS_NET_PROFIT",
         "Lợi nhuận của Cổ đông của Công ty mẹ": "IS_NET_PROFIT_PARENT",
         "Lãi cơ bản trên cổ phiếu (VND)": "IS_EPS",
@@ -63,12 +65,16 @@ LABEL_MAPS = {
     },
     ("normal", "BS"): {
         "TÀI SẢN NGẮN HẠN": "BS_CURRENT_ASSETS",
+        "TÀI SẢN DÀI HẠN": "BS_LONG_ASSETS",
         "Tiền và tương đương tiền": "BS_CASH",
         "Các khoản phải thu": "BS_RECEIVABLES",
         "Hàng tồn kho": "BS_INVENTORY",
         "TỔNG CỘNG TÀI SẢN": "BS_TOTAL_ASSETS",
         "Nợ ngắn hạn": "BS_CURRENT_LIAB",
         "NỢ PHẢI TRẢ": "BS_TOTAL_DEBT",
+        # Chỉ map nhãn hiện hành (Circular 200/2014+) — nhãn cũ "...cổ đông thiểu số" đôi khi
+        # tồn tại song song = 0 (dead label, verify VHM) nên KHÔNG map để tránh ghi đè sai.
+        "Lợi ích cổ đông không kiểm soát": "BS_NCI",
     },
     ("normal", "CF"): {
         "Lưu chuyển tiền tệ ròng từ các hoạt động sản xuất kinh doanh": "CF_OPERATING",
@@ -89,6 +95,7 @@ LABEL_MAPS = {
         "Lợi nhuận thuần hoạt động trước khi trích lập dự phòng tổn thất tín dụng": "BANK_PREPROVISION",
         "Trích lập dự phòng tổn thất tín dụng": "BANK_PROVISION",
         "Tổng lợi nhuận/lỗ trước thuế": "IS_PRETAX",
+        "Chi phí thuế thu nhập doanh nghiệp": "IS_TAX",
         "Lợi nhuận sau thuế": "IS_NET_PROFIT",
         "Cổ đông của Công ty mẹ": "IS_NET_PROFIT_PARENT",
         "Lãi cơ bản trên cổ phiếu (VND)": "IS_EPS",
@@ -107,6 +114,9 @@ LABEL_MAPS = {
         "Tiền gửi và vay các Tổ chức tín dụng khác": "BANK_BORROW_TCTD",
         "Tiền gửi của khách hàng": "BANK_DEPOSITS",
         "Phát hành giấy tờ có giá": "BANK_PAPER",
+        # Bank dùng nhãn CŨ "Lợi ích của cổ đông thiểu số" — verify TCB/VPB/VCB, nhãn "không
+        # kiểm soát" KHÔNG tồn tại trong template ngân hàng (khác normal/securities).
+        "Lợi ích của cổ đông thiểu số": "BS_NCI",
     },
     ("bank", "CF"): {
         "Lưu chuyển tiền thuần từ các hoạt động sản xuất kinh doanh": "CF_OPERATING",
@@ -119,10 +129,13 @@ LABEL_MAPS = {
         "Doanh thu thuần về hoạt động kinh doanh": "IS_REVENUE",
         "LỢI NHUẬN GỘP": "IS_GROSS_PROFIT",
         "Chi phí lãi vay": "IS_INTEREST_EXPENSE",
+        "CHI PHÍ TÀI CHÍNH": "IS_FIN_EXPENSE",
         "Doanh thu nghiệp vụ môi giới chứng khoán": "SEC_BROKERAGE",
         "Lãi từ các khoản cho vay và phải thu": "SEC_MARGIN_INCOME",
         "KẾT QUẢ HOẠT ĐỘNG": "IS_OPERATING_DIRECT",
         "TỔNG LỢI NHUẬN KẾ TOÁN TRƯỚC THUẾ": "IS_PRETAX",
+        # KHÔNG map "CHI PHÍ THUẾ THU NHẬP DOANH NGHIỆP" — cell lỗi merge trong template
+        # Vietcap securities, giá trị trùng IS_PRETAX (xem etl_financials.py).
         "LỢI NHUẬN KẾ TOÁN SAU THUẾ": "IS_NET_PROFIT",
         "Lợi nhuận sau thuế phân bổ cho chủ sở hữu": "IS_NET_PROFIT_PARENT",
         "Lãi cơ bản trên cổ phiếu (VND)": "IS_EPS",
@@ -130,10 +143,12 @@ LABEL_MAPS = {
     },
     ("securities", "BS"): {
         "TÀI SẢN NGẮN HẠN": "BS_CURRENT_ASSETS",
+        "TÀI SẢN DÀI HẠN": "BS_LONG_ASSETS",
         "TỔNG CỘNG TÀI SẢN": "BS_TOTAL_ASSETS",
         "Nợ phải trả ngắn hạn": "BS_CURRENT_LIAB",
         "NỢ PHẢI TRẢ": "BS_TOTAL_DEBT",
         "Các khoản cho vay": "SEC_MARGIN_LOANS",
+        "Lợi ích cổ đông không kiểm soát": "BS_NCI",
     },
     ("securities", "CF"): {
         "Lưu chuyển thuần từ hoạt động kinh doanh": "CF_OPERATING",
@@ -149,9 +164,11 @@ LABEL_MAPS = {
         "Tổng chi trực tiếp hoạt động kinh doanh bảo hiểm": "INS_CLAIM",
         "Lợi nhuận thuần hoạt động kinh doanh bảo hiểm": "INS_UNDERWRITING",
         "Lợi nhuận hoạt động tài chính": "INS_FIN_RESULT",
+        "Chi phí hoạt động tài chính": "IS_FIN_EXPENSE",
         "Thu nhập khác": "IS_OTHER_INCOME",
         "Chi phí khác": "IS_OTHER_EXPENSE",
         "Tổng lợi nhuận kế toán trước thuế": "IS_PRETAX",
+        "Chi phí thuế thu nhập doanh nghiệp trong năm": "IS_TAX",
         "Lợi nhuận sau thuế thu nhập doanh nghiệp": "IS_NET_PROFIT",
         "Lợi nhuận sau thuế của chủ sở hữu, tập đoàn": "IS_NET_PROFIT_PARENT",
         "Lãi cơ bản trên cổ phiếu (VND)": "IS_EPS",
@@ -159,10 +176,14 @@ LABEL_MAPS = {
     },
     ("insurance", "BS"): {
         "TÀI SẢN NGẮN HẠN": "BS_CURRENT_ASSETS",
+        "TÀI SẢN DÀI HẠN": "BS_LONG_ASSETS",
         "Tiền và các khoản tương đương tiền": "BS_CASH",
         "TỔNG CỘNG TÀI SẢN": "BS_TOTAL_ASSETS",
         "Nợ ngắn hạn": "BS_CURRENT_LIAB",
         "NỢ PHẢI TRẢ": "BS_TOTAL_DEBT",
+        # Insurance dùng nhãn RIÊNG "Lợi ích cổ đông thiểu số" (không "của") — verify BVH/BMI/
+        # BIC/MIG/PVI, khác cả normal/securities ("không kiểm soát") lẫn bank ("của...thiểu số").
+        "Lợi ích cổ đông thiểu số": "BS_NCI",
     },
     ("insurance", "CF"): {
         "Lưu chuyển tiền thuần từ hoạt động kinh doanh": "CF_OPERATING",
@@ -238,7 +259,13 @@ def add_derived(values: dict[str, dict[str, float]], periods: list[str]) -> None
     for p in periods:
         ta, td = values.get("BS_TOTAL_ASSETS", {}).get(p), values.get("BS_TOTAL_DEBT", {}).get(p)
         if ta is not None and td is not None:
-            values.setdefault("BS_EQUITY", {})[p] = ta - td
+            eq_tot = ta - td
+            values.setdefault("BS_EQUITY", {})[p] = eq_tot
+            # VCSH cổ đông MẸ (loại NCI) — dùng cho BVPS/PB quý mới nhất, khớp chuẩn CFA/IFRS
+            # (NCI không thuộc cổ đông công ty mẹ). Verify VHM Q1/2026: BVPS=63.864đ vs
+            # Simplize=63.850đ (lệch 0.02%) khi dùng VCSH mẹ quý mới nhất thay vì FY cũ.
+            nci = values.get("BS_NCI", {}).get(p) or 0
+            values.setdefault("BS_EQUITY_PARENT", {})[p] = eq_tot - nci
         ocf, capex = values.get("CF_OPERATING", {}).get(p), values.get("CF_CAPEX", {}).get(p)
         if ocf is not None and capex is not None:
             values.setdefault("CF_FCF", {})[p] = ocf + capex
@@ -351,6 +378,7 @@ def process_symbol(path: str, sym: str, ctype: str, dry_run: bool):
     # Nhãn derived khớp đúng chữ đã lưu ở tầng FY (buildStatementTable() bóc tiền tố "(derived)").
     DERIVED_LABELS = {
         "BS_EQUITY": ("BS", "(derived) TTS - Nợ PT"),
+        "BS_EQUITY_PARENT": ("BS", "(derived) VCSH cổ đông mẹ"),
         "CF_FCF": ("CF", "(derived) OCF + capex"),
         "IS_OPERATING_PROFIT": ("IS", "(derived) LNTT - LN khác"),
     }

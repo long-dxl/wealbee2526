@@ -62,12 +62,14 @@ MAP = {
    "IS_COGS":             ["Giá vốn hàng bán"],
    "IS_GROSS_PROFIT":     ["Lợi nhuận gộp"],
    "IS_FIN_INCOME":       ["Doanh thu hoạt động tài chính"],
+   "IS_FIN_EXPENSE":      ["Chi phí tài chính"],
    "IS_INTEREST_EXPENSE": ["Chi phí lãi vay"],
    "IS_SELLING_EXP":      ["Chi phí bán hàng"],
    "IS_ADMIN_EXP":        ["Chi phí quản lý doanh nghiệp"],
    "IS_OTHER_INCOME":     ["Thu nhập khác"],
    "IS_OTHER_EXPENSE":    ["Chi phí khác"],
    "IS_PRETAX":           ["Lãi/(lỗ) trước thuế"],
+   "IS_TAX":              ["Chi phí thuế thu nhập doanh nghiệp"],
    "IS_NET_PROFIT":       ["Lãi/(lỗ) thuần sau thuế"],
    "IS_NET_PROFIT_PARENT":["Lợi nhuận của Cổ đông của Công ty mẹ"],
    "IS_EPS":              ["Lãi cơ bản trên cổ phiếu (VND)"],
@@ -78,6 +80,7 @@ MAP = {
    "BS_RECEIVABLES":    ["Các khoản phải thu"],
    "BS_INVENTORY":      ["Hàng tồn kho"],
    "BS_CURRENT_ASSETS": ["TÀI SẢN NGẮN HẠN"],
+   "BS_LONG_ASSETS":    ["TÀI SẢN DÀI HẠN"],
    "BS_TOTAL_ASSETS":   ["TỔNG CỘNG TÀI SẢN"],
    "BS_CURRENT_LIAB":   ["Nợ ngắn hạn"],
    "BS_TOTAL_DEBT":     ["NỢ PHẢI TRẢ"],
@@ -107,6 +110,7 @@ MAP = {
                            "Lợi nhuận thuần hoạt động trước khi trích lập dự phòng tổn thất tín dụng"],
    "BANK_PROVISION":      ["Trích lập dự phòng tổn thất tín dụng", "Chi phí dự phòng rủi ro tín dụng"],
    "IS_PRETAX":           ["Tổng lợi nhuận/lỗ trước thuế", "Tổng lợi nhuận trước thuế"],
+   "IS_TAX":              ["Chi phí thuế thu nhập doanh nghiệp"],
    "IS_NET_PROFIT":       ["Lợi nhuận sau thuế"],
    "IS_NET_PROFIT_PARENT":["Cổ đông của Công ty mẹ"],
    "IS_EPS":              ["Lãi cơ bản trên cổ phiếu (VND)"],
@@ -151,8 +155,12 @@ MAP = {
    "SEC_BROKERAGE":       ["Doanh thu nghiệp vụ môi giới chứng khoán"],
    "SEC_MARGIN_INCOME":   ["Lãi từ các khoản cho vay và phải thu"],
    "IS_INTEREST_EXPENSE": ["Chi phí lãi vay"],
+   "IS_FIN_EXPENSE":      ["CHI PHÍ TÀI CHÍNH"],
    "IS_OPERATING_DIRECT": ["KẾT QUẢ HOẠT ĐỘNG"],
    "IS_PRETAX":           ["TỔNG LỢI NHUẬN KẾ TOÁN TRƯỚC THUẾ"],
+   # KHÔNG map "CHI PHÍ THUẾ THU NHẬP DOANH NGHIỆP" — verify thực tế: cell này bị lỗi
+   # merge trong template Vietcap cho securities, giá trị trùng y hệt IS_PRETAX (không
+   # phải số thuế thật). Cần tính derived từ "hiện hành"+"hoãn lại" nếu muốn thêm sau.
    "IS_NET_PROFIT":       ["LỢI NHUẬN KẾ TOÁN SAU THUẾ"],
    "IS_NET_PROFIT_PARENT":["Lợi nhuận sau thuế phân bổ cho chủ sở hữu"],
    "IS_EPS":              ["Lãi cơ bản trên cổ phiếu (VND)"],
@@ -160,6 +168,7 @@ MAP = {
   },
   "BS": {
    "BS_CURRENT_ASSETS": ["TÀI SẢN NGẮN HẠN"],
+   "BS_LONG_ASSETS":    ["TÀI SẢN DÀI HẠN"],
    "BS_TOTAL_ASSETS":   ["TỔNG CỘNG TÀI SẢN"],
    "BS_CURRENT_LIAB":   ["Nợ phải trả ngắn hạn", "Nợ ngắn hạn"],
    "BS_TOTAL_DEBT":     ["NỢ PHẢI TRẢ"],
@@ -184,9 +193,11 @@ MAP = {
    "INS_CLAIM":           ["Tổng chi trực tiếp hoạt động kinh doanh bảo hiểm"],
    "INS_UNDERWRITING":    ["Lợi nhuận thuần hoạt động kinh doanh bảo hiểm"],
    "INS_FIN_RESULT":      ["Lợi nhuận hoạt động tài chính"],
+   "IS_FIN_EXPENSE":      ["Chi phí hoạt động tài chính"],
    "IS_OTHER_INCOME":     ["Thu nhập khác"],
    "IS_OTHER_EXPENSE":    ["Chi phí khác"],
    "IS_PRETAX":           ["Tổng lợi nhuận kế toán trước thuế"],
+   "IS_TAX":              ["Chi phí thuế thu nhập doanh nghiệp trong năm"],
    "IS_NET_PROFIT":       ["Lợi nhuận sau thuế thu nhập doanh nghiệp"],
    "IS_NET_PROFIT_PARENT":["Lợi nhuận sau thuế của chủ sở hữu, tập đoàn"],
    "IS_EPS":              ["Lãi cơ bản trên cổ phiếu (VND)"],
@@ -195,10 +206,13 @@ MAP = {
   "BS": {
    "BS_CASH":           ["Tiền và các khoản tương đương tiền"],
    "BS_CURRENT_ASSETS": ["TÀI SẢN NGẮN HẠN"],
+   "BS_LONG_ASSETS":    ["TÀI SẢN DÀI HẠN"],
    "BS_TOTAL_ASSETS":   ["TỔNG CỘNG TÀI SẢN"],
    "BS_CURRENT_LIAB":   ["Nợ ngắn hạn", "Nợ phải trả ngắn hạn"],
    "BS_TOTAL_DEBT":     ["NỢ PHẢI TRẢ"],
-   "BS_NCI":            ["Lợi ích cổ đông không kiểm soát","Lợi ích của cổ đông thiểu số"],
+   # Insurance dùng nhãn RIÊNG "Lợi ích cổ đông thiểu số" (không "của") — verify BVH/BMI/BIC/
+   # MIG/PVI đều dùng nhãn này, 2 nhãn kia (chuẩn normal/bank) không tồn tại trong template BH.
+   "BS_NCI":            ["Lợi ích cổ đông thiểu số","Lợi ích cổ đông không kiểm soát","Lợi ích của cổ đông thiểu số"],
   },
   "CF": {
    "CF_OPERATING": ["Lưu chuyển tiền thuần từ hoạt động kinh doanh"],
@@ -377,11 +391,19 @@ def build_ratio_rows(sym, ctype, facts):
         R = {}; flagged = {}   # flagged[code]=na_reason -> emit dòng NULL để ghi đè số rác cũ
         R["ROE"]            = (div(npp,eqpar_avg), "pct")   # LN cổ đông mẹ / VCSH mẹ BÌNH QUÂN
         R["ROA"]            = (div(net_tot,ta_avg), "pct")  # LNST tổng / TTS BÌNH QUÂN (khớp tầng)
-        R["DEBT_TO_EQUITY"] = (div(td,eq), "x")             # Nợ PHẢI TRẢ / VCSH (cơ cấu vốn)
-        if idebt is not None and eq:                        # Nợ VAY có lãi / VCSH (đòn bẩy tài chính)
-            R["DEBT_TO_EQUITY_IB"] = (div(idebt,eq), "x")
+        # D/E & Asset turnover VÔ NGHĨA cho bank/insurance: "nợ phải trả" của NH chủ yếu là tiền gửi
+        # khách hàng (nguyên liệu kinh doanh, không phải đòn bẩy tài chính); của BH chủ yếu là dự
+        # phòng nghiệp vụ (technical reserves) — không phải nợ vay. DT/TTS cũng không phải khung
+        # phân tích chuẩn cho 2 ngành này (dùng NIM/ROA/LDR hoặc combined ratio thay thế).
+        if ctype not in ("bank", "insurance"):
+            R["DEBT_TO_EQUITY"] = (div(td,eq), "x")             # Nợ PHẢI TRẢ / VCSH (cơ cấu vốn)
+            if idebt is not None and eq:                        # Nợ VAY có lãi / VCSH (đòn bẩy tài chính)
+                R["DEBT_TO_EQUITY_IB"] = (div(idebt,eq), "x")
+            R["ASSET_TURNOVER"] = (div(rev,ta), "x")
+        else:
+            flagged["DEBT_TO_EQUITY"] = "not_applicable"
+            flagged["ASSET_TURNOVER"] = "not_applicable"
         R["NET_MARGIN"]     = (div(npp,rev), "pct")
-        R["ASSET_TURNOVER"] = (div(rev,ta), "x")
         # Tăng trưởng YoY chỉ có nghĩa khi gốc DƯƠNG; gốc ≤0 → đảo dấu vô nghĩa → NULL+lý do
         rev_p=g("IS","IS_REVENUE",yr-1) or g("IS","BANK_TOI",yr-1)
         npp_p=g("IS","IS_NET_PROFIT_PARENT",yr-1) or g("IS","IS_NET_PROFIT",yr-1)
@@ -423,7 +445,12 @@ def build_ratio_rows(sym, ctype, facts):
             if inte is not None:
                 R["INTEREST_COVERAGE"]=(div(ebit,abs(inte)),"x")
         ocf=g("CF","CF_OPERATING",yr); ni=g("IS","IS_NET_PROFIT",yr)
-        R["OCF_TO_NI"]=(div(ocf,ni),"x")
+        # OCF/LNST ("chất lượng LN") vô nghĩa cho bank: CF hoạt động NH bị chi phối bởi biến động
+        # tiền gửi/dư nợ cho vay (quy mô bảng cân đối), không phản ánh mức độ LN được "cash-hoá".
+        if ctype != "bank":
+            R["OCF_TO_NI"]=(div(ocf,ni),"x")
+        else:
+            flagged["OCF_TO_NI"] = "not_applicable"
         if ctype=="bank":
             nii=g("IS","BANK_NII",yr); toi=g("IS","BANK_TOI",yr); opex=g("IS","BANK_OPEX",yr)
             loans=g("BS","BANK_LOANS",yr); dep=g("BS","BANK_DEPOSITS",yr)
