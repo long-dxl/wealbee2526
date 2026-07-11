@@ -130,11 +130,17 @@ export async function financialReport(sb: any, sym: string, ctype: string, depth
     const { data: cur } = await sb
       .from("financial_ratios")
       .select("period, ratio_code, value, unit")
-      .eq("symbol", sym).eq("period_type", "CURRENT");
+      .eq("symbol", sym).eq("period_type", "CURRENT")
+      .order("period", { ascending: false });
     if (cur?.length) {
+      // CURRENT tích luỹ 1 snapshot/lần chạy fetch_valuation.py (period=ASOF ngày chạy) —
+      // PHẢI lọc đúng 1 ngày mới nhất trước khi build Map, nếu không sẽ trộn lẫn nhiều
+      // ngày khác nhau (Postgres không đảm bảo thứ tự trả về khi không ORDER BY).
+      const latestPeriod = (cur as any[])[0].period;
+      const latestRows = (cur as any[]).filter(r => r.period === latestPeriod);
       const val = new Map<string, { value: number; unit?: string }>();
-      for (const r of cur as any[]) val.set(r.ratio_code, { value: r.value, unit: r.unit });
-      const asOf = (cur as any[])[0]?.period ?? "";
+      for (const r of latestRows) val.set(r.ratio_code, { value: r.value, unit: r.unit });
+      const asOf = latestPeriod;
       const fmtD = (v?: { value: number }) => v == null ? "n/a" : `${Math.round(v.value).toLocaleString("vi-VN")} đ`;
       const fmtX = (v?: { value: number }) => v == null ? "n/a" : `${v.value.toFixed(2)}x`;
       const rows: Array<[string, string]> = [

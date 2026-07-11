@@ -6,7 +6,7 @@ Tính P/E,P/B,P/S,BVPS,MARKET_CAP,FCF_YIELD bằng LN/VCSH/DT/FCF (FY mới nh�
 Dùng: fetch_valuation.py FPT MBB SSI BVH        # dry-run
       fetch_valuation.py --all --write          # full + ghi
 """
-import os, sys, json, glob, time, urllib.request
+import os, sys, json, glob, time, urllib.request, urllib.parse
 import warnings; warnings.filterwarnings("ignore")
 import contextlib, io
 
@@ -39,6 +39,11 @@ def db_get(path):
     r=urllib.request.Request(URL+path)
     r.add_header("apikey",KEY); r.add_header("Authorization","Bearer "+KEY)
     with urllib.request.urlopen(r) as resp: return json.load(resp)
+
+def db_delete(path):
+    r=urllib.request.Request(URL+path,method="DELETE")
+    r.add_header("apikey",KEY); r.add_header("Authorization","Bearer "+KEY)
+    with urllib.request.urlopen(r): pass
 
 def _qkey(p):  # "Q1/2025" -> (2025,1)
     q,y=p.split("/"); return (int(y), int(q[1]))
@@ -171,5 +176,20 @@ def main():
         try: urllib.request.urlopen(req); ok+=len(ch)
         except urllib.error.HTTPError as e: err+=len(ch); print("ERR",e.read().decode()[:200])
     print(f"Ghi financial_ratios (CURRENT): OK={ok} ERR={err}")
+    # Dọn snapshot CURRENT cũ (ngày khác ASOF) — mỗi lần chạy period=ASOF là 1 phần
+    # unique key nên KHÔNG tự đè, chạy định kỳ sẽ tích luỹ vô hạn nếu không xoá. Đọc
+    # financial-report.ts (mục "Định giá hiện tại") phải luôn thấy đúng 1 ngày/mã.
+    written=set(r["symbol"] for r in out)
+    del_ok=del_err=0
+    wl=list(written)
+    for i in range(0,len(wl),CHUNK):
+        ch=wl[i:i+CHUNK]
+        symlist=",".join(urllib.parse.quote(s) for s in ch)
+        try:
+            db_delete(f"/rest/v1/financial_ratios?symbol=in.({symlist})&period_type=eq.CURRENT&period=neq.{ASOF}")
+            del_ok+=len(ch)
+        except Exception as e:
+            del_err+=len(ch); print("  DEL ERR",repr(e)[:100])
+    print(f"Dọn CURRENT cũ (khác {ASOF}): {del_ok} mã xử lý, {del_err} lỗi")
 
 if __name__=="__main__": main()

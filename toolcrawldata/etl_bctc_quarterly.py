@@ -424,6 +424,18 @@ def process_symbol(path: str, sym: str, ctype: str, dry_run: bool):
     return fs_rows, ratio_rows, window
 
 
+def prune_stale_quarters(sb, sym: str, window: list[str]) -> None:
+    """Xoá dữ liệu QUARTER của `sym` nằm NGOÀI rolling window hiện tại (quý đã bị
+    "rớt" ra khỏi 5-quý-gần-nhất qua các lần chạy trước). Query period thực có trong
+    DB rồi mới xoá đúng phần chênh lệch — an toàn hơn xoá theo NOT IN trực tiếp
+    (period có ký tự "/" dễ vỡ cú pháp filter PostgREST)."""
+    for table in ("financial_statements", "financial_ratios"):
+        existing = sb.table(table).select("period").eq("symbol", sym).eq("period_type", "QUARTER").execute().data
+        stale = sorted({r["period"] for r in existing} - set(window))
+        if stale:
+            sb.table(table).delete().eq("symbol", sym).eq("period_type", "QUARTER").in_("period", stale).execute()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbols", type=str, help="Danh sách mã, phân cách dấu phẩy (test)")
@@ -472,6 +484,11 @@ def main():
                 upsert_batch(sb, "financial_statements", fs_rows, on_conflict="symbol,statement,period,item_code")
             if ratio_rows:
                 upsert_batch(sb, "financial_ratios", ratio_rows, on_conflict="symbol,period,ratio_code")
+            # Dọn quý rơi ra ngoài rolling window (script chỉ upsert window hiện tại,
+            # KHÔNG tự xoá — nếu không dọn, dữ liệu QUARTER tích luỹ vô hạn theo thời
+            # gian và tầng đọc (financial-report.ts, không .limit()) sẽ tải cả lịch sử
+            # thừa mỗi lần gọi Agent).
+            prune_stale_quarters(sb, sym, window)
 
         total_fs += len(fs_rows)
         total_ratio += len(ratio_rows)
