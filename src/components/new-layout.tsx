@@ -6,6 +6,7 @@ import { Sidebar } from "./new-sidebar";
 import { ActionHub } from "./new-action-hub";
 import { GlobalSearch } from "./global-search";
 import { CreateAgentModal } from "./CreateAgentModal";
+import { FeedbackModal } from "./FeedbackModal";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { ProtectedRoute } from "./protected-route";
 import { supabase } from "../lib/supabase/client";
@@ -60,6 +61,7 @@ function NewLayoutInner() {
   const [beenyPct, setBeenyPct] = useState(0);        // % quota ngày đã dùng (0..1)
   const [beenyBonus, setBeenyBonus] = useState(0);    // Beeny mua thêm (hết hạn 24h)
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const fetchWallet = (userId: string) => {
     getPlanAndBeeny(userId).then(({ plan, label, balance, bonus }) => {
@@ -119,6 +121,7 @@ function NewLayoutInner() {
     // "Tạo Agent" luôn mở modal đặt tên trước — không điều hướng ngay để user
     // có thể Huỷ/click ra ngoài mà không rời trang đang xem.
     if (page === "create-agent") { setCreateAgentOpen(true); return; }
+    if (page === "feedback") { setFeedbackOpen(true); return; }
     const route = PAGE_ROUTE[page];
     if (route) navigate(route);
     if (page === "agent-studio") {
@@ -252,6 +255,12 @@ function NewLayoutInner() {
         isDark={isDark}
         onCancel={() => setCreateAgentOpen(false)}
         onContinue={handleCreateAgentContinue}
+      />
+
+      <FeedbackModal
+        open={feedbackOpen}
+        isDark={isDark}
+        onClose={() => setFeedbackOpen(false)}
       />
 
       <Toaster theme={isDark ? "dark" : "light"} position="bottom-right" richColors />

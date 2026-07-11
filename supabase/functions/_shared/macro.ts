@@ -20,9 +20,9 @@ const fmtNum = (n: number, unit: string) =>
 export async function macroContext(sb: any, registry?: Reg): Promise<string> {
   const out: string[] = ["## Bối cảnh vĩ mô hôm nay"];
 
-  // 1) Chỉ số toàn cầu (macro_indicators)
+  // 1) Chỉ số toàn cầu (global_macro_indicators)
   try {
-    const { data } = await sb.from("macro_indicators")
+    const { data } = await sb.from("global_macro_indicators")
       .select("code,name,value,unit,day_pct,ytd_pct,yoy_pct,as_of").order("code");
     if (data?.length) {
       out.push("### Chỉ số toàn cầu (cập nhật hằng ngày, Yahoo Finance)");
@@ -34,15 +34,40 @@ export async function macroContext(sb: any, registry?: Reg): Promise<string> {
     }
   } catch { /* bảng chưa có → bỏ qua */ }
 
-  // 1b) VN macro dạng SỐ (vn_macro — trích từ tin, có nguồn verify)
+  // 1b) VN macro dạng SỐ (vn_macro_indicators — GDP/CPI/PMI... theo tháng, cron seed_vn_macro.py)
+  // Mỗi chỉ tiêu có độ trễ công bố khác nhau (GDP theo quý, lãi suất liên NH gần real-time)
+  // nên lấy vài tháng gần nhất rồi chọn giá trị KHÔNG NULL mới nhất cho từng chỉ tiêu riêng.
   try {
-    const { data } = await sb.from("vn_macro")
-      .select("code,name,value,unit,period,note,source_title,source_url,as_of").order("code");
+    const { data } = await sb.from("vn_macro_indicators")
+      .select("report_month,gdp_yoy,retail_sales_yoy,export_yoy,import_yoy,iip_yoy,pmi,cpi_mom,intl_visitors_yoy,fdi_implemented_yoy,total_social_investment_yoy,interbank_rate_on,interbank_rate_1y")
+      .order("report_month", { ascending: false }).limit(6);
     if (data?.length) {
-      out.push("### Vĩ mô Việt Nam (số liệu, trích từ tin — có nguồn kèm)");
-      for (const r of data) {
-        const ref = (registry && r.source_url) ? ` ${registry.add(r.source_title || "Tin vĩ mô VN", r.source_url)}` : "";
-        out.push(`- ${r.name}: **${r.value}${r.unit ? " " + r.unit : ""}**${r.period ? ` (${r.period})` : ""}${r.note ? ` — ${r.note}` : ""}${ref}`);
+      const VN_MACRO_FIELDS: Array<[string, string, string]> = [
+        ["gdp_yoy", "Tăng trưởng GDP (YoY)", "%"],
+        ["retail_sales_yoy", "Tổng mức bán lẻ hàng hóa & DV tiêu dùng (YoY)", "%"],
+        ["export_yoy", "Kim ngạch xuất khẩu (YoY)", "%"],
+        ["import_yoy", "Kim ngạch nhập khẩu (YoY)", "%"],
+        ["iip_yoy", "Chỉ số sản xuất công nghiệp - IIP (YoY)", "%"],
+        ["pmi", "PMI (>50 = mở rộng sản xuất)", ""],
+        ["cpi_mom", "CPI (MoM)", "%"],
+        ["intl_visitors_yoy", "Khách quốc tế đến VN (YoY)", "%"],
+        ["fdi_implemented_yoy", "FDI thực hiện (YoY)", "%"],
+        ["total_social_investment_yoy", "Vốn đầu tư toàn xã hội (YoY)", "%"],
+        ["interbank_rate_on", "Lãi suất liên NH Qua đêm", "%/năm"],
+        ["interbank_rate_1y", "Lãi suất liên NH 1 năm", "%/năm"],
+      ];
+      const lines: string[] = [];
+      for (const [key, label, unit] of VN_MACRO_FIELDS) {
+        const row = data.find((d: any) => d[key] != null);
+        if (!row) continue;
+        const val = Number(row[key]);
+        const isGrowth = key.endsWith("_yoy") || key.endsWith("_mom");
+        const sign = isGrowth && val >= 0 ? "+" : "";
+        lines.push(`- ${label}: **${sign}${val.toFixed(2)}${unit}** (${String(row.report_month).slice(0, 7)})`);
+      }
+      if (lines.length) {
+        out.push("### Vĩ mô Việt Nam (số liệu mới nhất theo từng chỉ tiêu)");
+        out.push(...lines);
       }
     }
   } catch { /* bảng chưa có → bỏ qua */ }

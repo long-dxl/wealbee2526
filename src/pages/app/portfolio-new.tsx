@@ -17,6 +17,7 @@ interface Holding {
   id?: string;          // portfolio_holdings.id
   symbol: string;
   name: string;
+  sector: string;
   quantity: number;
   avgPrice: number | null;  // avg_cost
   currentPrice: number;
@@ -103,6 +104,123 @@ function DragHint({ isDark }: { isDark: boolean }) {
   );
 }
 
+// ── Donut phân bổ (theo cổ phiếu / theo ngành) — cùng 1 component, khác data ───────────
+function AllocDonutCard({
+  title, data, isDark, hoveredKey, onHover, defaultCenter, onLegendClick, showLegendSublabel = true,
+}: {
+  title: string;
+  data: AllocItem[];
+  isDark: boolean;
+  hoveredKey: string | null;
+  onHover: (key: string | null) => void;
+  defaultCenter: { top: string; big: string; bottom: string };
+  onLegendClick?: (symbol: string) => void;
+  showLegendSublabel?: boolean;
+}) {
+  const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
+  const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
+  const fgSubtle = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
+  const fgDisabled = isDark ? "rgba(240,242,255,0.30)" : "rgba(26,26,46,0.35)";
+  const hovered = data.find((d) => d.symbol === hoveredKey);
+
+  return (
+    <div style={{ flex: "1 1 320px", minWidth: 0 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 18 }}>
+        {title}
+      </div>
+
+      {/* Centered donut chart */}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+        <div style={{ position: "relative" }}>
+          <PieChart width={240} height={240}>
+            <Pie
+              data={data}
+              cx={120} cy={120}
+              innerRadius={76}
+              outerRadius={108}
+              dataKey="value"
+              paddingAngle={2}
+              onMouseEnter={(_, index) => onHover(data[index].symbol)}
+              onMouseLeave={() => onHover(null)}
+              strokeWidth={0}
+            >
+              {data.map((entry) => (
+                <Cell
+                  key={entry.symbol}
+                  fill={entry.color}
+                  opacity={hoveredKey === null || hoveredKey === entry.symbol ? 1 : 0.30}
+                  style={{ transition: "opacity 150ms ease", cursor: "pointer" }}
+                />
+              ))}
+            </Pie>
+          </PieChart>
+          {/* Center label */}
+          <div style={{
+            position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            textAlign: "center", pointerEvents: "none", width: 110,
+          }}>
+            {hovered ? (
+              <>
+                <div style={{ fontSize: 10, color: fgSubtle, marginBottom: 2 }}>{hovered.name}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: hovered.color, lineHeight: 1 }}>{hovered.pct.toFixed(1)}%</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: fg, marginTop: 3 }}>{hovered.symbol}</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, color: fgSubtle, marginBottom: 4 }}>{defaultCenter.top}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: fg }}>{defaultCenter.big}</div>
+                <div style={{ fontSize: 10, color: fgSubtle, marginTop: 2 }}>{defaultCenter.bottom}</div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div style={{ height: "0.5px", background: isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.08)", marginBottom: 14 }} />
+
+      {/* Legend grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "4px 8px" }}>
+        {data.map((d) => {
+          const isHovered = hoveredKey === d.symbol;
+          return (
+            <div
+              key={d.symbol}
+              onMouseEnter={() => onHover(d.symbol)}
+              onMouseLeave={() => onHover(null)}
+              onClick={onLegendClick ? (e) => { e.stopPropagation(); onLegendClick(d.symbol); } : undefined}
+              style={{
+                display: "flex", alignItems: "center", gap: 8, padding: "7px 10px",
+                borderRadius: 8, cursor: onLegendClick ? "pointer" : "default", transition: "background 100ms",
+                background: isHovered ? (isDark ? "rgba(255,255,255,0.05)" : "rgba(8,73,172,0.04)") : "transparent",
+              }}
+            >
+              <div style={{ width: 9, height: 9, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 5, minWidth: 0 }}>
+                  <span style={{
+                    fontSize: 12, fontWeight: 700, color: isHovered ? d.color : fg, transition: "color 100ms",
+                    ...(showLegendSublabel
+                      ? { flexShrink: 0 }
+                      : { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }),
+                  }}>{d.symbol}</span>
+                  {showLegendSublabel && (
+                    <span style={{ fontSize: 10, color: fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: fgMuted, marginTop: 1 }}>
+                  {(d.value / 1_000_000).toFixed(1)}M đ
+                  <span style={{ marginLeft: 6, color: fgSubtle }}>{d.pct.toFixed(1)}%</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Data fetchers (thuần, dùng làm queryFn cho React Query — xem component bên dưới) ────
 async function fetchHoldings(userId: string): Promise<Holding[]> {
   const { data: rows, error } = await supabase
@@ -117,26 +235,30 @@ async function fetchHoldings(userId: string): Promise<Holding[]> {
   const symbols = rows.map((r: any) => r.symbol);
   const latestPrices: Record<string, number> = {};
   const tickerNames: Record<string, string> = {};
+  const sectorNames: Record<string, string> = {};
 
   if (symbols.length > 0) {
-    // Giá mới nhất + tên mã: 2 truy vấn độc lập, chạy song song
-    const [{ data: prices }, { data: tickers }] = await Promise.all([
+    // Giá mới nhất + tên mã + ngành: 3 truy vấn độc lập, chạy song song
+    const [{ data: prices }, { data: tickers }, { data: stocks }] = await Promise.all([
       supabase.from("prices_daily").select("symbol,date,close")
         .in("symbol", symbols)
         .order("date", { ascending: false })
         .limit(symbols.length * 15),
       supabase.from("tickers").select("symbol,name").in("symbol", symbols),
+      supabase.from("stocks").select("symbol,sector_name").in("symbol", symbols),
     ]);
     prices?.forEach((p: any) => {
       if (latestPrices[p.symbol] == null && p.close != null) latestPrices[p.symbol] = Number(p.close);
     });
     tickers?.forEach((t: any) => { tickerNames[t.symbol] = t.name; });
+    stocks?.forEach((s: any) => { sectorNames[s.symbol] = s.sector_name; });
   }
 
   return rows.map((r: any) => ({
     id: r.id,
     symbol: r.symbol,
     name: tickerNames[r.symbol] || r.symbol,
+    sector: sectorNames[r.symbol] || "Khác",
     quantity: Number(r.quantity),
     avgPrice: r.avg_cost != null ? Number(r.avg_cost) : null,
     currentPrice: latestPrices[r.symbol] ?? 0,
@@ -267,6 +389,7 @@ export function Portfolio({
   const [showSymbolSuggestions, setShowSymbolSuggestions] = useState(false);
   const [symbolCursor,          setSymbolCursor]          = useState(-1);
   const [hoveredSlice, setHoveredSlice] = useState<string | null>(null);
+  const [hoveredSector, setHoveredSector] = useState<string | null>(null);
   const [chartDataReal,   setChartDataReal]   = useState<ChartPoint[]>([]);
   const [highlightSymbol, setHighlightSymbol] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -436,7 +559,7 @@ export function Portfolio({
   const periodHnxPct       = chartData.length ? chartData[chartData.length - 1].hnx       : 0;
   const PORTFOLIO_C = periodPortfolioPct >= 0 ? GREEN : RED;
 
-  // Allocation data for donut chart
+  // Allocation data for donut chart (theo cổ phiếu)
   const allocData = holdings.map((h: Holding, i: number) => {
     const value = h.quantity * h.currentPrice;
     return {
@@ -447,6 +570,25 @@ export function Portfolio({
       color: SLICE_COLORS[i % SLICE_COLORS.length],
     };
   }).sort((a: AllocItem, b: AllocItem) => b.value - a.value);
+
+  // Allocation data theo ngành — gom các mã cùng sector_name (bảng "stocks"), dùng
+  // chung shape với allocData (symbol → tên ngành, name → số mã) để tái dùng AllocDonutCard.
+  const sectorTotals = new Map<string, { value: number; count: number }>();
+  holdings.forEach((h: Holding) => {
+    const value = h.quantity * h.currentPrice;
+    const key = h.sector || "Khác";
+    const cur = sectorTotals.get(key) ?? { value: 0, count: 0 };
+    sectorTotals.set(key, { value: cur.value + value, count: cur.count + 1 });
+  });
+  const sectorAllocData: AllocItem[] = [...sectorTotals.entries()]
+    .map(([sector, { value, count }], i) => ({
+      symbol: sector,
+      name: `${count} mã`,
+      value,
+      pct: (value / totalValue) * 100,
+      color: SLICE_COLORS[i % SLICE_COLORS.length],
+    }))
+    .sort((a, b) => b.value - a.value);
 
   const fmtPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 
@@ -544,9 +686,17 @@ export function Portfolio({
   const allocCard: ContextCard = {
     id: "portfolio-allocation",
     type: "portfolio",
-    label: "Phân bổ danh mục",
+    label: "Phân bổ theo cổ phiếu",
     badge: `${holdings.length} mã`,
     summary: allocData.map((d: AllocItem) => `${d.symbol}: ${d.pct.toFixed(1)}%`).join(" · "),
+  };
+
+  const sectorAllocCard: ContextCard = {
+    id: "portfolio-sector-allocation",
+    type: "portfolio",
+    label: "Phân bổ theo ngành",
+    badge: `${sectorAllocData.length} ngành`,
+    summary: sectorAllocData.map((d: AllocItem) => `${d.symbol}: ${d.pct.toFixed(1)}%`).join(" · "),
   };
 
   const summaryCard: ContextCard = {
@@ -868,102 +1018,48 @@ export function Portfolio({
         </div>
       </div>
 
-      {/* ── Allocation card — draggable ── */}
-      <div
-        className="portfolio-drag-card"
-        {...makeDragHandlers(allocCard)}
-        style={{ background: cardBg, borderRadius: 14, padding: "20px 22px", boxShadow: cardShadow, marginBottom: 16, position: "relative", overflow: "hidden" }}
-      >
-        <DragHint isDark={isDark} />
-        <div style={{ fontSize: 12, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 18 }}>
-          Phân bổ danh mục
+      {/* ── Allocation cards — theo cổ phiếu + theo ngành, mỗi card kéo-thả riêng ── */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 16 }}>
+        <div
+          className="portfolio-drag-card"
+          {...makeDragHandlers(allocCard)}
+          style={{ background: cardBg, borderRadius: 14, padding: "20px 22px", boxShadow: cardShadow, position: "relative", overflow: "hidden", flex: "1 1 320px", minWidth: 0 }}
+        >
+          <DragHint isDark={isDark} />
+          <AllocDonutCard
+            title="Phân bổ theo cổ phiếu"
+            data={allocData}
+            isDark={isDark}
+            hoveredKey={hoveredSlice}
+            onHover={setHoveredSlice}
+            onLegendClick={(symbol) => onSelectTicker?.(symbol)}
+            defaultCenter={{
+              top: `${holdings.length} vị thế`,
+              big: `${(totalValue / 1_000_000).toFixed(0)}M đ`,
+              bottom: "tổng giá trị",
+            }}
+          />
         </div>
 
-        {/* Centered donut chart */}
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
-          <div style={{ position: "relative" }}>
-            <PieChart width={240} height={240}>
-              <Pie
-                data={allocData}
-                cx={120} cy={120}
-                innerRadius={76}
-                outerRadius={108}
-                dataKey="value"
-                paddingAngle={2}
-                onMouseEnter={(_, index) => setHoveredSlice(allocData[index].symbol)}
-                onMouseLeave={() => setHoveredSlice(null)}
-                strokeWidth={0}
-              >
-                {allocData.map((entry: AllocItem) => (
-                  <Cell
-                    key={entry.symbol}
-                    fill={entry.color}
-                    opacity={hoveredSlice === null || hoveredSlice === entry.symbol ? 1 : 0.30}
-                    style={{ transition: "opacity 150ms ease", cursor: "pointer" }}
-                  />
-                ))}
-              </Pie>
-            </PieChart>
-            {/* Center label */}
-            <div style={{
-              position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-              textAlign: "center", pointerEvents: "none", width: 110,
-            }}>
-              {hoveredSlice ? (() => {
-                const hovered = allocData.find((d: AllocItem) => d.symbol === hoveredSlice);
-                return (
-                  <>
-                    <div style={{ fontSize: 10, color: fgSubtle, marginBottom: 2 }}>{hovered?.name}</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: hovered?.color, lineHeight: 1 }}>{hovered?.pct.toFixed(1)}%</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: fg, marginTop: 3 }}>{hoveredSlice}</div>
-                  </>
-                );
-              })() : (
-                <>
-                  <div style={{ fontSize: 11, color: fgSubtle, marginBottom: 4 }}>{holdings.length} vị thế</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: fg }}>
-                    {(totalValue / 1_000_000).toFixed(0)}M đ
-                  </div>
-                  <div style={{ fontSize: 10, color: fgSubtle, marginTop: 2 }}>tổng giá trị</div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Divider */}
-        <div style={{ height: "0.5px", background: isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.08)", marginBottom: 14 }} />
-
-        {/* Legend grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "4px 8px" }}>
-          {allocData.map((d: AllocItem) => {
-            const isHovered = hoveredSlice === d.symbol;
-            return (
-              <div
-                key={d.symbol}
-                onMouseEnter={() => setHoveredSlice(d.symbol)}
-                onMouseLeave={() => setHoveredSlice(null)}
-                onClick={(e) => { e.stopPropagation(); onSelectTicker?.(d.symbol); }}
-                style={{
-                  display: "flex", alignItems: "center", gap: 8, padding: "7px 10px",
-                  borderRadius: 8, cursor: "pointer", transition: "background 100ms",
-                  background: isHovered ? (isDark ? "rgba(255,255,255,0.05)" : "rgba(8,73,172,0.04)") : "transparent",
-                }}
-              >
-                <div style={{ width: 9, height: 9, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: isHovered ? d.color : fg, transition: "color 100ms" }}>{d.symbol}</span>
-                    <span style={{ fontSize: 10, color: fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: fgMuted, marginTop: 1 }}>
-                    {(d.value / 1_000_000).toFixed(1)}M đ
-                    <span style={{ marginLeft: 6, color: fgSubtle }}>{d.pct.toFixed(1)}%</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+        <div
+          className="portfolio-drag-card"
+          {...makeDragHandlers(sectorAllocCard)}
+          style={{ background: cardBg, borderRadius: 14, padding: "20px 22px", boxShadow: cardShadow, position: "relative", overflow: "hidden", flex: "1 1 320px", minWidth: 0 }}
+        >
+          <DragHint isDark={isDark} />
+          <AllocDonutCard
+            title="Phân bổ theo ngành"
+            data={sectorAllocData}
+            isDark={isDark}
+            hoveredKey={hoveredSector}
+            onHover={setHoveredSector}
+            showLegendSublabel={false}
+            defaultCenter={{
+              top: `${sectorAllocData.length} ngành`,
+              big: `${(totalValue / 1_000_000).toFixed(0)}M đ`,
+              bottom: "tổng giá trị",
+            }}
+          />
         </div>
       </div>
 
