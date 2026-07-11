@@ -24,7 +24,11 @@ export function AdminLogin() {
       // Gọi Edge Function admin-auth — verify Admin Key ở server-side
       const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-auth`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY as string}`,
+        },
         body: JSON.stringify({ username: account, password, admin_key: adminKey }),
       });
       const json = await res.json();
