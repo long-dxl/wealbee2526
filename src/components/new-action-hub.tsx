@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Sparkles, PanelRightClose, Paperclip, ArrowUp,
-  Maximize2, RotateCcw, GripVertical, X, Plus, SquarePen,
+  RotateCcw, GripVertical, X, Plus, SquarePen,
+  Clock, Trash2, ArrowLeft,
 } from "lucide-react";
 import { ContextCard, CardType, DRAG_CARD_MIME, cardTypeQuestions } from "../types/cards";
 import { lightTheme, type Theme } from "../lib/theme-context";
 import { sendChatMessage, type ToolStep } from "../lib/supabase/bee-ai";
 import { notifyWalletChanged } from "../lib/wallet-events";
+import { supabase } from "../lib/supabase/client";
 import { MdContent } from "./MdContent";
 
 // Render inline markdown + wealbee-platform XML tags
@@ -128,6 +130,24 @@ interface ChatMessage {
   refs?: { index: number; label: string; url: string }[];
 }
 
+interface ChatSessionSummary {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const CHAT_HISTORY_RETENTION_DAYS = 30;
+
+// Cùng ngày → chỉ giờ:phút; khác ngày → thêm ngày/tháng, tránh hiểu nhầm hội thoại cũ là hôm nay
+function formatHistoryTime(iso: string): string {
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 const contextLabel: Record<string, string> = {
   dashboard: "Dashboard · Tổng quan ngày",
   market: "Market Pulse · Hôm nay",
@@ -153,6 +173,13 @@ export function ActionHub({
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const cancelRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Lịch sử chat (30 ngày gần nhất) — chat_sessions/chat_messages đã được
+  // bee-ai-chat edge function ghi sẵn ở backend, panel này chỉ đọc + xoá lại.
+  const [showHistory, setShowHistory] = useState(false);
+  const [historySessions, setHistorySessions] = useState<ChatSessionSummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const toggleCot = (idx: number) => {
     setMessages(prev => prev.map((m, i) =>
@@ -345,6 +372,70 @@ export function ActionHub({
     setIsTyping(false);
     setInputValue("");
     onClearContextCards();
+    setShowHistory(false);
+  };
+
+  // ── Lịch sử chat ──────────────────────────────────────────────────────────
+  const loadHistorySessions = useCallback(async () => {
+    setHistoryLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setHistorySessions([]); setHistoryLoading(false); return; }
+    const cutoff = new Date(Date.now() - CHAT_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from("chat_sessions")
+      .select("id, title, created_at, updated_at")
+      .eq("user_id", user.id)
+      .gte("updated_at", cutoff)
+      .order("updated_at", { ascending: false })
+      .limit(50);
+    setHistorySessions((data ?? []) as ChatSessionSummary[]);
+    setHistoryLoading(false);
+  }, []);
+
+  const openHistory = () => {
+    setShowHistory(true);
+    setConfirmDeleteId(null);
+    loadHistorySessions();
+  };
+
+  // Mở lại một hội thoại cũ: huỷ stream hiện tại, nạp toàn bộ chat_messages của
+  // session đó vào state hiện hành rồi tiếp tục chat bình thường trên sessionId cũ.
+  const loadSessionFromHistory = async (s: ChatSessionSummary) => {
+    cancelRef.current?.();
+    cancelRef.current = null;
+    setIsTyping(false);
+    const { data } = await supabase
+      .from("chat_messages")
+      .select("role, content, created_at")
+      .eq("session_id", s.id)
+      .order("created_at", { ascending: true });
+    setMessages((data ?? []).map((m: { role: string; content: string; created_at: string }) => ({
+      role: m.role === "user" ? "user" : "assistant",
+      content: m.content,
+      time: formatHistoryTime(m.created_at),
+    })));
+    setSessionId(s.id);
+    onClearContextCards();
+    setShowHistory(false);
+  };
+
+  // Xoá 1 cuộc hội thoại — RLS (auth.uid() = user_id) + ON DELETE CASCADE trên
+  // chat_messages.session_id đã đảm bảo an toàn, chỉ cần xoá đúng session.
+  // Không gọi handleNewChat() ở đây (sẽ đóng luôn panel lịch sử) — chỉ dọn state
+  // hội thoại đang mở nếu đúng là cái vừa xoá, để user vẫn ở lại danh sách.
+  const deleteHistorySession = async (id: string) => {
+    setHistorySessions(prev => prev.filter(s => s.id !== id));
+    setConfirmDeleteId(null);
+    if (sessionId === id) {
+      cancelRef.current?.();
+      cancelRef.current = null;
+      setMessages([]);
+      setSessionId(undefined);
+      setIsTyping(false);
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase.from("chat_sessions").delete().eq("id", id).eq("user_id", user.id);
   };
 
   return (
@@ -468,7 +559,24 @@ export function ActionHub({
             Action Hub
           </span>
 
+          {/* Lịch sử chat (30 ngày) */}
+          <button
+            onClick={() => (showHistory ? setShowHistory(false) : openHistory())}
+            title="Lịch sử chat (30 ngày gần nhất)"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 5,
+              borderRadius: 6, border: "0.5px solid " + t.borderStrong,
+              background: showHistory ? t.bgAccentActive : t.bgAccent, cursor: "pointer",
+              color: t.brand, flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccentActive; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = showHistory ? t.bgAccentActive : t.bgAccent; }}
+          >
+            <Clock size={13} strokeWidth={1.5} />
+          </button>
+
           {/* Đoạn chat mới (từ PR #4) */}
+          {!showHistory && (
           <button
             onClick={handleNewChat}
             disabled={messages.length === 0 && contextCards.length === 0}
@@ -486,6 +594,7 @@ export function ActionHub({
           >
             <SquarePen size={12} strokeWidth={2} /> Đoạn chat mới
           </button>
+          )}
 
           {/* Reset độ rộng — luôn hiện; mờ đi khi đang ở mặc định */}
           <button
@@ -493,26 +602,94 @@ export function ActionHub({
             disabled={isAtDefault}
             title={`Reset độ rộng về ${DEFAULT_WIDTH}px`}
             style={{
-              display: "flex", alignItems: "center", gap: 4, padding: "3px 8px",
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 5,
               borderRadius: 6, border: "0.5px solid " + t.borderStrong,
               background: t.bgAccent, cursor: isAtDefault ? "default" : "pointer",
-              color: t.brand, fontSize: 11, fontWeight: 700, opacity: isAtDefault ? 0.45 : 1,
-              fontFamily: "'Montserrat', system-ui, sans-serif", flexShrink: 0,
+              color: t.brand, opacity: isAtDefault ? 0.45 : 1, flexShrink: 0,
             }}
             onMouseEnter={(e) => { if (!isAtDefault) (e.currentTarget as HTMLElement).style.background = t.bgAccentActive; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccent; }}
           >
-            <RotateCcw size={11} strokeWidth={2} /> Reset
+            <RotateCcw size={13} strokeWidth={1.5} />
           </button>
 
           <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: t.fgSubtle, padding: 4, borderRadius: 6, display: "flex", alignItems: "center" }} title="Đóng">
             <PanelRightClose size={18} strokeWidth={1.5} />
           </button>
-          <button style={{ background: "transparent", border: "none", cursor: "pointer", color: t.fgSubtle, padding: 4, borderRadius: 6, display: "flex", alignItems: "center" }} title="Toàn màn hình">
-            <Maximize2 size={16} strokeWidth={1.5} />
-          </button>
         </div>
 
+        {showHistory ? (
+        /* ── Lịch sử chat (30 ngày) ── */
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "10px 16px",
+            borderBottom: "0.5px solid " + t.border, flexShrink: 0,
+          }}>
+            <button onClick={() => setShowHistory(false)} style={{ background: "transparent", border: "none", cursor: "pointer", color: t.fgSubtle, padding: 2, display: "flex" }} title="Quay lại chat">
+              <ArrowLeft size={16} strokeWidth={1.5} />
+            </button>
+            <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: t.fg, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+              Lịch sử chat · {CHAT_HISTORY_RETENTION_DAYS} ngày gần nhất
+            </span>
+          </div>
+
+          <div style={{ flex: 1, overflowY: "auto", padding: "6px 8px" }}>
+            {historyLoading ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 8 }}>
+                {[0, 1, 2].map(i => (
+                  <div key={i} style={{ height: 50, borderRadius: 10, background: isDark ? "rgba(255,255,255,0.05)" : "rgba(8,73,172,0.05)" }} />
+                ))}
+              </div>
+            ) : historySessions.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "40px 16px" }}>
+                <Clock size={28} color={t.fgSubtle} strokeWidth={1.5} style={{ opacity: 0.5, marginBottom: 10 }} />
+                <p style={{ margin: 0, fontSize: 13, color: t.fgSubtle, fontFamily: "'Montserrat', system-ui, sans-serif", lineHeight: 1.5 }}>
+                  Chưa có cuộc trò chuyện nào trong {CHAT_HISTORY_RETENTION_DAYS} ngày gần đây
+                </p>
+              </div>
+            ) : historySessions.map(s => (
+              <div key={s.id}
+                onClick={() => loadSessionFromHistory(s)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "10px 10px",
+                  borderRadius: 10, cursor: "pointer", transition: "background 100ms ease",
+                  background: sessionId === s.id ? t.bgAccent : "transparent",
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccent; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = sessionId === s.id ? t.bgAccent : "transparent"; }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 600, color: t.fg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                    {s.title || "Cuộc trò chuyện"}
+                  </p>
+                  <p style={{ margin: 0, fontSize: 11, color: t.fgSubtle, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                    {formatHistoryTime(s.updated_at)}
+                  </p>
+                </div>
+                {confirmDeleteId === s.id ? (
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => deleteHistorySession(s.id)} style={{ padding: "4px 8px", borderRadius: 6, border: "none", background: "#FF3B30", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                      Xóa
+                    </button>
+                    <button onClick={() => setConfirmDeleteId(null)} style={{ padding: "4px 8px", borderRadius: 6, border: "0.5px solid " + t.borderStrong, background: "transparent", color: t.fgSubtle, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                      Huỷ
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(s.id); }}
+                    title="Xóa cuộc trò chuyện"
+                    style={{ flexShrink: 0, background: "transparent", border: "none", cursor: "pointer", color: t.fgSubtle, padding: 4, borderRadius: 6, display: "flex" }}
+                  >
+                    <Trash2 size={14} strokeWidth={1.5} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        ) : (
+        <>
         {/* Context indicator row */}
         <div style={{
           padding: "8px 16px", background: t.bgMuted,
@@ -856,6 +1033,8 @@ export function ActionHub({
             Wealbee cung cấp thông tin · không phải tư vấn đầu tư theo Luật Chứng khoán 2019
           </p>
         </div>
+        </>
+        )}
       </div>
 
       {/* Drag overlay to prevent text selection during resize */}

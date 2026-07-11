@@ -344,7 +344,7 @@ export async function insiderReport(sb: any, sym: string): Promise<string> {
     if (divs?.length) {
       lines.push(`\n### Lịch sử cổ tức`);
       for (const d of divs as any[]) {
-        const typeLabel = d.dividend_type === "cash" ? "tiền mặt" : "cổ phiếu";
+        const typeLabel = d.dividend_type === "cash" ? "tiền mặt" : d.dividend_type === "rights" ? "quyền mua (trả tiền)" : "cổ phiếu thưởng";
         const amtLabel = d.dividend_type === "cash"
           ? `${Number(d.amount).toLocaleString("vi-VN")} đ/CP`
           : `${(Number(d.amount) * 100).toFixed(1)}%`;

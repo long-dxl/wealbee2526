@@ -8,10 +8,12 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation, useOutletContext } from "react-router";
 import { supabase } from "../../lib/supabase/client";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
+import { MdContent } from "../../components/MdContent";
 import { activateAgentTemplate, READY_TEMPLATE_IDS, type UserAgent } from "../../lib/services/agent-templates";
 import { NeedPortfolioModal } from "../../components/NeedPortfolioModal";
 import { canCreateAgent } from "../../lib/plan-limits";
 import { notifyWalletChanged } from "../../lib/wallet-events";
+import type { Theme } from "../../lib/theme-context";
 import type { AppOutletContext } from "./page-wrappers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -130,11 +132,11 @@ function formatSchedule(schedule: string): string {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: UserAgent["status"] }) {
+function StatusBadge({ status, theme: t, isDark }: { status: UserAgent["status"]; theme: Theme; isDark: boolean }) {
   const cfg = {
-    active: { label: "Đang bật", color: "#1a7a3a", bg: "rgba(52,199,89,0.12)" },
-    paused: { label: "Tạm dừng", color: "#6a7282", bg: "rgba(106,114,130,0.10)" },
-    draft:  { label: "Bản nháp", color: "#6a7282", bg: "rgba(106,114,130,0.10)" },
+    active: { label: "Đang bật", color: "#34C759", bg: isDark ? "rgba(52,199,89,0.16)" : "rgba(52,199,89,0.12)" },
+    paused: { label: "Tạm dừng", color: t.fgSubtle, bg: t.bgAccent },
+    draft:  { label: "Bản nháp", color: t.fgSubtle, bg: t.bgAccent },
   };
   const c = cfg[status];
   return (
@@ -152,7 +154,7 @@ const VN30_FALLBACK = [
   "ACB","BID","CTG","MSN","MBB","SSI","VPB","STB",
 ];
 
-function SymbolPickerModal({ initialSymbols = [], onConfirm, onCancel }: { initialSymbols?: string[]; onConfirm: (symbols: string[]) => void; onCancel: () => void }) {
+function SymbolPickerModal({ initialSymbols = [], onConfirm, onCancel, theme: t }: { initialSymbols?: string[]; onConfirm: (symbols: string[]) => void; onCancel: () => void; theme: Theme }) {
   const [input,       setInput]       = useState("");
   const [selected,    setSelected]    = useState<string[]>(initialSymbols.slice(0, 5));
   const [suggestions, setSuggestions] = useState<string[]>(VN30_FALLBACK);
@@ -194,109 +196,125 @@ function SymbolPickerModal({ initialSymbols = [], onConfirm, onCancel }: { initi
     );
   };
 
-  // Gợi ý theo tiền tố mã HOẶC tên công ty; ẩn mã đã chọn
+  // Gợi ý theo tiền tố mã HOẶC tên công ty; ẩn mã đã chọn.
+  // Xếp hạng khớp mã (chính xác/tiền tố) lên trước khớp chỉ theo tên công ty —
+  // tránh việc gõ "VIC" bị các mã có tên công ty chứa "VIC" (vd: nhóm VICEM) chen lên trước.
   const symQuery = input.trim().toUpperCase();
+  const rankTicker = (t: { symbol: string; name: string }) => {
+    if (t.symbol === symQuery) return 0;
+    if (t.symbol.startsWith(symQuery)) return 1;
+    return 2; // chỉ khớp theo tên công ty
+  };
   const tickerSuggestions = symQuery
     ? allTickers
         .filter(t => !selected.includes(t.symbol) &&
           (t.symbol.startsWith(symQuery) || (t.name ?? "").toUpperCase().includes(symQuery)))
+        .sort((a, b) => rankTicker(a) - rankTicker(b) || a.symbol.localeCompare(b.symbol))
         .slice(0, 7)
     : [];
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.40)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(2px)" }}>
-      <div style={{ background: "#fff", borderRadius: 18, padding: "28px 28px 24px", width: 440, boxShadow: "0 24px 64px rgba(0,0,0,0.18)", fontFamily: FONT }}>
+    <div onClick={onCancel} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(2px)", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: "100%", borderRadius: 16, overflow: "hidden", background: t.bgCard, boxShadow: "0 24px 80px rgba(0,0,0,0.35), 0 0 0 0.5px " + t.border, fontFamily: FONT }}>
 
         {/* Header */}
-        <div style={{ marginBottom: 18 }}>
-          <h3 style={{ margin: 0, fontSize: "1.0625rem", fontWeight: 800, color: "#1a1a2e" }}>Chọn mã cổ phiếu để phân tích</h3>
-          <p style={{ margin: "5px 0 0", fontSize: "0.75rem", color: "#99a1af" }}>
-            Chọn tối đa 5 mã · Deep Research sẽ phân tích từng mã một
-          </p>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "18px 22px", borderBottom: "0.5px solid " + t.border }}>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: t.fg }}>Chọn mã cổ phiếu để phân tích</h3>
+            <p style={{ margin: "4px 0 0", fontSize: "0.75rem", color: t.fgSubtle }}>
+              Chọn tối đa 5 mã · Deep Research sẽ phân tích từng mã một
+            </p>
+          </div>
+          <button onClick={onCancel} aria-label="Đóng" style={{ background: "none", border: "none", cursor: "pointer", color: t.fgSubtle, display: "flex", padding: 2, flexShrink: 0 }}>
+            <X style={{ width: 18, height: 18 }} />
+          </button>
         </div>
 
-        {/* Selected chips */}
-        {selected.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14, padding: "10px 12px", background: "rgba(139,92,246,0.05)", borderRadius: 10, border: "1px solid rgba(139,92,246,0.15)" }}>
-            {selected.map(s => (
-              <span key={s} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 99, background: "#8b5cf6", color: "#fff", fontSize: "0.8125rem", fontWeight: 700 }}>
-                {s}
-                <button onClick={() => toggle(s)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.8)", padding: 0, display: "flex", alignItems: "center", fontSize: 14, lineHeight: 1 }}>×</button>
-              </span>
-            ))}
-            <span style={{ fontSize: "0.6875rem", color: "#8b5cf6", alignSelf: "center", marginLeft: 4 }}>{selected.length}/5 mã</span>
-          </div>
-        )}
-
-        {/* Input + gợi ý mã/tên công ty */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, position: "relative" }}>
-          <input
-            autoFocus
-            value={input}
-            onChange={e => setInput(e.target.value.toUpperCase().replace(/[^A-Z0-9 ]/g, ""))}
-            onKeyDown={e => {
-              if (e.key === "Enter" && (tickerSuggestions[0] || input.trim())) addSymbol(tickerSuggestions[0]?.symbol ?? input);
-              if (e.key === "Escape") onCancel();
-            }}
-            placeholder="Gõ mã hoặc tên công ty…"
-            maxLength={20}
-            style={{ flex: 1, padding: "9px 14px", borderRadius: 9, border: `1.5px solid ${tickerSuggestions.length ? "#8b5cf6" : "rgba(8,73,172,0.20)"}`, fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", fontFamily: FONT, outline: "none", letterSpacing: "0.05em" }}
-          />
-          <button
-            onClick={() => addSymbol(tickerSuggestions[0]?.symbol ?? input)}
-            disabled={(!tickerSuggestions[0] && !input.trim()) || selected.length >= 5}
-            style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: (tickerSuggestions[0] || input.trim()) && selected.length < 5 ? "#8b5cf6" : "#e5e7eb", color: (tickerSuggestions[0] || input.trim()) && selected.length < 5 ? "#fff" : "#99a1af", cursor: "pointer", fontWeight: 700, fontFamily: FONT, fontSize: "0.8125rem" }}
-          >
-            Thêm
-          </button>
-          {tickerSuggestions.length > 0 && (
-            <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20, background: "#fff", border: "1px solid rgba(8,73,172,0.12)", borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.14)", overflow: "hidden", maxHeight: 240, overflowY: "auto" }}>
-              {tickerSuggestions.map(t => (
-                <div key={t.symbol} onMouseDown={e => { e.preventDefault(); addSymbol(t.symbol); }}
-                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid rgba(0,0,0,0.04)" }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(139,92,246,0.06)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                  <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#8b5cf6", minWidth: 46, flexShrink: 0 }}>{t.symbol}</span>
-                  <span style={{ fontSize: "0.75rem", color: "#6a7282", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
-                </div>
+        {/* Body */}
+        <div style={{ padding: 22 }}>
+          {/* Selected chips */}
+          {selected.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14, padding: "10px 12px", background: t.bgAccent, borderRadius: 10, border: "1px solid " + t.border }}>
+              {selected.map(s => (
+                <span key={s} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 99, background: t.brand, color: t.brandFg, fontSize: "0.8125rem", fontWeight: 700 }}>
+                  {s}
+                  <button onClick={() => toggle(s)} style={{ background: "none", border: "none", cursor: "pointer", color: t.brandFg, opacity: 0.8, padding: 0, display: "flex", alignItems: "center", fontSize: 14, lineHeight: 1 }}>×</button>
+                </span>
               ))}
+              <span style={{ fontSize: "0.6875rem", color: t.brand, alignSelf: "center", marginLeft: 4 }}>{selected.length}/5 mã</span>
             </div>
           )}
+
+          {/* Input + gợi ý mã/tên công ty */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, position: "relative" }}>
+            <input
+              autoFocus
+              value={input}
+              onChange={e => setInput(e.target.value.toUpperCase().replace(/[^A-Z0-9 ]/g, ""))}
+              onKeyDown={e => {
+                if (e.key === "Enter" && (tickerSuggestions[0] || input.trim())) addSymbol(tickerSuggestions[0]?.symbol ?? input);
+                if (e.key === "Escape") onCancel();
+              }}
+              placeholder="Gõ mã hoặc tên công ty…"
+              maxLength={20}
+              style={{ flex: 1, padding: "9px 14px", borderRadius: 9, border: `1.5px solid ${tickerSuggestions.length ? t.brand : t.border}`, background: t.inputBg, fontSize: "0.875rem", fontWeight: 700, color: t.fg, fontFamily: FONT, outline: "none", letterSpacing: "0.05em" }}
+            />
+            <button
+              onClick={() => addSymbol(tickerSuggestions[0]?.symbol ?? input)}
+              disabled={(!tickerSuggestions[0] && !input.trim()) || selected.length >= 5}
+              style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: (tickerSuggestions[0] || input.trim()) && selected.length < 5 ? t.brand : t.bgAccent, color: (tickerSuggestions[0] || input.trim()) && selected.length < 5 ? t.brandFg : t.fgDisabled, cursor: "pointer", fontWeight: 700, fontFamily: FONT, fontSize: "0.8125rem" }}
+            >
+              Thêm
+            </button>
+            {tickerSuggestions.length > 0 && (
+              <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20, background: t.bgCard, border: "1px solid " + t.border, borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.20)", overflow: "hidden", maxHeight: 240, overflowY: "auto" }}>
+                {tickerSuggestions.map(tk => (
+                  <div key={tk.symbol} onMouseDown={e => { e.preventDefault(); addSymbol(tk.symbol); }}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid " + t.border }}
+                    onMouseEnter={e => (e.currentTarget.style.background = t.bgAccent)}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                    <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: t.brand, minWidth: 46, flexShrink: 0 }}>{tk.symbol}</span>
+                    <span style={{ fontSize: "0.75rem", color: t.fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tk.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Quick-pick grid */}
+          <p style={{ margin: "0 0 8px", fontSize: "0.6875rem", fontWeight: 700, color: t.fgSubtle, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hoặc chọn nhanh:</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {suggestions.map(s => {
+              const sel = selected.includes(s);
+              const disabled = !sel && selected.length >= 5;
+              return (
+                <button
+                  key={s}
+                  onClick={() => toggle(s)}
+                  disabled={disabled}
+                  style={{
+                    padding: "4px 10px", borderRadius: 7, cursor: disabled ? "not-allowed" : "pointer",
+                    border: sel ? "1.5px solid " + t.brand : "1px solid " + t.border,
+                    background: sel ? t.bgAccentStrong : "transparent",
+                    color: sel ? t.brand : disabled ? t.fgDisabled : t.brand,
+                    fontSize: "0.6875rem", fontWeight: sel ? 700 : 500, fontFamily: FONT,
+                    transition: "all 100ms",
+                  }}
+                >
+                  {sel && "✓ "}{s}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Quick-pick grid */}
-        <p style={{ margin: "0 0 8px", fontSize: "0.6875rem", fontWeight: 700, color: "#99a1af", textTransform: "uppercase", letterSpacing: "0.06em" }}>Hoặc chọn nhanh:</p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 20 }}>
-          {suggestions.map(s => {
-            const sel = selected.includes(s);
-            const disabled = !sel && selected.length >= 5;
-            return (
-              <button
-                key={s}
-                onClick={() => toggle(s)}
-                disabled={disabled}
-                style={{
-                  padding: "4px 10px", borderRadius: 7, cursor: disabled ? "not-allowed" : "pointer",
-                  border: sel ? "1.5px solid #8b5cf6" : "1px solid rgba(8,73,172,0.15)",
-                  background: sel ? "rgba(139,92,246,0.12)" : "transparent",
-                  color: sel ? "#8b5cf6" : disabled ? "#c4c9d4" : "#0849ac",
-                  fontSize: "0.6875rem", fontWeight: sel ? 700 : 500, fontFamily: FONT,
-                  transition: "all 100ms",
-                }}
-              >
-                {sel && "✓ "}{s}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Actions */}
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onCancel} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "1px solid rgba(8,73,172,0.15)", background: "transparent", color: "#6a7282", cursor: "pointer", fontSize: "0.8125rem", fontFamily: FONT }}>Hủy</button>
+        {/* Footer */}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 22px", borderTop: "0.5px solid " + t.border }}>
+          <button onClick={onCancel} style={{ padding: "9px 18px", borderRadius: 9, border: "1px solid " + t.borderStrong, background: "transparent", color: t.fgSubtle, cursor: "pointer", fontSize: "0.8125rem", fontWeight: 600, fontFamily: FONT }}>Hủy</button>
           <button
             onClick={() => selected.length > 0 && onConfirm(selected)}
             disabled={selected.length === 0}
-            style={{ flex: 2, padding: "10px 0", borderRadius: 10, border: "none", background: selected.length > 0 ? "#8b5cf6" : "#e5e7eb", color: selected.length > 0 ? "#fff" : "#99a1af", cursor: selected.length > 0 ? "pointer" : "not-allowed", fontSize: "0.8125rem", fontWeight: 700, fontFamily: FONT }}
+            style={{ padding: "9px 22px", borderRadius: 9, border: "none", background: selected.length > 0 ? t.brand : t.bgAccent, color: selected.length > 0 ? t.brandFg : t.fgDisabled, cursor: selected.length > 0 ? "pointer" : "not-allowed", fontSize: "0.8125rem", fontWeight: 700, fontFamily: FONT }}
           >
             {selected.length === 0 ? "Chọn ít nhất 1 mã" : `Phân tích ${selected.length} mã: ${selected.join(", ")}`}
           </button>
@@ -306,220 +324,15 @@ function SymbolPickerModal({ initialSymbols = [], onConfirm, onCancel }: { initi
   );
 }
 
-// ─── Markdown renderer ────────────────────────────────────────────────────────
-
-function renderInline(text: string, refs?: RefEntry[]): React.ReactNode[] {
-  // Parse: **bold**, `code`, [label](url), [ref:N]
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[ref:\d+\]|\[[^\]]+\]\([^)]+\))/g);
-  return parts.map((p, i) => {
-    if (p.startsWith("**") && p.endsWith("**"))
-      return <strong key={i} style={{ fontWeight: 700, color: "#1a1a2e" }}>{p.slice(2, -2)}</strong>;
-    if (p.startsWith("`") && p.endsWith("`"))
-      return <code key={i} style={{ fontFamily: "'Montserrat', system-ui, sans-serif", fontSize: "0.8em", background: "rgba(8,73,172,0.07)", padding: "1px 5px", borderRadius: 4, color: "#0849ac" }}>{p.slice(1, -1)}</code>;
-
-    // Numbered reference [ref:N] → resolve to real link
-    const refMatch = p.match(/^\[ref:(\d+)\]$/);
-    if (refMatch && refs) {
-      const n = parseInt(refMatch[1]);
-      const entry = refs.find(r => r.index === n);
-      if (entry) {
-        return (
-          <a key={i} href={entry.url} target="_blank" rel="noopener noreferrer"
-            style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "1px 6px", borderRadius: 4, marginLeft: 3, fontSize: "0.6875em", fontWeight: 600, color: "#0849ac", background: "rgba(8,73,172,0.08)", border: "1px solid rgba(8,73,172,0.15)", textDecoration: "none", verticalAlign: "middle", lineHeight: 1.6, whiteSpace: "nowrap" }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(8,73,172,0.16)"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "rgba(8,73,172,0.08)"; }}
-          >
-            {entry.label}<ExternalLink style={{ width: 8, height: 8 }} />
-          </a>
-        );
-      }
-      return null; // ref not found, hide it
-    }
-
-    // Inline markdown link [label](url)
-    const linkMatch = p.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-    if (linkMatch) {
-      const [, label, url] = linkMatch;
-      return (
-        <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-          style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "1px 6px", borderRadius: 4, marginLeft: 3, fontSize: "0.6875em", fontWeight: 600, color: "#0849ac", background: "rgba(8,73,172,0.08)", border: "1px solid rgba(8,73,172,0.15)", textDecoration: "none", verticalAlign: "middle", lineHeight: 1.6, whiteSpace: "nowrap" }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(8,73,172,0.16)"; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "rgba(8,73,172,0.08)"; }}
-        >
-          {label}<ExternalLink style={{ width: 8, height: 8 }} />
-        </a>
-      );
-    }
-    return <span key={i}>{p}</span>;
-  });
-}
-
-function MdTable({ lines, refs }: { lines: string[]; refs?: RefEntry[] }) {
-  // Bỏ hàng phân cách markdown (chỉ gồm | : - khoảng trắng) → tránh hiện ":---" thô
-  const dataRows = lines.filter(l => l.replace(/[\s|:-]/g, "") !== "");
-  if (!dataRows.length) return null;
-  const parseRow = (row: string) => row.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
-  const [header, ...body] = dataRows;
-  return (
-    <div style={{ overflowX: "auto", margin: "14px 0", borderRadius: 10, border: "1px solid rgba(8,73,172,0.10)", boxShadow: "0 1px 4px rgba(8,73,172,0.04)" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8125rem" }}>
-        <thead><tr>{parseRow(header).map((h, i) => (
-          <th key={i} style={{ padding: "9px 14px", background: "rgba(8,73,172,0.06)", color: "#0849ac", fontWeight: 700, textAlign: "left", borderBottom: "2px solid rgba(8,73,172,0.10)", whiteSpace: "nowrap", fontFamily: "'Montserrat',sans-serif" }}>
-            {renderInline(h, refs)}
-          </th>
-        ))}</tr></thead>
-        <tbody>{body.map((row, ri) => (
-          <tr key={ri} style={{ background: ri % 2 === 0 ? "#fff" : "rgba(8,73,172,0.018)" }}>
-            {parseRow(row).map((cell, ci) => (
-              <td key={ci} style={{ padding: "8px 14px", borderBottom: "1px solid rgba(8,73,172,0.06)", color: "#374151" }}>{renderInline(cell, refs)}</td>
-            ))}
-          </tr>
-        ))}</tbody>
-      </table>
-    </div>
-  );
-}
-
-function MdContent({ text, refs }: { text: string; refs?: RefEntry[] }) {
-  // Strip outermost code fence if present (LLM wraps output in ```)
-  let stripped = text.replace(/^```[^\n]*\n?([\s\S]*?)```\s*$/m, "$1").trim();
-
-  // If output still contains HTML, convert to markdown
-  if (stripped.includes("<div") || stripped.includes("<span") || stripped.includes("<a ")) {
-    stripped = stripped
-      .replace(/<a\s+(?:[^>]*?\s+)?href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)")
-      .replace(/<(?:strong|b)>([\s\S]*?)<\/(?:strong|b)>/gi, "**$1**")
-      .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1")
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-  }
-  const lines = stripped.split("\n");
-  const nodes: React.ReactNode[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const raw = lines[i];
-    const trim = raw.trim();
-
-    // Table
-    if (trim.startsWith("|") && trim.endsWith("|")) {
-      const tbl: string[] = [];
-      while (i < lines.length && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) { tbl.push(lines[i].trim()); i++; }
-      nodes.push(<MdTable key={`t${i}`} lines={tbl} refs={refs} />); continue;
-    }
-
-    // Code block (nested)
-    if (trim.startsWith("```")) {
-      const fence = trim.slice(3);
-      i++;
-      const codeLines: string[] = [];
-      while (i < lines.length && !lines[i].trim().startsWith("```")) { codeLines.push(lines[i]); i++; }
-      i++; // skip closing ```
-      nodes.push(
-        <pre key={`code${i}`} style={{ background: "#F0F4FF", border: "1px solid rgba(8,73,172,0.10)", borderRadius: 10, padding: "12px 16px", overflowX: "auto", margin: "10px 0", fontSize: "0.8125rem", lineHeight: 1.7, color: "#1a1a2e", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-          {fence && <span style={{ fontSize: "0.625rem", fontWeight: 700, color: "#0849ac", textTransform: "uppercase", display: "block", marginBottom: 6 }}>{fence}</span>}
-          {codeLines.join("\n")}
-        </pre>
-      );
-      continue;
-    }
-
-    // HR
-    if (/^---+$/.test(trim)) { nodes.push(<hr key={i} style={{ border: "none", borderTop: "1px solid rgba(8,73,172,0.10)", margin: "16px 0" }} />); i++; continue; }
-
-    // Empty line
-    if (!trim) { nodes.push(<div key={i} style={{ height: 6 }} />); i++; continue; }
-
-    // H1
-    if (trim.startsWith("# ") && !trim.startsWith("## ")) {
-      nodes.push(
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, margin: "20px 0 10px", paddingBottom: 8, borderBottom: "2px solid rgba(8,73,172,0.12)" }}>
-          <div style={{ width: 4, height: 20, borderRadius: 2, background: "#0849ac", flexShrink: 0 }} />
-          <h2 style={{ margin: 0, fontFamily: "'Montserrat',sans-serif", fontSize: "1.0625rem", fontWeight: 800, color: "#1a1a2e" }}>{trim.slice(2)}</h2>
-        </div>
-      ); i++; continue;
-    }
-
-    // H2
-    if (trim.startsWith("## ") && !trim.startsWith("### ")) {
-      nodes.push(
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, margin: "16px 0 8px" }}>
-          <div style={{ width: 3, height: 16, borderRadius: 2, background: "#0849ac", flexShrink: 0 }} />
-          <h3 style={{ margin: 0, fontFamily: "'Montserrat',sans-serif", fontSize: "0.9375rem", fontWeight: 700, color: "#0849ac" }}>{trim.slice(3)}</h3>
-        </div>
-      ); i++; continue;
-    }
-
-    // H3
-    if (trim.startsWith("### ") && !trim.startsWith("#### ")) {
-      nodes.push(
-        <h4 key={i} style={{ margin: "12px 0 5px", fontSize: "0.875rem", fontWeight: 700, color: "#374151", fontFamily: "'Montserrat',sans-serif", borderLeft: "3px solid rgba(8,73,172,0.18)", paddingLeft: 8 }}>
-          {trim.slice(4)}
-        </h4>
-      ); i++; continue;
-    }
-
-    // H4
-    if (trim.startsWith("#### ")) {
-      nodes.push(<h5 key={i} style={{ margin: "10px 0 4px", fontSize: "0.8125rem", fontWeight: 700, color: "#6a7282", fontFamily: "'Montserrat',sans-serif" }}>{trim.slice(5)}</h5>); i++; continue;
-    }
-
-    // Blockquote
-    if (trim.startsWith("> ")) {
-      nodes.push(
-        <blockquote key={i} style={{ margin: "8px 0", padding: "8px 14px", borderLeft: "3px solid #0849ac", background: "rgba(8,73,172,0.04)", borderRadius: "0 8px 8px 0", color: "#374151", fontStyle: "italic" }}>
-          {renderInline(trim.slice(2), refs)}
-        </blockquote>
-      ); i++; continue;
-    }
-
-    // Bullet list
-    if (trim.startsWith("- ") || trim.startsWith("• ") || trim.startsWith("→ ") || trim.startsWith("· ")) {
-      const content = trim.startsWith("→ ") ? trim.slice(2) : trim.slice(2);
-      const isArrow = trim.startsWith("→ ");
-      nodes.push(
-        <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
-          <span style={{ color: isArrow ? "#FF9500" : "#0849ac", flexShrink: 0, marginTop: 4, fontSize: isArrow ? "0.75rem" : "0.5rem", fontWeight: 700 }}>{isArrow ? "→" : "●"}</span>
-          <span style={{ lineHeight: 1.7, color: "#374151", fontSize: "0.875rem" }}>{renderInline(content, refs)}</span>
-        </div>
-      ); i++; continue;
-    }
-
-    // Ordered list
-    if (/^\d+\.\s/.test(trim)) {
-      const m = trim.match(/^(\d+)\.\s(.+)/);
-      if (m) {
-        nodes.push(
-          <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
-            <span style={{ color: "#0849ac", flexShrink: 0, fontWeight: 700, minWidth: 22, fontSize: "0.8125rem", lineHeight: 1.7 }}>{m[1]}.</span>
-            <span style={{ lineHeight: 1.7, color: "#374151", fontSize: "0.875rem" }}>{renderInline(m[2], refs)}</span>
-          </div>
-        ); i++; continue;
-      }
-    }
-
-    // Italic disclaimer (*text*)
-    if (trim.startsWith("*") && trim.endsWith("*") && !trim.startsWith("**")) {
-      nodes.push(<p key={i} style={{ margin: "8px 0 0", fontSize: "0.75rem", color: "#99a1af", fontStyle: "italic", lineHeight: 1.6 }}>{trim.slice(1, -1)}</p>); i++; continue;
-    }
-
-    // Regular paragraph
-    nodes.push(<p key={i} style={{ margin: "0 0 8px", lineHeight: 1.75, color: "#374151", fontSize: "0.875rem" }}>{renderInline(trim, refs)}</p>);
-    i++;
-  }
-
-  return <div style={{ fontFamily: "'Montserrat',system-ui,sans-serif" }}>{nodes}</div>;
-}
-
 // ─── Run Panel ────────────────────────────────────────────────────────────────
 
-function RunPanel({ panel, onClose, onInbox, onViewTicker }: {
+function RunPanel({ panel, onClose, onInbox, onViewTicker, theme: t, isDark }: {
   panel: RunPanelState;
   onClose: () => void;
   onInbox: () => void;
   onViewTicker?: (sym: string) => void;
+  theme: Theme;
+  isDark: boolean;
 }) {
   const outputRef = useRef<HTMLDivElement>(null);
 
@@ -531,14 +344,14 @@ function RunPanel({ panel, onClose, onInbox, onViewTicker }: {
   }, [panel.output, panel.done]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#f5f8ff" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: t.bgMuted }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 24px", background: "#fff", borderBottom: "1px solid rgba(8,73,172,0.08)", flexShrink: 0 }}>
-        <button onClick={onClose} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(8,73,172,0.12)", background: "transparent", color: "#6a7282", cursor: "pointer", fontSize: "0.75rem", fontFamily: "inherit" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 24px", background: t.bgCard, borderBottom: "1px solid " + t.border, flexShrink: 0 }}>
+        <button onClick={onClose} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid " + t.borderStrong, background: "transparent", color: t.fgSubtle, cursor: "pointer", fontSize: "0.75rem", fontFamily: "inherit" }}>
           <ArrowLeft style={{ width: 13, height: 13 }} />Quay lại
         </button>
         <div style={{ flex: 1 }}>
-          <span style={{ fontFamily: "'Montserrat',sans-serif", fontSize: "0.9375rem", fontWeight: 700, color: "#1a1a2e" }}>{panel.agentName}</span>
+          <span style={{ fontFamily: "'Montserrat',sans-serif", fontSize: "0.9375rem", fontWeight: 700, color: t.fg }}>{panel.agentName}</span>
           {!panel.done && <span style={{ fontSize: "0.75rem", color: "#0ea5a0", marginLeft: 10, fontWeight: 600 }}>● Đang chạy…</span>}
           {panel.done && !panel.error && <span style={{ fontSize: "0.75rem", color: "#10b981", marginLeft: 10, fontWeight: 600 }}>✓ Hoàn tất</span>}
           {panel.error && <span style={{ fontSize: "0.75rem", color: "#ef4444", marginLeft: 10, fontWeight: 600 }}>✕ Lỗi</span>}
@@ -558,7 +371,7 @@ function RunPanel({ panel, onClose, onInbox, onViewTicker }: {
                 ))}
               </div>
             )}
-            <button onClick={onInbox} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "none", background: "#0849ac", color: "#fff", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}>
+            <button onClick={onInbox} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "none", background: t.brand, color: t.brandFg, cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}>
               <Inbox style={{ width: 13, height: 13 }} />Xem trong Inbox
             </button>
           </div>
@@ -567,25 +380,25 @@ function RunPanel({ panel, onClose, onInbox, onViewTicker }: {
 
       <div style={{ display: "flex", flex: 1, overflow: "hidden", gap: 0 }}>
         {/* Steps sidebar */}
-        <div style={{ width: 240, flexShrink: 0, borderRight: "1px solid rgba(8,73,172,0.08)", background: "#fff", padding: "20px 16px", overflowY: "auto" }}>
-          <p style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#99a1af", letterSpacing: "0.06em", marginBottom: 14 }}>TIẾN TRÌNH</p>
+        <div style={{ width: 240, flexShrink: 0, borderRight: "1px solid " + t.border, background: t.bgCard, padding: "20px 16px", overflowY: "auto" }}>
+          <p style={{ fontSize: "0.6875rem", fontWeight: 700, color: t.fgSubtle, letterSpacing: "0.06em", marginBottom: 14 }}>TIẾN TRÌNH</p>
           {panel.steps.length === 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Loader2 style={{ width: 14, height: 14, color: "#0849ac", animation: "spin 1s linear infinite" }} />
-              <span style={{ fontSize: "0.75rem", color: "#99a1af" }}>Đang khởi động…</span>
+              <Loader2 style={{ width: 14, height: 14, color: t.brand, animation: "spin 1s linear infinite" }} />
+              <span style={{ fontSize: "0.75rem", color: t.fgSubtle }}>Đang khởi động…</span>
             </div>
           )}
           {panel.steps.map(s => {
             const Icon = STEP_ICONS[s.step] ?? Zap;
             return (
               <div key={s.step} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, opacity: s.status === "pending" ? 0.4 : 1 }}>
-                <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: s.status === "done" ? "rgba(16,185,129,0.1)" : s.status === "loading" ? "rgba(8,73,172,0.08)" : s.status === "error" ? "rgba(239,68,68,0.1)" : "rgba(153,161,175,0.08)" }}>
-                  {s.status === "loading" && <Loader2 style={{ width: 13, height: 13, color: "#0849ac", animation: "spin 1s linear infinite" }} />}
+                <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: s.status === "done" ? "rgba(16,185,129,0.1)" : s.status === "loading" ? t.bgAccent : s.status === "error" ? "rgba(239,68,68,0.1)" : t.bgAccent }}>
+                  {s.status === "loading" && <Loader2 style={{ width: 13, height: 13, color: t.brand, animation: "spin 1s linear infinite" }} />}
                   {s.status === "done"    && <CheckCircle style={{ width: 13, height: 13, color: "#10b981" }} />}
                   {s.status === "error"   && <AlertCircle style={{ width: 13, height: 13, color: "#ef4444" }} />}
-                  {s.status === "pending" && <Icon style={{ width: 13, height: 13, color: "#99a1af" }} />}
+                  {s.status === "pending" && <Icon style={{ width: 13, height: 13, color: t.fgSubtle }} />}
                 </div>
-                <span style={{ fontSize: "0.75rem", color: s.status === "done" ? "#10b981" : s.status === "loading" ? "#0849ac" : s.status === "error" ? "#ef4444" : "#99a1af", fontWeight: s.status === "loading" ? 700 : 500, lineHeight: 1.3 }}>
+                <span style={{ fontSize: "0.75rem", color: s.status === "done" ? "#10b981" : s.status === "loading" ? t.brand : s.status === "error" ? "#ef4444" : t.fgSubtle, fontWeight: s.status === "loading" ? 700 : 500, lineHeight: 1.3 }}>
                   {s.label}
                 </span>
               </div>
@@ -596,31 +409,31 @@ function RunPanel({ panel, onClose, onInbox, onViewTicker }: {
         {/* Output area */}
         <div ref={outputRef} style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
           {panel.error ? (
-            <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 12, padding: 20 }}>
+            <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: 20 }}>
               <p style={{ fontSize: "0.875rem", fontWeight: 700, color: "#ef4444", marginBottom: 8 }}>Đã xảy ra lỗi</p>
-              <p style={{ fontSize: "0.8125rem", color: "#374151", fontFamily: "monospace" }}>{panel.error}</p>
+              <p style={{ fontSize: "0.8125rem", color: t.fgMuted, fontFamily: "monospace" }}>{panel.error}</p>
             </div>
           ) : (
             <>
               {/* Daily Market Digest → BriefRenderer */}
               {panel.done && panel.brief && (
-                <div style={{ background: "#fff", border: "1px solid rgba(8,73,172,0.08)", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(8,73,172,0.04)" }}>
-                  <BriefRenderer brief={panel.brief} isDark={false} />
+                <div style={{ background: t.bgCard, border: "1px solid " + t.border, borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+                  <BriefRenderer brief={panel.brief} isDark={isDark} />
                 </div>
               )}
 
               {/* Other agents → streaming markdown */}
               {(!panel.brief) && panel.output && (
-                <div style={{ background: "#fff", border: "1px solid rgba(8,73,172,0.08)", borderRadius: 14, padding: "22px 26px", boxShadow: "0 1px 4px rgba(8,73,172,0.04)" }}>
+                <div style={{ background: t.bgCard, border: "1px solid " + t.border, borderRadius: 14, padding: "22px 26px", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
                   <MdContent text={panel.output} refs={panel.refs} />
                   {!panel.done && (
-                    <span style={{ display: "inline-block", width: 2, height: "1em", background: "#0849ac", animation: "blink 1s step-start infinite", verticalAlign: "text-bottom", marginLeft: 2 }} />
+                    <span style={{ display: "inline-block", width: 2, height: "1em", background: t.brand, animation: "blink 1s step-start infinite", verticalAlign: "text-bottom", marginLeft: 2 }} />
                   )}
                 </div>
               )}
 
               {!panel.brief && !panel.output && !panel.done && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#99a1af", padding: "20px 0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, color: t.fgSubtle, padding: "20px 0" }}>
                   <Loader2 style={{ width: 16, height: 16, animation: "spin 1s linear infinite" }} />
                   <span style={{ fontSize: "0.875rem" }}>Đang chuẩn bị dữ liệu…</span>
                 </div>
@@ -652,7 +465,7 @@ export function AgentsPage() {
   const [runPanel, setRunPanel] = useState<RunPanelState | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<UserAgent | null>(null);
   const navigate = useNavigate();
-  const { openCreateAgentModal } = useOutletContext<AppOutletContext>();
+  const { openCreateAgentModal, theme: t, isDark } = useOutletContext<AppOutletContext>();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -815,6 +628,8 @@ export function AgentsPage() {
         onClose={() => setRunPanel(null)}
         onInbox={() => { setRunPanel(null); navigate("/app/inbox"); }}
         onViewTicker={(sym) => { setRunPanel(null); navigate(`/app/ticker/${sym}`); }}
+        theme={t}
+        isDark={isDark}
       />
     );
   }
@@ -824,8 +639,8 @@ export function AgentsPage() {
   if (!userId && !loading) {
     return (
       <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
-        <Bot style={{ width: 40, height: 40, color: "#d1d5db", marginBottom: 12 }} />
-        <p style={{ fontSize: "0.875rem", color: "#1a1a2e", fontWeight: 600 }}>Vui lòng đăng nhập để dùng Agents</p>
+        <Bot style={{ width: 40, height: 40, color: t.fgDisabled, marginBottom: 12 }} />
+        <p style={{ fontSize: "0.875rem", color: t.fg, fontWeight: 600 }}>Vui lòng đăng nhập để dùng Agents</p>
       </div>
     );
   }
@@ -841,6 +656,7 @@ export function AgentsPage() {
             if (agent) runAgent(agent, symbols);
           }}
           onCancel={() => setSymbolPicker(null)}
+          theme={t}
         />
       )}
 
@@ -848,22 +664,22 @@ export function AgentsPage() {
 
       {confirmDelete && (
         <div onClick={() => setConfirmDelete(null)} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 400, maxWidth: "100%", borderRadius: 16, overflow: "hidden", background: "#fff", boxShadow: "0 24px 80px rgba(0,0,0,0.22), 0 0 0 0.5px rgba(8,73,172,0.10)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 22px", borderBottom: "0.5px solid rgba(8,73,172,0.10)" }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 400, maxWidth: "100%", borderRadius: 16, overflow: "hidden", background: t.bgCard, boxShadow: "0 24px 80px rgba(0,0,0,0.35), 0 0 0 0.5px " + t.border }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 22px", borderBottom: "0.5px solid " + t.border }}>
               <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(255,57,49,0.10)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <AlertTriangle style={{ width: 16, height: 16, color: "#FF3B30" }} />
               </div>
-              <span style={{ fontSize: 16, fontWeight: 700, color: "#1a1a2e", flex: 1 }}>Xóa agent</span>
-              <button onClick={() => setConfirmDelete(null)} aria-label="Đóng" style={{ background: "none", border: "none", cursor: "pointer", color: "#99a1af", display: "flex", padding: 2 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: t.fg, flex: 1 }}>Xóa agent</span>
+              <button onClick={() => setConfirmDelete(null)} aria-label="Đóng" style={{ background: "none", border: "none", cursor: "pointer", color: t.fgSubtle, display: "flex", padding: 2 }}>
                 <X style={{ width: 18, height: 18 }} />
               </button>
             </div>
-            <div style={{ padding: 22, fontSize: 13.5, color: "#6a7282", lineHeight: 1.6 }}>
-              Xóa agent <strong style={{ color: "#1a1a2e" }}>{confirmDelete.name}</strong>?
+            <div style={{ padding: 22, fontSize: 13.5, color: t.fgMuted, lineHeight: 1.6 }}>
+              Xóa agent <strong style={{ color: t.fg }}>{confirmDelete.name}</strong>?
             </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 22px", borderTop: "0.5px solid rgba(8,73,172,0.10)" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 22px", borderTop: "0.5px solid " + t.border }}>
               <button onClick={() => setConfirmDelete(null)}
-                style={{ padding: "9px 18px", borderRadius: 9, border: "1px solid rgba(8,73,172,0.18)", background: "transparent", color: "#6a7282", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                style={{ padding: "9px 18px", borderRadius: 9, border: "1px solid " + t.borderStrong, background: "transparent", color: t.fgSubtle, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
                 Hủy
               </button>
               <button onClick={() => { deleteAgent(confirmDelete.id); setConfirmDelete(null); }}
@@ -878,21 +694,21 @@ export function AgentsPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
-          <h1 style={{ fontFamily: "'Montserrat', sans-serif", fontSize: "1.375rem", fontWeight: 700, color: "#1a1a2e" }}>Agents</h1>
-          <p style={{ fontSize: "0.8125rem", color: "#99a1af", marginTop: 4 }}>
+          <h1 style={{ fontFamily: "'Montserrat', sans-serif", fontSize: "1.375rem", fontWeight: 700, color: t.fg }}>Agents</h1>
+          <p style={{ fontSize: "0.8125rem", color: t.fgSubtle, marginTop: 4 }}>
             {activeCount} agent đang bật · {agents.length} tổng cộng
           </p>
         </div>
         <button onClick={openCreateAgentModal}
-          style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", borderRadius: 10, border: "none", background: "#0849ac", color: "#fff", cursor: "pointer", fontSize: "0.8125rem", fontWeight: 600, fontFamily: "inherit" }}>
+          style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", borderRadius: 10, border: "none", background: t.brand, color: t.brandFg, cursor: "pointer", fontSize: "0.8125rem", fontWeight: 600, fontFamily: "inherit" }}>
           <Plus style={{ width: 15, height: 15 }} />Tạo Agent
         </button>
       </div>
 
       {/* Template picker */}
       {showTemplates && (
-        <div style={{ background: "#f5f8ff", border: "1px solid rgba(8,73,172,0.12)", borderRadius: 14, padding: 20, marginBottom: 20 }}>
-          <p style={{ fontSize: "0.875rem", fontWeight: 700, color: "#1a1a2e", marginBottom: 14 }}>Chọn template agent</p>
+        <div style={{ background: t.bgAccent, border: "1px solid " + t.border, borderRadius: 14, padding: 20, marginBottom: 20 }}>
+          <p style={{ fontSize: "0.875rem", fontWeight: 700, color: t.fg, marginBottom: 14 }}>Chọn template agent</p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
             {templates.map(tmpl => {
               const Icon = ICON_MAP[tmpl.icon] || Bot;
@@ -902,9 +718,9 @@ export function AgentsPage() {
               const disabled = alreadyAdded || !isReady;
               return (
                 <div key={tmpl.id} style={{
-                  background: "#fff", borderRadius: 12, padding: "14px 16px",
+                  background: t.bgCard, borderRadius: 12, padding: "14px 16px",
                   display: "flex", gap: 12, alignItems: "flex-start",
-                  border: `1px solid ${isReady ? "rgba(8,73,172,0.1)" : "rgba(0,0,0,0.06)"}`,
+                  border: `1px solid ${isReady ? t.border : t.borderStrong}`,
                   opacity: isReady ? 1 : 0.5,
                   filter: isReady ? "none" : "grayscale(60%)",
                   position: "relative",
@@ -914,21 +730,21 @@ export function AgentsPage() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                      <p style={{ fontSize: "0.8125rem", fontWeight: 700, color: isReady ? "#1a1a2e" : "#99a1af" }}>{tmpl.name}</p>
+                      <p style={{ fontSize: "0.8125rem", fontWeight: 700, color: isReady ? t.fg : t.fgSubtle }}>{tmpl.name}</p>
                       {!isReady && (
-                        <span style={{ fontSize: "0.5625rem", fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "rgba(153,161,175,0.15)", color: "#99a1af", letterSpacing: "0.03em" }}>
+                        <span style={{ fontSize: "0.5625rem", fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: t.bgAccentStrong, color: t.fgSubtle, letterSpacing: "0.03em" }}>
                           Sắp ra mắt
                         </span>
                       )}
                     </div>
-                    <p style={{ fontSize: "0.6875rem", color: "#6a7282", marginTop: 0, lineHeight: 1.4 }}>{tmpl.description}</p>
+                    <p style={{ fontSize: "0.6875rem", color: t.fgSubtle, marginTop: 0, lineHeight: 1.4 }}>{tmpl.description}</p>
                     <button
                       onClick={() => !disabled && activateTemplate(tmpl)}
                       disabled={disabled}
                       style={{
                         marginTop: 8, padding: "4px 10px", borderRadius: 7, border: "none",
-                        background: alreadyAdded ? "#e5e7eb" : isReady ? colors.color : "#e5e7eb",
-                        color: disabled ? "#99a1af" : "#fff",
+                        background: alreadyAdded ? t.bgAccentStrong : isReady ? colors.color : t.bgAccentStrong,
+                        color: disabled ? t.fgDisabled : "#fff",
                         fontSize: "0.6875rem", fontWeight: 600,
                         cursor: disabled ? "not-allowed" : "pointer",
                       }}>
@@ -945,38 +761,38 @@ export function AgentsPage() {
       {/* Agent cards */}
       {loading ? (
         <div style={{ textAlign: "center", padding: "40px 0" }}>
-          <RefreshCw style={{ width: 24, height: 24, color: "#99a1af", animation: "spin 1s linear infinite", margin: "0 auto" }} />
-          <p style={{ fontSize: "0.8125rem", color: "#99a1af", marginTop: 10 }}>Đang tải…</p>
+          <RefreshCw style={{ width: 24, height: 24, color: t.fgSubtle, animation: "spin 1s linear infinite", margin: "0 auto" }} />
+          <p style={{ fontSize: "0.8125rem", color: t.fgSubtle, marginTop: 10 }}>Đang tải…</p>
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
           {agents.map(agent => {
             const colors = TEMPLATE_COLOR;
-            const tmpl   = templates.find(t => t.id === agent.template_id);
+            const tmpl   = templates.find(tp => tp.id === agent.template_id);
             const Icon   = ICON_MAP[tmpl?.icon ?? "bot"] || Bot;
             const firstLine = agent.system_prompt?.split("\n")[0] ?? "";
             const savedSym  = firstLine.startsWith(SYM_PREFIX) ? firstLine.slice(SYM_PREFIX.length).trim() : null;
 
             return (
-              <div key={agent.id} style={{ background: "#fff", border: "1px solid rgba(8,73,172,0.08)", borderRadius: 14, padding: "18px 18px" }}>
+              <div key={agent.id} style={{ background: t.bgCard, border: "1px solid " + t.border, borderRadius: 14, padding: "18px 18px" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
                   <div style={{ width: 40, height: 40, borderRadius: 11, background: colors.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon style={{ width: 18, height: 18, color: colors.color }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <h3 style={{ flex: "1 1 auto", minWidth: 0, fontSize: "0.9375rem", fontWeight: 700, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{agent.name}</h3>
-                      <div style={{ flexShrink: 0 }}><StatusBadge status={agent.status} /></div>
+                      <h3 style={{ flex: "1 1 auto", minWidth: 0, fontSize: "0.9375rem", fontWeight: 700, color: t.fg, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{agent.name}</h3>
+                      <div style={{ flexShrink: 0 }}><StatusBadge status={agent.status} theme={t} isDark={isDark} /></div>
                     </div>
                     <p style={{
-                      fontSize: "0.75rem", color: "#6a7282", marginTop: 4, lineHeight: 1.4,
+                      fontSize: "0.75rem", color: t.fgSubtle, marginTop: 4, lineHeight: 1.4,
                       display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
                     }}>{agent.description}</p>
                     {/* Show saved symbols */}
                     {(agent.target_symbols?.length ? agent.target_symbols : savedSym ? [savedSym] : []).length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
                         {(agent.target_symbols?.length ? agent.target_symbols : [savedSym!]).map(s => (
-                          <span key={s} style={{ padding: "2px 8px", borderRadius: 5, background: "rgba(8,73,172,0.08)", color: "#0849AC", fontSize: "0.625rem", fontWeight: 700, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                          <span key={s} style={{ padding: "2px 8px", borderRadius: 5, background: t.bgAccent, color: t.brand, fontSize: "0.625rem", fontWeight: 700, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                             {s}
                           </span>
                         ))}
@@ -986,8 +802,8 @@ export function AgentsPage() {
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 14 }}>
-                  <Clock style={{ width: 11, height: 11, color: "#99a1af" }} />
-                  <span style={{ fontSize: "0.6875rem", color: "#99a1af" }}>{formatTrigger(agent)}</span>
+                  <Clock style={{ width: 11, height: 11, color: t.fgSubtle }} />
+                  <span style={{ fontSize: "0.6875rem", color: t.fgSubtle }}>{formatTrigger(agent)}</span>
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1009,11 +825,11 @@ export function AgentsPage() {
                     <Play style={{ width: 11, height: 11 }} />Chạy ngay
                   </button>
                   <button onClick={() => toggleAgent(agent)}
-                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(8,73,172,0.12)", background: "transparent", color: "#6a7282", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}>
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid " + t.borderStrong, background: "transparent", color: t.fgSubtle, cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, fontFamily: "inherit" }}>
                     {agent.status === "active" ? <><Pause style={{ width: 11, height: 11 }} />Tạm dừng</> : <><Play style={{ width: 11, height: 11 }} />Bật lại</>}
                   </button>
                   <button onClick={() => navigate(`/app/agent-studio?agent_id=${agent.id}`)}
-                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid rgba(8,73,172,0.12)", background: "transparent", color: "#6a7282", cursor: "pointer", fontSize: "0.75rem", fontFamily: "inherit" }}>
+                    style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.borderStrong, background: "transparent", color: t.fgSubtle, cursor: "pointer", fontSize: "0.75rem", fontFamily: "inherit" }}>
                     <Settings2 style={{ width: 11, height: 11 }} />Sửa
                   </button>
                   <button onClick={() => setConfirmDelete(agent)} aria-label="Xóa agent" title="Xóa agent"
@@ -1026,13 +842,13 @@ export function AgentsPage() {
           })}
 
           <div onClick={() => navigate("/app/templates")}
-            style={{ background: "transparent", border: "2px dashed rgba(8,73,172,0.15)", borderRadius: 14, padding: "18px 18px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", minHeight: 180 }}>
+            style={{ background: "transparent", border: "2px dashed " + t.borderStrong, borderRadius: 14, padding: "18px 18px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", minHeight: 180 }}>
             <div style={{ textAlign: "center" }}>
-              <div style={{ width: 40, height: 40, borderRadius: 11, background: "rgba(8,73,172,0.06)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
-                <Plus style={{ width: 18, height: 18, color: "#0849ac" }} />
+              <div style={{ width: 40, height: 40, borderRadius: 11, background: t.bgAccent, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
+                <Plus style={{ width: 18, height: 18, color: t.brand }} />
               </div>
-              <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0849ac" }}>Thêm Agent mẫu</p>
-              <p style={{ fontSize: "0.75rem", color: "#99a1af", marginTop: 4 }}>Chọn từ các Agent mẫu có sẵn</p>
+              <p style={{ fontSize: "0.875rem", fontWeight: 600, color: t.brand }}>Thêm Agent mẫu</p>
+              <p style={{ fontSize: "0.75rem", color: t.fgSubtle, marginTop: 4 }}>Chọn từ các Agent mẫu có sẵn</p>
             </div>
           </div>
         </div>
@@ -1040,7 +856,7 @@ export function AgentsPage() {
 
       {agents.length === 0 && !loading && (
         <div style={{ textAlign: "center", padding: "20px 0 0" }}>
-          <p style={{ fontSize: "0.8125rem", color: "#99a1af" }}>Chưa có agent nào. Nhấn "Thêm Agent mẫu" để chọn template, hoặc "Tạo Agent" để tự thiết lập.</p>
+          <p style={{ fontSize: "0.8125rem", color: t.fgSubtle }}>Chưa có agent nào. Nhấn "Thêm Agent mẫu" để chọn template, hoặc "Tạo Agent" để tự thiết lập.</p>
         </div>
       )}
 

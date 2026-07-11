@@ -74,6 +74,8 @@ LABEL_MAPS = {
         "Lưu chuyển tiền tệ ròng từ các hoạt động sản xuất kinh doanh": "CF_OPERATING",
         "Khấu hao TSCĐ và BĐSĐT": "CF_DEPRECIATION",
         "Tiền chi để mua sắm, xây dựng TSCĐ và các tài sản dài hạn khác": "CF_CAPEX",
+        "Lưu chuyển tiền thuần từ hoạt động đầu tư": "CF_INVESTING",
+        "Lưu chuyển tiền thuần từ hoạt động tài chính": "CF_FINANCING",
         "Lưu chuyển tiền thuần trong kỳ": "CF_NET",
     },
     ("bank", "IS"): {
@@ -109,6 +111,8 @@ LABEL_MAPS = {
     ("bank", "CF"): {
         "Lưu chuyển tiền thuần từ các hoạt động sản xuất kinh doanh": "CF_OPERATING",
         "Mua sắm TSCĐ": "CF_CAPEX",
+        "Lưu chuyển tiền thuần từ hoạt động đầu tư": "CF_INVESTING",
+        "Lưu chuyển tiền thuần từ hoạt động tài chính": "CF_FINANCING",
         "Lưu chuyển tiền thuần trong kỳ": "CF_NET",
     },
     ("securities", "IS"): {
@@ -134,6 +138,8 @@ LABEL_MAPS = {
     ("securities", "CF"): {
         "Lưu chuyển thuần từ hoạt động kinh doanh": "CF_OPERATING",
         "Tiền chi để mua sắm, xây dựng TSCĐ, BĐSĐT và các tài sản dài hạn khác": "CF_CAPEX",
+        "Lưu chuyển tiền thuần từ hoạt động đầu tư": "CF_INVESTING",
+        "Lưu chuyển thuần từ hoạt động tài chính": "CF_FINANCING",
         "LƯU CHUYỂN TIỀN THUẦN TRONG KỲ": "CF_NET",
     },
     ("insurance", "IS"): {
@@ -161,6 +167,8 @@ LABEL_MAPS = {
     ("insurance", "CF"): {
         "Lưu chuyển tiền thuần từ hoạt động kinh doanh": "CF_OPERATING",
         "Tiền chi mua sắm, xây dựng TSCĐ và các tài sản dài hạn khác": "CF_CAPEX",
+        "Lưu chuyển tiền thuần từ hoạt động đầu tư": "CF_INVESTING",
+        "Lưu chuyển tiền thuần từ hoạt động tài chính": "CF_FINANCING",
         "Lưu chuyển tiền thuần trong kỳ": "CF_NET",
     },
 }

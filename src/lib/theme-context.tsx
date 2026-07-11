@@ -7,7 +7,11 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
      ThemeId  →  string union (scalable: add a new ID = add one theme block)
      CSS vars →  single source of truth in theme.css  [data-theme="..."]
      JS Theme →  thin mirror of CSS vars (backward compat for inline styles)
-     OS sync  →  followed unless user has saved a preference
+     Default  →  always "light" unless the user (or the landing pages) chose
+                 otherwise — no OS-preference auto-switching
+     Linked   →  landing/login pages (src/pages/landing/wb/app/use-theme.ts)
+                 read/write the same localStorage key, so the choice carries
+                 across the login boundary in both directions
      FOUC     →  prevented by inline <script> in index.html (runs before paint)
    ════════════════════════════════════════════════════════════════════ */
 
@@ -90,16 +94,15 @@ function writeStorage(id: ThemeId): void {
   try { localStorage.setItem(STORAGE_KEY, id); } catch { /* storage blocked */ }
 }
 
-function getOSPreference(): ThemeId {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
 /** Reads what the FOUC script already applied so React state is in sync from
- *  the very first render — no flicker between server/JS-applied values. */
+ *  the very first render — no flicker between server/JS-applied values.
+ *  Default is always light (no OS-preference following) — same rule as the
+ *  landing/login pages (src/pages/landing/wb/app/use-theme.ts), and both
+ *  read/write the same STORAGE_KEY so the choice carries across login. */
 function resolveInitialTheme(): ThemeId {
   const fromAttr = document.documentElement.getAttribute("data-theme") as ThemeId;
   if (VALID_THEMES.has(fromAttr)) return fromAttr;
-  return readStorage() ?? getOSPreference();
+  return readStorage() ?? "light";
 }
 
 /** Applies theme to <html> — the single DOM mutation that drives all CSS vars. */
@@ -140,15 +143,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   /** Sync DOM on first mount (no-op if FOUC script already matched). */
   useEffect(() => { applyToDOM(themeId); }, []);
 
-  /** Follow OS preference changes, but only when user has no saved choice. */
+  /** Pick up a theme change made on the landing/login pages (same STORAGE_KEY)
+   *  when the app was already open in another tab — keeps both sides linked. */
   useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (e: MediaQueryListEvent) => {
-      if (!readStorage()) setTheme(e.matches ? "dark" : "light");
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY || !e.newValue || !VALID_THEMES.has(e.newValue as ThemeId)) return;
+      applyToDOM(e.newValue as ThemeId);
+      setThemeId(e.newValue as ThemeId);
     };
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, [setTheme]);
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const isDark     = themeId !== "light";
   const toggleDark = useCallback(() => setTheme(isDark ? "light" : "dark"), [isDark, setTheme]);

@@ -89,6 +89,8 @@ MAP = {
    "CF_OPERATING":    ["Lưu chuyển tiền tệ ròng từ các hoạt động sản xuất kinh doanh"],
    "CF_CAPEX":        ["Tiền chi để mua sắm, xây dựng TSCĐ và các tài sản dài hạn khác"],
    "CF_DEPRECIATION": ["Khấu hao TSCĐ và BĐSĐT", "Khấu hao TSCĐ"],
+   "CF_INVESTING":    ["Lưu chuyển tiền thuần từ hoạt động đầu tư"],
+   "CF_FINANCING":    ["Lưu chuyển tiền thuần từ hoạt động tài chính"],
    "CF_NET":          ["Lưu chuyển tiền thuần trong kỳ"],
   },
  },
@@ -128,6 +130,8 @@ MAP = {
   "CF": {
    "CF_OPERATING": ["Lưu chuyển tiền thuần từ các hoạt động sản xuất kinh doanh"],
    "CF_CAPEX":     ["Mua sắm TSCĐ"],
+   "CF_INVESTING": ["Lưu chuyển tiền thuần từ hoạt động đầu tư"],
+   "CF_FINANCING": ["Lưu chuyển tiền thuần từ hoạt động tài chính"],
    "CF_NET":       ["Lưu chuyển tiền thuần trong kỳ"],
   },
   "NOTE": {
@@ -167,6 +171,8 @@ MAP = {
   "CF": {
    "CF_OPERATING": ["Lưu chuyển thuần từ hoạt động kinh doanh"],
    "CF_CAPEX":     ["Tiền chi để mua sắm, xây dựng TSCĐ, BĐSĐT và các tài sản dài hạn khác"],
+   "CF_INVESTING": ["Lưu chuyển tiền thuần từ hoạt động đầu tư"],
+   "CF_FINANCING": ["Lưu chuyển thuần từ hoạt động tài chính"],
    "CF_NET":       ["LƯU CHUYỂN TIỀN THUẦN TRONG KỲ", "Lưu chuyển tiền thuần trong kỳ"],
   },
  },
@@ -197,6 +203,8 @@ MAP = {
   "CF": {
    "CF_OPERATING": ["Lưu chuyển tiền thuần từ hoạt động kinh doanh"],
    "CF_CAPEX":     ["Tiền chi mua sắm, xây dựng TSCĐ và các tài sản dài hạn khác"],
+   "CF_INVESTING": ["Lưu chuyển tiền thuần từ hoạt động đầu tư"],
+   "CF_FINANCING": ["Lưu chuyển tiền thuần từ hoạt động tài chính"],
    "CF_NET":       ["Lưu chuyển tiền thuần trong kỳ"],
   },
  },

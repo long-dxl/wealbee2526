@@ -84,6 +84,10 @@ type Period = typeof PERIODS[number];
 
 const fmtN   = (n: number) => n.toLocaleString("vi-VN");
 const fmtPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+// Tỷ lệ cổ tức cổ phiếu/quyền mua: giữ tối đa 2 chữ số thập phân, bỏ số 0 thừa
+// — làm tròn về số nguyên (.toFixed(0)) từng khiến 6.84% và 7% hiện giống hệt
+// nhau, gây hiểu nhầm là trùng dữ liệu (case BID thực tế).
+const fmtRatio = (n: number) => `${Number((n * 100).toFixed(2))}%`;
 const fmtDate = (d: string) => { const dt = new Date(d); return `${dt.getDate()}/${dt.getMonth() + 1}/${dt.getFullYear()}`; };
 const fmtShort = (d: string) => { const dt = new Date(d); return `${dt.getDate()}/${dt.getMonth() + 1}`; };
 const fmtB = (n: number | null | undefined) => {
@@ -694,6 +698,7 @@ export function TickerDetailPage() {
   const [ratiosFY,  setRatiosFY]  = useState<any[]>([]);
   const [stockInfo, setStockInfo] = useState<any>(null);
   const [dividends,  setDividends]  = useState<any[]>([]);
+  const [divAnnouncements, setDivAnnouncements] = useState<any[]>([]);
   const [insiders,   setInsiders]   = useState<any[]>([]);
   const [news,       setNews]       = useState<any[]>([]);
   const [period,     setPeriod]     = useState<Period>("3M");
@@ -740,6 +745,7 @@ export function TickerDetailPage() {
         { data: priceData },
         { data: stmtData },
         { data: divData },
+        { data: annData },
         { data: insiderData },
         { data: newsData },
         { data: vniData },
@@ -751,7 +757,8 @@ export function TickerDetailPage() {
         supabase.from("prices_daily").select("date,open,high,low,close,volume").eq("symbol", s).order("date", { ascending: true }).limit(2000),
         supabase.from("financial_statements").select("statement,period,item_code,value").eq("symbol", s).eq("period_type", "FY").limit(2000),
         supabase.from("dividends").select("id,ex_date,payment_date,dividend_type,amount").eq("symbol", s).order("ex_date", { ascending: false }).limit(10),
-        supabase.from("insider_transactions").select("id,trade_date,insider_name,trade_type,volume").eq("symbol", s).order("trade_date", { ascending: false }).limit(10),
+        supabase.from("dividend_announcements").select("id,dividend_type,amount,announced_date").eq("symbol", s).order("announced_date", { ascending: false }).limit(5),
+        supabase.from("insider_transactions").select("id,trade_date,reg_start_date,reg_end_date,insider_name,trade_type,volume").eq("symbol", s).order("trade_date", { ascending: false }).limit(10),
         supabase.from("market_news").select("title,published_at,impact_score,label,article_url").contains("affected_symbols", [s]).neq("label", "trash").not("label", "is", null).order("published_at", { ascending: false }).limit(10),
         supabase.from("market_indices").select("date,close").eq("index_code", "VNINDEX").order("date", { ascending: true }).limit(2000),
         supabase.from("market_indices").select("date,close").eq("index_code", "HNX").order("date", { ascending: true }).limit(2000),
@@ -766,6 +773,7 @@ export function TickerDetailPage() {
       setRatiosFY(ratioData ?? []);
       setStockInfo(stockData ?? null);
       setDividends(divData ?? []);
+      setDivAnnouncements(annData ?? []);
       setInsiders(insiderData ?? []);
       setNews(newsData ?? []);
       setVniPrices(vniData ?? []);
@@ -848,7 +856,7 @@ export function TickerDetailPage() {
     { id: "cashflow",  icon: TrendingUp,  label: "Dòng tiền" },
   ];
   const EXTRA_TABS: { id: "dividends" | "insiders" | "news"; icon: React.ElementType; label: string; count: number }[] = [
-    { id: "dividends", icon: Coins,     label: "Cổ tức",  count: dividends.length },
+    { id: "dividends", icon: Coins,     label: "Cổ tức",  count: dividends.length + divAnnouncements.length },
     { id: "insiders",  icon: Users,     label: "Insider", count: insiders.length  },
     { id: "news",      icon: Newspaper, label: "Tin tức", count: news.length      },
   ];
@@ -1237,33 +1245,60 @@ export function TickerDetailPage() {
 
               {/* ─ Dividends ─ */}
               {extraTab === "dividends" && (
-                dividends.length === 0 ? <EmptyState message={`Chưa có dữ liệu cổ tức cho ${sym}`} /> : (
+                dividends.length === 0 && divAnnouncements.length === 0 ? <EmptyState message={`Chưa có dữ liệu cổ tức cho ${sym}`} /> : (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                       <thead>
                         <tr style={{ background: tk.CARD2 }}>
-                          {["Ngày ĐKCC", "Ngày thanh toán", "Loại", "Tỷ lệ"].map(h => (
+                          {["Ngày GDKHQ", "Ngày thực hiện", "Loại", "Tỷ lệ"].map(h => (
                             <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: tk.MUTED2, letterSpacing: "0.06em", textTransform: "uppercase", borderBottom: `0.5px solid ${tk.BORDER}` }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
+                        {divAnnouncements.map((a: any) => (
+                          <tr key={`ann-${a.id}`} style={{ background: "rgba(245,158,11,0.07)", borderBottom: `0.5px solid ${tk.BORDER}` }}>
+                            <td style={{ padding: "10px 16px", fontWeight: 700, color: "#B45309", fontStyle: "italic" }}>Dự kiến</td>
+                            <td style={{ padding: "10px 16px", color: tk.MUTED }}>—</td>
+                            <td style={{ padding: "10px 16px" }}>
+                              <span style={{
+                                padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 700,
+                                background: a.dividend_type === "cash" ? "rgba(52,199,89,0.12)" : a.dividend_type === "rights" ? "rgba(124,58,237,0.10)" : "rgba(8,73,172,0.1)",
+                                color: a.dividend_type === "cash" ? "#16a34a" : a.dividend_type === "rights" ? "#7C3AED" : "#0849AC",
+                              }}>
+                                {a.dividend_type === "cash" ? "Tiền mặt" : a.dividend_type === "rights" ? "Quyền mua" : "Cổ phiếu"}
+                              </span>
+                            </td>
+                            <td style={{ padding: "10px 16px", fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 600, color: tk.TEXT }}>
+                              {a.dividend_type === "cash" ? `${fmtN(a.amount)} đ/CP` : fmtRatio(a.amount)}
+                            </td>
+                          </tr>
+                        ))}
                         {dividends.map((d: any, i: number) => (
                           <tr key={d.id} style={{ background: i % 2 === 0 ? "transparent" : tk.ROW_HOV, borderBottom: `0.5px solid ${tk.BORDER}` }}>
                             <td style={{ padding: "10px 16px", fontWeight: 600, color: tk.TEXT }}>{fmtDate(d.ex_date)}</td>
                             <td style={{ padding: "10px 16px", color: tk.MUTED }}>{d.payment_date ? fmtDate(d.payment_date) : "—"}</td>
                             <td style={{ padding: "10px 16px" }}>
-                              <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 700, background: d.dividend_type === "cash" ? "rgba(52,199,89,0.12)" : "rgba(8,73,172,0.1)", color: d.dividend_type === "cash" ? "#16a34a" : "#0849AC" }}>
-                                {d.dividend_type === "cash" ? "Tiền mặt" : "Cổ phiếu"}
+                              <span style={{
+                                padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 700,
+                                background: d.dividend_type === "cash" ? "rgba(52,199,89,0.12)" : d.dividend_type === "rights" ? "rgba(124,58,237,0.10)" : "rgba(8,73,172,0.1)",
+                                color: d.dividend_type === "cash" ? "#16a34a" : d.dividend_type === "rights" ? "#7C3AED" : "#0849AC",
+                              }}>
+                                {d.dividend_type === "cash" ? "Tiền mặt" : d.dividend_type === "rights" ? "Quyền mua" : "Cổ phiếu"}
                               </span>
                             </td>
                             <td style={{ padding: "10px 16px", fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 600, color: tk.TEXT }}>
-                              {d.dividend_type === "cash" ? `${fmtN(d.amount)} đ/CP` : `${(d.amount * 100).toFixed(0)}%`}
+                              {d.dividend_type === "cash" ? `${fmtN(d.amount)} đ/CP` : fmtRatio(d.amount)}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                    {divAnnouncements.length > 0 && (
+                      <div style={{ padding: "8px 16px", fontSize: 11.5, color: tk.MUTED2, fontStyle: "italic" }}>
+                        * Dự kiến: doanh nghiệp đã công bố ý định trả cổ tức nhưng chưa chốt ngày GDKHQ chính thức — số liệu có thể thay đổi.
+                      </div>
+                    )}
                   </div>
                 )
               )}
@@ -1275,7 +1310,7 @@ export function TickerDetailPage() {
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                       <thead>
                         <tr style={{ background: tk.CARD2 }}>
-                          {["Ngày GD", "Người nội bộ", "Loại GD", "Khối lượng"].map(h => (
+                          {["Ngày đăng ký", "Người nội bộ", "Loại GD", "KL đăng ký"].map(h => (
                             <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: tk.MUTED2, letterSpacing: "0.06em", textTransform: "uppercase", borderBottom: `0.5px solid ${tk.BORDER}` }}>{h}</th>
                           ))}
                         </tr>
@@ -1283,7 +1318,11 @@ export function TickerDetailPage() {
                       <tbody>
                         {insiders.map((ins: any, i: number) => (
                           <tr key={ins.id} style={{ background: i % 2 === 0 ? "transparent" : tk.ROW_HOV, borderBottom: `0.5px solid ${tk.BORDER}` }}>
-                            <td style={{ padding: "10px 16px", fontWeight: 600, color: tk.TEXT }}>{fmtDate(ins.trade_date)}</td>
+                            <td style={{ padding: "10px 16px", fontWeight: 600, color: tk.TEXT }}>
+                              {ins.reg_start_date && ins.reg_end_date
+                                ? (ins.reg_start_date === ins.reg_end_date ? fmtDate(ins.reg_end_date) : `${fmtShort(ins.reg_start_date)} - ${fmtDate(ins.reg_end_date)}`)
+                                : fmtDate(ins.trade_date)}
+                            </td>
                             <td style={{ padding: "10px 16px", color: tk.MUTED, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ins.insider_name}</td>
                             <td style={{ padding: "10px 16px" }}>
                               <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 700, background: ins.trade_type === "buy" ? "rgba(52,199,89,0.12)" : "rgba(255,59,48,0.1)", color: ins.trade_type === "buy" ? "#16a34a" : "#FF3B30" }}>
@@ -1297,6 +1336,9 @@ export function TickerDetailPage() {
                         ))}
                       </tbody>
                     </table>
+                    <div style={{ padding: "8px 16px", fontSize: 11.5, color: tk.MUTED2, fontStyle: "italic" }}>
+                      * KL đăng ký là khối lượng ĐÃ CÔNG BỐ Ý ĐỊNH giao dịch — có thể khác khối lượng thực hiện thật ngoài đời (nguồn hiện chưa có dữ liệu xác nhận kết quả).
+                    </div>
                   </div>
                 )
               )}

@@ -268,6 +268,8 @@ export function Portfolio({
   const [symbolCursor,          setSymbolCursor]          = useState(-1);
   const [hoveredSlice, setHoveredSlice] = useState<string | null>(null);
   const [chartDataReal,   setChartDataReal]   = useState<ChartPoint[]>([]);
+  const [highlightSymbol, setHighlightSymbol] = useState<string | null>(null);
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // ── DNSE live data ────────────────────────────────────────────────────────
   const { config: brokerConfig } = useBrokerConfig();
@@ -298,9 +300,21 @@ export function Portfolio({
       setSymbolCursor(-1);
       return;
     }
+    // Xếp hạng theo độ liên quan: khớp mã chính xác/đầu mã được ưu tiên hơn khớp trong tên công ty,
+    // tránh việc "vic" bị các mã như BBS ("VICEM Bao bì Bút Sơn") chiếm hết slot trước VIC.
+    const rank = (t: TickerOption) => {
+      const sym = t.symbol.toLowerCase();
+      const name = t.name.toLowerCase();
+      if (sym === q) return 0;
+      if (sym.startsWith(q)) return 1;
+      if (sym.includes(q)) return 2;
+      if (name.startsWith(q)) return 3;
+      return 4;
+    };
     setSymbolSuggestions(
       allTickers
         .filter((t) => t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q))
+        .sort((a, b) => rank(a) - rank(b) || a.symbol.localeCompare(b.symbol))
         .slice(0, 6)
     );
     setSymbolCursor(-1);
@@ -436,6 +450,16 @@ export function Portfolio({
 
   const fmtPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 
+  // Scroll the newly-added holding into view and flash-highlight it once it renders
+  useEffect(() => {
+    if (!highlightSymbol) return;
+    const el = rowRefs.current[highlightSymbol];
+    if (!el) return; // row not rendered yet — effect re-fires when `holdings` updates
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = setTimeout(() => setHighlightSymbol(null), 1600);
+    return () => clearTimeout(timer);
+  }, [highlightSymbol, holdings]);
+
   const openAdd = () => {
     setEditingHolding(null);
     setSaveError(null);
@@ -493,6 +517,7 @@ export function Portfolio({
         );
 
       if (error) { setSaveError(error.message); return; }
+      setHighlightSymbol(sym);
     }
 
     setShowModal(false);
@@ -537,6 +562,8 @@ export function Portfolio({
     .portfolio-drag-card { cursor: grab; }
     .portfolio-drag-card:active { cursor: grabbing; }
     .holding-row:hover .row-drag { opacity: 1 !important; }
+    @keyframes rowHighlightLight { 0% { background: rgba(8,73,172,0.14); } 100% { background: transparent; } }
+    @keyframes rowHighlightDark  { 0% { background: rgba(77,143,232,0.22); } 100% { background: transparent; } }
   `;
 
   return (
@@ -570,16 +597,15 @@ export function Portfolio({
           </div>
           <button
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); invalidateHoldings(); }}
-            disabled={portfolioLoading}
+            onClick={(e) => { e.stopPropagation(); openAdd(); }}
             style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "8px 14px",
-              borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.20)"), background: "transparent",
-              cursor: portfolioLoading ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: brand, fontFamily: FONT,
-              opacity: portfolioLoading ? 0.6 : 1,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 14px",
+              borderRadius: 10, border: "none", background: brand,
+              cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#fff", fontFamily: FONT,
+              transition: "background 150ms ease",
             }}
           >
-            <RefreshCw size={14} strokeWidth={1.5} style={{ animation: portfolioLoading ? "spin 1s linear infinite" : "none" }} /> Làm mới
+            <Plus size={14} strokeWidth={1.5} /> Thêm cổ phiếu
           </button>
         </div>
       </div>
@@ -971,6 +997,7 @@ export function Portfolio({
           return (
             <div
               key={h.symbol}
+              ref={(el) => { rowRefs.current[h.symbol] = el; }}
               className="holding-row"
               {...makeDragHandlers(tickerCard)}
               style={{
@@ -982,6 +1009,7 @@ export function Portfolio({
                 transition: "background 80ms ease",
                 cursor: "grab",
                 position: "relative",
+                animation: h.symbol === highlightSymbol ? `${isDark ? "rowHighlightDark" : "rowHighlightLight"} 1.6s ease-out` : "none",
               }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.05)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
