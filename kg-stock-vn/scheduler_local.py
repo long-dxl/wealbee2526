@@ -18,6 +18,8 @@ if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 import argparse
+import json
+import re
 from datetime import datetime, date, timedelta, timezone
 
 import serve
@@ -92,12 +94,39 @@ def event_fires(agent: dict):
 
 
 def _due_scheduled(agent: dict) -> bool:
+    """Đúng lịch chưa. Hỗ trợ JSON {mode,frequency,time,days} (định dạng hiện tại, mọi
+    frequency kể cả "custom") và chuỗi rút gọn cũ "daily|weekdays|weekly:HH:MM".
+    days dùng chỉ số UI (0=T2..5=T7,6=CN) → quy đổi sang dow kiểu JS/Postgres (0=CN..6=T7),
+    đồng bộ với compute_agent_next_run_at() trong migration 20260707050000."""
     sch = agent.get("schedule") or ""
-    if not sch.startswith("daily:"):
+    frequency, hhmm, days = None, None, []
+
+    if isinstance(sch, str) and sch.strip().startswith("{"):
+        try:
+            cfg = json.loads(sch)
+        except ValueError:
+            cfg = {}
+        if cfg.get("mode") == "scheduled" and cfg.get("frequency") and cfg.get("time"):
+            frequency, hhmm, days = cfg["frequency"], cfg["time"], (cfg.get("days") or [])
+
+    if frequency is None:
+        m = re.match(r"^(daily|weekdays|weekly):([0-9]{1,2}:[0-9]{2})$", sch)
+        if not m:
+            return False
+        frequency, hhmm = m.group(1), m.group(2)
+
+    if frequency == "daily":
+        valid_dow = {0, 1, 2, 3, 4, 5, 6}
+    elif frequency == "weekdays":
+        valid_dow = {1, 2, 3, 4, 5}
+    else:  # weekly | custom
+        valid_dow = {0 if d == 6 else d + 1 for d in days}
+    if not valid_dow:
         return False
-    hhmm = sch.split(":", 1)[1]
-    now = datetime.now(VN).strftime("%H:%M")
-    return now == hhmm  # trùng phút (loop mỗi phút) — đơn giản cho local test
+
+    now_vn = datetime.now(VN)
+    js_dow = (now_vn.weekday() + 1) % 7  # Python Mon=0..Sun=6 → JS/Postgres Sun=0..Sat=6
+    return js_dow in valid_dow and now_vn.strftime("%H:%M") == hhmm
 
 
 def _recent_brief(agent_id: str, hours: int) -> bool:
