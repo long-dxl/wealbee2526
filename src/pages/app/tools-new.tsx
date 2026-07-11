@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import {
   TrendingUp, FileText, Calculator, Newspaper, Globe,
-  Activity, GitBranch, Search, Check, ChevronRight, Users,
+  Activity, GitBranch, Search, Check, ChevronRight, Users, ClipboardList,
 } from "lucide-react";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 
@@ -67,6 +67,20 @@ export const tools: Tool[] = [
     breakdown: [
       { title: "Lịch sử cổ tức", desc: "Chi trả cổ tức tiền mặt/cổ phiếu và tỷ suất theo giá hiện tại." },
       { title: "Giao dịch nội bộ", desc: "Mua/bán của ban lãnh đạo, người nội bộ và cổ đông lớn (MUA/BÁN)." },
+    ],
+  },
+  {
+    id: "analyst-reports",
+    name: "Báo cáo phân tích CTCK",
+    oneliner: "Khuyến nghị & giá mục tiêu của các công ty chứng khoán cho từng mã (kèm link PDF gốc)",
+    longDescription: "Tổng hợp báo cáo phân tích của các CTCK (SSI, VNDirect, Rồng Việt, Vietcap…) cho từng cổ phiếu: khuyến nghị (MUA/Khả quan/Nắm giữ…), giá mục tiêu, ngày phát hành và mức đồng thuận, kèm link PDF gốc để đối chiếu. Đây là quan điểm bên thứ ba (môi giới), không phải khuyến nghị của Wealbee.",
+    category: "Tài chính",
+    icon: ClipboardList,
+    backendToolId: "analyst_reports",
+    breakdown: [
+      { title: "Khuyến nghị", desc: "MUA/Khả quan/Nắm giữ/Bán theo từng CTCK." },
+      { title: "Giá mục tiêu", desc: "Target price kèm ngày phát hành và tên CTCK." },
+      { title: "Đồng thuận + nguồn", desc: "Số báo cáo tích cực/tiêu cực + giá mục tiêu trung bình, link PDF gốc." },
     ],
   },
   {

@@ -6,7 +6,7 @@ import {
   Zap, Clock, RefreshCw, CheckCircle2, AlertTriangle, Eye,
   Lightbulb, Mail, Inbox, Info, Settings, History, RotateCcw,
   Search, BarChart2, Activity, Globe, Calculator, ArrowRight, Users,
-  MessageCircle, Copy,
+  MessageCircle, Copy, ClipboardList,
 } from "lucide-react";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { MdContent, RichContent } from "../../components/MdContent";
@@ -237,6 +237,12 @@ const TOOL_GROUPS = [
         desc: "Lịch sử chi trả cổ tức (tiền mặt/cổ phiếu) và giao dịch mua/bán của lãnh đạo, cổ đông nội bộ",
         available: true,
         includes: ["Lịch sử cổ tức", "Giao dịch nội bộ (MUA/BÁN)"],
+      },
+      {
+        id: "analyst_reports", name: "Báo cáo phân tích CTCK", Icon: ClipboardList,
+        desc: "Khuyến nghị + GIÁ MỤC TIÊU của các CTCK (SSI, VNDirect, Rồng Việt…) cho từng mã, kèm đồng thuận và link PDF gốc",
+        available: true,
+        includes: ["Khuyến nghị (MUA/Khả quan…)", "Giá mục tiêu", "Đồng thuận CTCK + link PDF"],
       },
       {
         id: "value_chain", name: "Giá hàng hóa (chuỗi cung ứng)", Icon: Activity,

@@ -11,6 +11,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { valueChainReport, valueChainFrame } from "../_shared/value-chain.ts";
 import { macroContext } from "../_shared/macro.ts";
+import { analystReportsContext } from "../_shared/analyst-reports.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
 import { zaloSend } from "../_shared/zalo.ts";
 import { buildPriceContext, buildNewsContext, faUrl } from "../_shared/market-context.ts";
@@ -522,6 +523,18 @@ const OPENAI_TOOL_DEFS: Record<string, object> = {
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
+  analyst_reports: {
+    type: "function",
+    function: {
+      name: "analyst_reports",
+      description: "Báo cáo phân tích của các CTCK (SSI, VNDirect, Rồng Việt…) cho 1 mã: khuyến nghị (MUA/Khả quan…), GIÁ MỤC TIÊU, ngày, đồng thuận + link PDF gốc. Dùng khi cần quan điểm/định giá của bên môi giới cho cổ phiếu.",
+      parameters: {
+        type: "object",
+        properties: { symbol: { type: "string", description: "Mã cổ phiếu, ví dụ 'HPG'" } },
+        required: ["symbol"],
+      },
+    },
+  },
   kb_search: {
     type: "function",
     function: {
@@ -540,7 +553,7 @@ const OPENAI_TOOL_DEFS: Record<string, object> = {
 
 function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
   const defs: object[] = [];
-  for (const name of ["price_feed", "news_feed", "financials", "insider_trades", "value_chain", "macro", "portfolio_read"]) {
+  for (const name of ["price_feed", "news_feed", "financials", "insider_trades", "value_chain", "macro", "analyst_reports", "portfolio_read"]) {
     if (enabled.includes(name) && OPENAI_TOOL_DEFS[name]) defs.push(OPENAI_TOOL_DEFS[name]);
   }
   if (hasKb) defs.push(OPENAI_TOOL_DEFS.kb_search);
@@ -602,6 +615,11 @@ async function executeToolCall(
   }
   if (name === "macro") {
     return (await macroContext(sb, registry)) || "Chưa có dữ liệu vĩ mô";
+  }
+  if (name === "analyst_reports") {
+    const sym = String(args.symbol ?? "").toUpperCase();
+    if (!sym) return "Lỗi: thiếu tham số symbol";
+    return (await analystReportsContext(sb, sym, registry)) || `Chưa có báo cáo phân tích CTCK cho ${sym}.`;
   }
   if (name === "kb_search") {
     if (!kbDocIds.length) return "Knowledge Base chưa được cấu hình cho agent này";
@@ -705,6 +723,8 @@ async function prefetchToolContext(
       add(`BÁO CÁO TÀI CHÍNH ${sym}`, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter, financialsDepth));
     if (want.has("insider_trades"))
       add(`CỔ TỨC & GIAO DỊCH NỘI BỘ ${sym}`, executeToolCall("insider_trades", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
+    if (want.has("analyst_reports"))
+      add(`BÁO CÁO PHÂN TÍCH CTCK ${sym}`, executeToolCall("analyst_reports", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
     if (want.has("value_chain")) {
       // Bật tool "Giá hàng hóa" → báo cáo ĐẦY ĐỦ (khung + GIÁ realtime Yahoo)
       add(`CHUỖI GIÁ TRỊ ${sym}`, executeToolCall("value_chain", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
@@ -732,6 +752,7 @@ function toolStepLabel(name: string, args: Record<string, any>): string {
     case "value_chain":    return `Chuỗi cung ứng & yếu tố tác động: ${args.symbol ?? ""}`;
     case "portfolio_read": return "Danh mục đầu tư";
     case "macro":          return "Bối cảnh vĩ mô (tỷ giá, lãi suất, dầu, VN-Index)";
+    case "analyst_reports": return `Báo cáo phân tích CTCK: ${args.symbol ?? ""}`;
     case "kb_search":      return `Knowledge Base: "${String(args.query ?? "").slice(0, 40)}"`;
     default: return name;
   }
