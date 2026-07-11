@@ -1,12 +1,7 @@
 import { toAnthropicToolDef, type ModelConfig } from "./llm-adapter.ts";
-import type { ToolDefinition } from "./tool-registry.ts";
-
-export type LLMRole = "system" | "user" | "assistant" | "tool";
-export interface LLMToolCall { id: string; name: string; arguments: Record<string, unknown>; }
-export interface LLMMessage { role: LLMRole; content: string; toolCallId?: string; toolName?: string; toolCalls?: LLMToolCall[]; }
-export interface LLMUsage { inputTokens: number; outputTokens: number; cachedInputTokens: number; }
+import type { LLMAdapter, LLMEvent, LLMMessage, LLMRequest, LLMToolCall, LLMUsage } from "./contracts.ts";
+export type { LLMEvent, LLMMessage, LLMRequest, LLMToolCall, LLMUsage } from "./contracts.ts";
 export interface LLMResult { content: string; toolCalls: LLMToolCall[]; usage: LLMUsage; model: string; provider: ModelConfig["provider"]; }
-export interface LLMRequest { model: ModelConfig; messages: LLMMessage[]; tools?: ToolDefinition[]; maxTokens?: number; temperature?: number; }
 export interface LLMRuntime { complete(request: LLMRequest): Promise<LLMResult>; }
 
 const usage = (inputTokens = 0, outputTokens = 0, cachedInputTokens = 0): LLMUsage => ({ inputTokens, outputTokens, cachedInputTokens });
@@ -15,13 +10,21 @@ const args = (raw: unknown): Record<string, unknown> => {
   try { return JSON.parse(String(raw || "{}")); } catch { return {}; }
 };
 
-export class ProviderLLMRuntime implements LLMRuntime {
+export class ProviderLLMRuntime implements LLMRuntime, LLMAdapter {
   constructor(private readonly fetcher: typeof fetch = fetch) {}
   complete(req: LLMRequest): Promise<LLMResult> {
     if (req.model.provider === "openai") return this.openAI(req);
     if (req.model.provider === "anthropic") return this.anthropic(req);
     if (req.model.provider === "gemini") return this.gemini(req);
     throw new Error(`Provider không được hỗ trợ: ${String(req.model.provider)}`);
+  }
+
+  async *call(req: LLMRequest): AsyncIterable<LLMEvent> {
+    const result = await this.complete(req);
+    if (result.content) yield { type: "text", text: result.content };
+    if (result.toolCalls.length) yield { type: "tool_calls", calls: result.toolCalls };
+    yield { type: "usage", usage: result.usage };
+    yield { type: "done", model: result.model, provider: result.provider };
   }
 
   private async openAI(req: LLMRequest): Promise<LLMResult> {

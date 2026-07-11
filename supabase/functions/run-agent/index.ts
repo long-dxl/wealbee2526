@@ -20,8 +20,10 @@ import { CORS } from "../_shared/cors.ts";
 import { buildFinancialsContext, buildInsiderContext } from "../_shared/context-builders.ts";
 import { DEFAULT_DAILY_DIGEST_PROMPT, GROUNDING_FORMAT_MARKDOWN, GROUNDING_FORMAT_COLOR } from "../_shared/prompts.ts";
 import { getModelConfig, costVndForModel, isProviderAvailable } from "../_shared/llm-adapter.ts";
-import { ProviderLLMRuntime, type LLMMessage } from "../_shared/llm-runtime.ts";
+import { ProviderLLMRuntime } from "../_shared/llm-runtime.ts";
+import { AgentEngine } from "../_shared/agent-engine.ts";
 import { registryFromOpenAIDefinitions } from "../_shared/tool-registry.ts";
+import { TOOL_DEFINITIONS, canonicalToolId } from "../_shared/tool-catalog.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -390,119 +392,9 @@ function extractTickers(text: string): string[] {
 
 // ─── Tool definitions & execution (true function-calling) ────────────────────
 
-const OPENAI_TOOL_DEFS: Record<string, object> = {
-  price_feed: {
-    type: "function",
-    function: {
-      name: "price_feed",
-      description: "Lấy giá đóng cửa mới nhất của các cổ phiếu VN30 và chỉ số VNINDEX, HNX",
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
-  news_feed: {
-    type: "function",
-    function: {
-      name: "news_feed",
-      description: "Lấy tin tức tài chính 48h gần nhất. Dùng symbols để lọc theo mã cổ phiếu cụ thể.",
-      parameters: {
-        type: "object",
-        properties: {
-          symbols: {
-            type: "array",
-            items: { type: "string" },
-            description: "Danh sách mã cổ phiếu cần lọc tin (ví dụ: ['VCB','HPG']). Để trống để lấy tin thị trường chung.",
-          },
-        },
-        required: [],
-      },
-    },
-  },
-  financials: {
-    type: "function",
-    function: {
-      name: "financials",
-      description: "Lấy báo cáo tài chính IS/BS/CF/chỉ số (Năm + 5 Quý gần nhất) của một mã cổ phiếu",
-      parameters: {
-        type: "object",
-        properties: {
-          symbol: { type: "string", description: "Mã cổ phiếu cần tra cứu, ví dụ: 'VCB'" },
-        },
-        required: ["symbol"],
-      },
-    },
-  },
-  insider_trades: {
-    type: "function",
-    function: {
-      name: "insider_trades",
-      description: "Lấy lịch sử cổ tức và giao dịch mua/bán của lãnh đạo/nội bộ của một mã cổ phiếu",
-      parameters: {
-        type: "object",
-        properties: {
-          symbol: { type: "string", description: "Mã cổ phiếu cần tra cứu, ví dụ: 'VCB'" },
-        },
-        required: ["symbol"],
-      },
-    },
-  },
-  value_chain: {
-    type: "function",
-    function: {
-      name: "value_chain",
-      description: "Chuỗi giá trị & yếu tố tác động của một mã: nguyên liệu ĐẦU VÀO (vd quặng sắt/than cốc với thép; dầu/nhiên liệu với hàng không/cảng), sản phẩm ĐẦU RA (thép HRC, urea, heo hơi), giá cước & yếu tố vĩ mô. Dùng khi phân tích biên LN chịu tác động bởi giá hàng hóa hoặc 'yếu tố nào ảnh hưởng đến mã'.",
-      parameters: {
-        type: "object",
-        properties: { symbol: { type: "string", description: "Mã cổ phiếu, ví dụ 'HPG', 'GAS', 'GMD'" } },
-        required: ["symbol"],
-      },
-    },
-  },
-  portfolio_read: {
-    type: "function",
-    function: {
-      name: "portfolio_read",
-      description: "Lấy danh mục đầu tư hiện tại của người dùng: holdings, giá vốn, P&L",
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
-  macro: {
-    type: "function",
-    function: {
-      name: "macro",
-      description: "Bối cảnh VĨ MÔ hôm nay: tỷ giá USD/VND, DXY, lợi suất Mỹ 10Y, giá dầu/vàng, S&P500, VIX (+%YTD/YoY), VN-Index/HNX, và top tin vĩ mô nổi bật. Dùng để đặt nền bối cảnh khi phân tích thị trường/ngành/mã.",
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
-  analyst_reports: {
-    type: "function",
-    function: {
-      name: "analyst_reports",
-      description: "Báo cáo phân tích của các CTCK (SSI, VNDirect, Rồng Việt…) cho 1 mã: khuyến nghị (MUA/Khả quan…), GIÁ MỤC TIÊU, ngày, đồng thuận + link PDF gốc. Dùng khi cần quan điểm/định giá của bên môi giới cho cổ phiếu.",
-      parameters: {
-        type: "object",
-        properties: { symbol: { type: "string", description: "Mã cổ phiếu, ví dụ 'HPG'" } },
-        required: ["symbol"],
-      },
-    },
-  },
-  kb_search: {
-    type: "function",
-    function: {
-      name: "kb_search",
-      description: "Tìm kiếm thông tin trong Knowledge Base đã cấu hình của người dùng",
-      parameters: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "Câu hỏi hoặc từ khóa cần tìm trong Knowledge Base" },
-        },
-        required: ["query"],
-      },
-    },
-  },
-};
-
-const TOOL_REGISTRY = registryFromOpenAIDefinitions(OPENAI_TOOL_DEFS);
+const TOOL_REGISTRY = registryFromOpenAIDefinitions(TOOL_DEFINITIONS);
 const LLM_RUNTIME = new ProviderLLMRuntime();
+const AGENT_ENGINE = new AgentEngine(LLM_RUNTIME);
 
 function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
   const allowed = enabled.filter(name => name !== "kb_search");
@@ -510,7 +402,7 @@ function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
   return TOOL_REGISTRY.definitions(allowed);
 }
 
-async function executeToolCall(
+async function dispatchToolHandler(
   name: string,
   args: Record<string, any>,
   registry: SourceRegistry,
@@ -595,6 +487,24 @@ async function executeToolCall(
     } catch (e) { return `Lỗi KB search: ${String(e)}`; }
   }
   return `Tool không được hỗ trợ: ${name}`;
+}
+
+for (const id of Object.keys(TOOL_DEFINITIONS)) {
+  TOOL_REGISTRY.setHandler(id, async (args, context) => {
+    const state = context.state as any;
+    return dispatchToolHandler(canonicalToolId(id), args, state.registry, state.sources, context.userId, state.kbDocIds, state.newsFilter, state.financialsDepth);
+  });
+}
+
+async function executeToolCall(
+  name: string, args: Record<string, any>, registry: SourceRegistry, sources: Source[],
+  userId: string, kbDocIds: string[], newsFilter?: string[], financialsDepth: "full" | "brief" = "full",
+): Promise<string> {
+  return TOOL_REGISTRY.execute(name, args, {
+    userId,
+    enabledToolIds: new Set([name]),
+    state: { registry, sources, kbDocIds, newsFilter, financialsDepth },
+  });
 }
 
 // ─── Bộ lọc cơ học thay validator LLM (0 token) ───────────────────────────────
@@ -876,13 +786,13 @@ Deno.serve(async (req: Request) => {
 
         // For portfolio_health template: add portfolio_read automatically if not already
         if (agent.template_id === "portfolio_health" && !enabledTools.includes("portfolio_read")) {
-          toolDefs.push(OPENAI_TOOL_DEFS.portfolio_read);
+          toolDefs.push(TOOL_REGISTRY.get("portfolio_read")!.definition);
         }
 
         // daily_digest: đảm bảo luôn có news_feed + price_feed
         if (agent.template_id === "daily_digest") {
-          if (!enabledTools.includes("news_feed")) toolDefs.push(OPENAI_TOOL_DEFS.news_feed);
-          if (!enabledTools.includes("price_feed")) toolDefs.push(OPENAI_TOOL_DEFS.price_feed);
+          if (!enabledTools.includes("news_feed")) toolDefs.push(TOOL_REGISTRY.get("news_feed")!.definition);
+          if (!enabledTools.includes("price_feed")) toolDefs.push(TOOL_REGISTRY.get("price_feed")!.definition);
         }
 
         // ── TỐI ƯU CHI PHÍ (giữ nguyên output) ──────────────────────────────────
@@ -990,7 +900,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
         // ── True tool-call loop ───────────────────────────────────────────────
         // LLM decides WHEN and WHICH tools to call. No pre-fetching.
 
-        const messages: LLMMessage[] = [
+        const messages = [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
         ];
@@ -1001,49 +911,25 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
         let fullOutput = "";
         let tokens = 0;
         let tokensIn = 0, tokensOut = 0, cachedIn = 0;
-        const MAX_TOOL_ITERS = 8; // max tool-call rounds before forcing final answer
-
-        for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
-          const result = await LLM_RUNTIME.complete({ model: modelCfg, messages, tools: toolDefs as any, maxTokens: 8000, temperature: 0 });
-          tokensIn += result.usage.inputTokens;
-          tokensOut += result.usage.outputTokens;
-          cachedIn += result.usage.cachedInputTokens;
-          tokens += result.usage.inputTokens + result.usage.outputTokens;
-
-          if (!result.toolCalls.length) {
-            fullOutput = result.content;
-            emit({ type: "chunk", text: fullOutput });
-            break;
+        for await (const event of AGENT_ENGINE.run({
+          model: modelCfg, messages, tools: toolDefs as any, maxTokens: 8000, temperature: 0,
+          registry: TOOL_REGISTRY, maxToolIterations: 8,
+          toolContext: {
+            userId: user.id, enabledToolIds: callableToolIds,
+            state: { registry, sources, kbDocIds, newsFilter: (agent as any).news_sources ?? undefined, financialsDepth: "full" },
+          },
+        })) {
+          if (event.type === "usage") {
+            tokensIn += event.usage.inputTokens; tokensOut += event.usage.outputTokens;
+            cachedIn += event.usage.cachedInputTokens; tokens += event.usage.inputTokens + event.usage.outputTokens;
+          } else if (event.type === "tool_start") {
+            const label = toolStepLabel(event.call.name, event.call.arguments as any);
+            emit({ type: "step", step: event.call.name, status: "loading", label: `Đang lấy: ${label}...` });
+          } else if (event.type === "tool_end") {
+            emit({ type: "step", step: event.call.name, status: "done", label: toolStepLabel(event.call.name, event.call.arguments as any) });
+          } else if (event.type === "text") {
+            fullOutput = event.text; emit({ type: "chunk", text: fullOutput });
           }
-
-          messages.push({ role: "assistant", content: result.content, toolCalls: result.toolCalls });
-          const toolResults = await Promise.all(
-            result.toolCalls.map(async (tc) => {
-                const name = tc.name;
-                const args = tc.arguments as Record<string, any>;
-
-                const label = toolStepLabel(name, args);
-                emit({ type: "step", step: name, status: "loading", label: `Đang lấy: ${label}...` });
-
-                let content: string;
-                try {
-                  TOOL_REGISTRY.assertCallable(name, args, {
-                    userId: user.id,
-                    enabledToolIds: callableToolIds,
-                  });
-                  content = await executeToolCall(
-                    name, args, registry, sources, user.id, kbDocIds,
-                    (agent as any).news_sources ?? undefined,
-                  );
-                } catch (e) {
-                  content = `Lỗi thực thi tool ${name}: ${String(e)}`;
-                }
-
-                emit({ type: "step", step: name, status: "done", label });
-                return { role: "tool" as const, toolCallId: tc.id, toolName: name, content };
-              })
-          );
-          messages.push(...toolResults);
         }
 
         emit({ type: "step", step: "gpt", status: "done", label: "Phân tích hoàn tất" });
@@ -1124,24 +1010,18 @@ QUY TẮC:
 
             const valUser = `NGUỒN DỮ LIỆU:\n${sourceData}\n\nOUTPUT CẦN KIỂM TRA:\n${protectedOutput}`;
 
-            const valRes = await fetch("https://api.openai.com/v1/chat/completions", {
-              method: "POST",
-              headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model: "gpt-4.1-mini",
+            try {
+              const valResult = await LLM_RUNTIME.complete({
+                model: getModelConfig("gpt-4o-mini"),
                 messages: [{ role: "system", content: valSystem }, { role: "user", content: valUser }],
                 temperature: 0,
-                max_tokens: 8000,
-              }),
-            });
-
-            if (valRes.ok) {
-              const valJson = await valRes.json();
-              tokens    += valJson.usage?.total_tokens ?? 0;
-              tokensIn  += valJson.usage?.prompt_tokens ?? 0;
-              tokensOut += valJson.usage?.completion_tokens ?? 0;
-              cachedIn  += valJson.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-              let validated = valJson.choices?.[0]?.message?.content?.trim() ?? "";
+                maxTokens: 8000,
+              });
+              tokens += valResult.usage.inputTokens + valResult.usage.outputTokens;
+              tokensIn += valResult.usage.inputTokens;
+              tokensOut += valResult.usage.outputTokens;
+              cachedIn += valResult.usage.cachedInputTokens;
+              let validated = valResult.content.trim();
               // Restore [ref:N] tokens from placeholders
               for (const [ph, ref] of Object.entries(refPlaceholders)) {
                 validated = validated.replaceAll(ph, ref);
@@ -1151,6 +1031,8 @@ QUY TẮC:
                 fullOutput = validated;
                 emit({ type: "reset_output", output: fullOutput });
               }
+            } catch (validationError) {
+              console.warn("[run-agent] validation skipped:", validationError);
             }
             emit({ type: "step", step: "validate", status: "done", label: "Đã xác minh nguồn dữ liệu" });
           }

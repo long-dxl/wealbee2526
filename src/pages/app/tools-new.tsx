@@ -5,6 +5,7 @@ import {
   Activity, GitBranch, Search, Check, ChevronRight, Users, ClipboardList,
 } from "lucide-react";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
+import { PUBLIC_TOOL_METADATA } from "../../../supabase/functions/_shared/tool-catalog";
 
 export type Category = "Tất cả" | "Thị trường" | "Tài chính" | "Định giá" | "Kỹ thuật" | "Tin tức" | "Vĩ mô";
 
@@ -27,7 +28,7 @@ export interface Tool {
 // KHÔNG tách nhiều card cho cùng 1 tool backend (vd "Giá cổ phiếu", "Chỉ số", "Top tăng/giảm" trước đây
 // là 3 card riêng dù cùng dùng price_feed) — thay vào đó gộp thành 1 card, phần "breakdown" cho biết
 // bên trong tool đó thực sự gồm những gì.
-export const tools: Tool[] = [
+const toolPresentation: Tool[] = [
   {
     id: "price-feed",
     name: "Giá & Chỉ số",
@@ -167,6 +168,15 @@ export const tools: Tool[] = [
     available: false,
   },
 ];
+
+const registryMetadata = new Map(PUBLIC_TOOL_METADATA.map(tool => [tool.id, tool]));
+export const tools: Tool[] = toolPresentation.map(tool => {
+  if (!tool.backendToolId) return tool;
+  const metadata = registryMetadata.get(tool.backendToolId);
+  return metadata
+    ? { ...tool, name: metadata.label, longDescription: metadata.description, available: tool.available !== false }
+    : { ...tool, available: false };
+});
 
 export const catStyle: Record<Exclude<Category, "Tất cả">, { bg: string; text: string }> = {
   "Thị trường": { bg: "rgba(52,199,89,0.12)", text: "#1a7a3a" },
@@ -378,4 +388,3 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
     </div>
   );
 }
-

@@ -16,6 +16,7 @@ import { getZaloLink, genZaloCode, ZALO_BOT_LINK, ZALO_BOT_QR } from "../../lib/
 import { notifyWalletChanged } from "../../lib/wallet-events";
 import { projectId } from "../../utils/supabase/info";
 import wealbeeLogo from "../../assets/Logo.svg";
+import { PUBLIC_TOOL_METADATA } from "../../../supabase/functions/_shared/tool-catalog";
 
 type ScheduleFrequency = "daily" | "weekdays" | "weekly" | "custom";
 
@@ -205,7 +206,7 @@ function FileTypeTag({ type, size = 36 }: { type: string; size?: number }) {
 
 // ── Tool groups ───────────────────────────────────────────────────────────────
 // IDs khớp với những gì run-agent kiểm tra qua enabledTools.includes(id)
-const TOOL_GROUPS = [
+const TOOL_GROUP_PRESENTATION = [
   {
     id: "market", category: "Dữ liệu thị trường",
     tools: [
@@ -277,6 +278,11 @@ const TOOL_GROUPS = [
     ],
   },
 ];
+const registryToolMetadata = new Map(PUBLIC_TOOL_METADATA.map(tool => [tool.id, tool]));
+const TOOL_GROUPS = TOOL_GROUP_PRESENTATION.map(group => ({ ...group, tools: group.tools.map(tool => {
+  const metadata = registryToolMetadata.get(tool.id);
+  return metadata ? { ...tool, name: metadata.label, desc: metadata.description, available: tool.available !== false } : { ...tool, available: false };
+}) }));
 const ALL_TOOLS = TOOL_GROUPS.flatMap(g => g.tools);
 
 // ── Default prompt ──────────────────────────────────────────────────────────

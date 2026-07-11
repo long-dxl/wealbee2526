@@ -35,4 +35,12 @@ describe("ToolRegistry", () => {
       enabledToolIds: new Set(["financials"]),
     })).toThrow("thiếu tham số bắt buộc: symbol");
   });
+
+  it("thực thi handler đã đăng ký sau khi qua guard", async () => {
+    const registry = new ToolRegistry().register({ id: "financials", definition: financials });
+    registry.setHandler("financials", async args => `ok:${args.symbol}`);
+    await expect(registry.execute("financials", { symbol: "HPG" }, {
+      userId: "user-1", enabledToolIds: new Set(["financials"]),
+    })).resolves.toBe("ok:HPG");
+  });
 });

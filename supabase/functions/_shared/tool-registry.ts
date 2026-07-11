@@ -19,6 +19,7 @@ export interface ToolExecutionContext {
   userId: string;
   tenantId?: string;
   enabledToolIds: ReadonlySet<string>;
+  state?: Record<string, unknown>;
 }
 
 export type ToolHandler = (
@@ -46,6 +47,19 @@ export class ToolRegistry {
 
   get(id: string): RegisteredTool | undefined {
     return this.tools.get(id);
+  }
+
+  setHandler(id: string, handler: ToolHandler): this {
+    const tool = this.tools.get(id);
+    if (!tool) throw new Error(`Tool không được hỗ trợ: ${id}`);
+    tool.handler = handler;
+    return this;
+  }
+
+  async execute(id: string, args: Record<string, any>, context: ToolExecutionContext): Promise<string> {
+    const tool = this.assertCallable(id, args, context);
+    if (!tool.handler) throw new Error(`Tool chưa có handler: ${id}`);
+    return tool.handler(args, context);
   }
 
   definitions(ids: Iterable<string>): ToolDefinition[] {
