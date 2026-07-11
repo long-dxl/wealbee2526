@@ -8,22 +8,18 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-// financialReport/insiderReport/TYPE_LABEL dùng qua _shared/context-builders.ts
-import { valueChainReport, valueChainFrame } from "../_shared/value-chain.ts";
-import { macroContext } from "../_shared/macro.ts";
-import { analystReportsContext } from "../_shared/analyst-reports.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
 import { zaloSend } from "../_shared/zalo.ts";
-import { buildPriceContext, buildNewsContext, faUrl } from "../_shared/market-context.ts";
+import { faUrl } from "../_shared/market-context.ts";
 import { SourceRegistry } from "../_shared/source-registry.ts";
 import { CORS } from "../_shared/cors.ts";
-import { buildFinancialsContext, buildInsiderContext } from "../_shared/context-builders.ts";
 import { DEFAULT_DAILY_DIGEST_PROMPT, GROUNDING_FORMAT_MARKDOWN, GROUNDING_FORMAT_COLOR } from "../_shared/prompts.ts";
 import { getModelConfig, costVndForModel, isProviderAvailable } from "../_shared/llm-adapter.ts";
 import { ProviderLLMRuntime } from "../_shared/llm-runtime.ts";
 import { AgentEngine } from "../_shared/agent-engine.ts";
 import { registryFromOpenAIDefinitions } from "../_shared/tool-registry.ts";
-import { TOOL_DEFINITIONS, canonicalToolId } from "../_shared/tool-catalog.ts";
+import { TOOL_DEFINITIONS } from "../_shared/tool-catalog.ts";
+import { registerRunAgentTools } from "../_shared/run-agent-tools.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -37,7 +33,6 @@ const APP_URL           = Deno.env.get("APP_URL") ?? "https://wealbee.com";
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Price/news context: dùng bản chung ở _shared/market-context.ts
-// buildFinancialsContext, buildInsiderContext: xem _shared/context-builders.ts
 // SourceRegistry: xem _shared/source-registry.ts
 
 // ─── Source type ─────────────────────────────────────────────────────────────
@@ -402,100 +397,9 @@ function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
   return TOOL_REGISTRY.definitions(allowed);
 }
 
-async function dispatchToolHandler(
-  name: string,
-  args: Record<string, any>,
-  registry: SourceRegistry,
-  sources: Source[],
-  userId: string,
-  kbDocIds: string[],
-  newsFilter?: string[],
-  financialsDepth: "full" | "brief" = "full",
-): Promise<string> {
-  if (name === "price_feed") {
-    const syms: string[] = Array.isArray(args.symbols) ? args.symbols.map(String) : [];
-    return (await buildPriceContext(sb, registry, syms)) || "Không có dữ liệu giá trong hệ thống";
-  }
-  if (name === "news_feed") {
-    const syms: string[] = Array.isArray(args.symbols) ? args.symbols.map(String) : [];
-    const ctx = await buildNewsContext(sb, registry, syms.length ? syms : undefined, newsFilter, sources);
-    return ctx || "Không có tin tức trong 48h gần nhất";
-  }
-  if (name === "financials") {
-    const sym = String(args.symbol ?? "").toUpperCase();
-    if (!sym) return "Lỗi: thiếu tham số symbol";
-    const ctx = await buildFinancialsContext(sb, sym, registry, financialsDepth);
-    await buildSymbolSources(sym, sources);
-    return ctx || `Không có dữ liệu tài chính cho ${sym} trong hệ thống`;
-  }
-  if (name === "insider_trades") {
-    const sym = String(args.symbol ?? "").toUpperCase();
-    if (!sym) return "Lỗi: thiếu tham số symbol";
-    const ctx = await buildInsiderContext(sb, sym, registry);
-    await buildInsiderSource(sym, sources);
-    return ctx || `Không có dữ liệu cổ tức/giao dịch nội bộ cho ${sym} trong hệ thống`;
-  }
-  if (name === "value_chain") {
-    const sym = String(args.symbol ?? "").toUpperCase();
-    if (!sym) return "Lỗi: thiếu tham số symbol";
-    let sectorName: string | undefined;
-    try {
-      const { data } = await sb.from("stocks").select("sector_name").eq("symbol", sym).single();
-      sectorName = data?.sector_name ?? undefined;
-    } catch { /* skip */ }
-    const ctx = await valueChainReport(sb, sym, sectorName, registry);
-    return ctx || `Ngành của ${sym} chưa gắn sơ đồ chuỗi giá trị hàng hóa.`;
-  }
-  if (name === "portfolio_read") {
-    return (await buildPortfolioContext(userId)) || "Chưa có danh mục đầu tư";
-  }
-  if (name === "macro") {
-    return (await macroContext(sb, registry)) || "Chưa có dữ liệu vĩ mô";
-  }
-  if (name === "analyst_reports") {
-    const sym = String(args.symbol ?? "").toUpperCase();
-    if (!sym) return "Lỗi: thiếu tham số symbol";
-    return (await analystReportsContext(sb, sym, registry)) || `Chưa có báo cáo phân tích CTCK cho ${sym}.`;
-  }
-  if (name === "kb_search") {
-    if (!kbDocIds.length) return "Knowledge Base chưa được cấu hình cho agent này";
-    const query = String(args.query ?? "");
-    try {
-      const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
-      });
-      const embedJson = await embedRes.json();
-      const embedding = embedJson.data?.[0]?.embedding;
-      if (!embedding) return "Lỗi tạo embedding";
-      const { data: chunks } = await sb.rpc("match_knowledge_chunks_by_docs", {
-        query_embedding: embedding, match_user_id: userId,
-        doc_ids: kbDocIds, match_count: 6, match_threshold: 0.35,
-      });
-      if (chunks?.length) {
-        return "## Kết quả từ Knowledge Base\n(Dùng làm ngữ cảnh, không trích dẫn [ref:N])\n"
-          + (chunks as any[]).map(c => `---\n${c.content}`).join("\n");
-      }
-      // Fallback: first chunks of each doc
-      const { data: fallback } = await sb.from("knowledge_chunks")
-        .select("content").in("document_id", kbDocIds).eq("user_id", userId)
-        .order("chunk_index", { ascending: true }).limit(kbDocIds.length * 2);
-      return fallback?.length
-        ? "## Kết quả từ Knowledge Base\n" + (fallback as any[]).map(c => `---\n${c.content}`).join("\n")
-        : "Không tìm thấy nội dung liên quan trong Knowledge Base";
-    } catch (e) { return `Lỗi KB search: ${String(e)}`; }
-  }
-  return `Tool không được hỗ trợ: ${name}`;
-}
-
-for (const id of Object.keys(TOOL_DEFINITIONS)) {
-  TOOL_REGISTRY.setHandler(id, async (args, context) => {
-    const state = context.state as any;
-    return dispatchToolHandler(canonicalToolId(id), args, state.registry, state.sources, context.userId, state.kbDocIds, state.newsFilter, state.financialsDepth);
-  });
-}
-
+registerRunAgentTools(TOOL_REGISTRY, {
+  sb, openaiApiKey: OPENAI_API_KEY, buildSymbolSources, buildInsiderSource, buildPortfolioContext,
+});
 async function executeToolCall(
   name: string, args: Record<string, any>, registry: SourceRegistry, sources: Source[],
   userId: string, kbDocIds: string[], newsFilter?: string[], financialsDepth: "full" | "brief" = "full",

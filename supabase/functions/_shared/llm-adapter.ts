@@ -32,6 +32,10 @@ export const MODEL_CONFIG: Record<string, ModelConfig> = {
     provider: "anthropic", apiModel: "claude-sonnet-4-6",
     priceIn: 3.00 / 1e6, priceOut: 15.00 / 1e6, priceCached: 0.30 / 1e6,
   },
+  "claude-haiku": {
+    provider: "anthropic", apiModel: "claude-haiku-4-5",
+    priceIn: 1.00 / 1e6, priceOut: 5.00 / 1e6, priceCached: 0.10 / 1e6,
+  },
   "claude-opus": {
     provider: "anthropic", apiModel: "claude-opus-4-8",
     priceIn: 15.00 / 1e6, priceOut: 75.00 / 1e6, priceCached: 1.50 / 1e6,

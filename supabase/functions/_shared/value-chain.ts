@@ -142,7 +142,7 @@ const fmtNum = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits:
 const fmtPct = (p: number | null) => p == null ? "n/a" : `${p >= 0 ? "+" : ""}${p.toFixed(1)}%`;
 
 // ── (A) Web search Brave cho hàng hóa KHÔNG có feed Yahoo (than cốc/thép XD/urea/cước biển…) ──
-const BRAVE_KEY = Deno.env.get("BRAVE_SEARCH_API_KEY") ?? "";
+const BRAVE_KEY = (globalThis as any).Deno?.env?.get("BRAVE_SEARCH_API_KEY") ?? "";
 const NOFEED_QUERY: Record<string, string> = {
   GIA_THAN_COC:  "coking coal price today USD per tonne",
   GIA_THEP_XD:   "giá thép xây dựng Việt Nam hôm nay đồng/kg",

@@ -301,6 +301,18 @@ const POPULAR_STOCKS = ["VCB", "HPG", "FPT", "VIC", "TCB", "ACB", "MWG", "VNM", 
 
 // ══════════════════════════════════════════════════════════════════════════════
 export function AgentStudio({ onBack, agentId, initialName, initialDescription, initialToolId, isDark = false }: StudioProps) {
+  const [runtimeModels, setRuntimeModels] = useState<Record<string, boolean>>({ default: true });
+  useEffect(() => {
+    fetch(`https://${projectId}.supabase.co/functions/v1/platform-metadata`)
+      .then(response => response.ok ? response.json() : Promise.reject(new Error(String(response.status))))
+      .then(data => setRuntimeModels({ default: true, ...Object.fromEntries((data.models ?? []).map((model: any) => [model.id, !!model.available])) }))
+      .catch(() => { /* giữ availability mặc định nếu metadata endpoint tạm lỗi */ });
+  }, []);
+  const models = MODELS.map(model => ({
+    ...model,
+    available: runtimeModels[model.id] ?? model.available,
+    disabledReason: (runtimeModels[model.id] ?? model.available) ? undefined : "Provider chưa được cấu hình",
+  }));
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
   const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const fgSubtle = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
@@ -587,8 +599,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       setPrompt(data.system_prompt && !isOldSystemPrompt ? data.system_prompt : DEFAULT_PROMPT);
       setPromptLoading(false);
       if (data.model) {
-        const available = MODELS.find(m => m.id === data.model)?.available;
-        setSelectedModel(available ? data.model : "default");
+        setSelectedModel(MODELS.some(m => m.id === data.model) ? data.model : "default");
       }
       if (data.tools?.length) setSelectedTools(new Set(data.tools));
       if (data.news_sources?.length) setNewsSources(data.news_sources);
@@ -732,7 +743,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
     }
   };
 
-  const curModel = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
+  const curModel = models.find(m => m.id === selectedModel) ?? models[0];
   const selTools = ALL_TOOLS.filter(t => selectedTools.has(t.id));
   const selFiles = kbDocs.filter(f => selectedKB.has(f.id));
   // "Kết nối danh mục" là trạng thái SUY RA (derived), không phải cờ lưu riêng: bật khi và chỉ khi
@@ -1439,7 +1450,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       {/* ════════ MODEL PICKER MODAL ════════ */}
       {showModelPicker && (() => {
         const lower = modelSearch.toLowerCase();
-        const filtered = MODELS.filter(m => !modelSearch || m.name.toLowerCase().includes(lower) || m.provider.toLowerCase().includes(lower));
+        const filtered = models.filter(m => !modelSearch || m.name.toLowerCase().includes(lower) || m.provider.toLowerCase().includes(lower));
         const close = () => { setShowModelPicker(false); setModelSearch(""); };
         return (
           <div onClick={close} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.30)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1457,7 +1468,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
               </div>
               <div style={{ overflowY: "auto", flex: 1 }}>
                 {MODEL_GROUPS.map(group => {
-                  const groupModels = group.ids.map(id => MODELS.find(m => m.id === id)!).filter(m => m && filtered.includes(m));
+                  const groupModels = group.ids.map(id => models.find(m => m.id === id)!).filter(m => m && filtered.includes(m));
                   if (groupModels.length === 0) return null;
                   return (
                     <div key={group.provider}>
