@@ -87,43 +87,43 @@ const MODELS = [
     id: "gpt-4o-mini", name: "GPT-4o mini", provider: "OpenAI",
     tags: ["image", "function call"],
     desc: "Tốc độ cao, chi phí thấp. Phù hợp trích xuất dữ liệu định kỳ, format báo cáo và các tác vụ lặp lại trong pipeline tài chính.",
-    available: false,
+    available: true,
   },
   {
     id: "gpt-4o", name: "GPT-4o", provider: "OpenAI",
     tags: ["image", "function call"],
     desc: "Đọc hiểu biểu đồ kỹ thuật, BCTC dạng PDF và ảnh chụp màn hình thị trường. Mạnh về phân tích đa phương thức cho nhà đầu tư.",
-    available: false,
+    available: true,
   },
   {
     id: "claude-haiku", name: "Claude Haiku 4.5", provider: "Anthropic",
     tags: ["function call"],
     desc: "Phản hồi tức thì với chi phí thấp nhất. Lý tưởng cho theo dõi giá realtime, cảnh báo ngưỡng và trả lời nhanh về trạng thái danh mục.",
-    available: false,
+    available: false, disabledReason: "Chưa có API key",
   },
   {
     id: "claude-sonnet", name: "Claude Sonnet 4", provider: "Anthropic",
     tags: ["function call", "vision"],
     desc: "Cân bằng tối ưu giữa tốc độ và độ chính xác. Lý luận tài chính sâu, tổng hợp tin tức thị trường và phân tích xu hướng trong ngữ cảnh dài 200K token.",
-    available: false,
+    available: false, disabledReason: "Chưa có API key",
   },
   {
     id: "claude-opus", name: "Claude Opus 4", provider: "Anthropic",
     tags: ["function call", "vision"],
     desc: "Khả năng lý luận phức tạp nhất. Phù hợp định giá tài sản, xây dựng luận điểm đầu tư nhiều chiều và phân tích rủi ro danh mục chuyên sâu.",
-    available: false,
+    available: false, disabledReason: "Chưa có API key",
   },
   {
     id: "gemini-flash", name: "Gemini 2.0 Flash", provider: "Google",
     tags: ["video", "image", "audio", "function call"],
     desc: "Xử lý đồng thời văn bản, hình ảnh, âm thanh và video. Phù hợp tổng hợp đa nguồn dữ liệu thị trường và phân tích nội dung hội nghị nhà đầu tư.",
-    available: false,
+    available: false, disabledReason: "Sắp tích hợp",
   },
   {
     id: "gemini-pro", name: "Gemini 2.5 Pro", provider: "Google",
     tags: ["video", "image", "audio", "+2"],
     desc: "Ngữ cảnh 1 triệu token - đọc toàn bộ hồ sơ doanh nghiệp, nhiều năm BCTC hoặc transcript roadshow trong một lần duy nhất.",
-    available: false,
+    available: false, disabledReason: "Sắp tích hợp",
   },
 ];
 
@@ -1466,7 +1466,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
                                 <span style={{ fontSize: 14, fontWeight: 700, color: sel ? brand : fg }}>{m.name}</span>
                                 {sel && <Check size={13} color={brand} strokeWidth={2.5} />}
-                                {disabled && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(26,26,46,0.07)", color: fgDisabled }}>Sắp tích hợp</span>}
+                                {disabled && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(26,26,46,0.07)", color: fgDisabled }}>{(m as any).disabledReason ?? "Sắp tích hợp"}</span>}
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
                                 {m.tags.map(tag => <span key={tag} style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(255,255,255,0.09)" : "rgba(26,26,46,0.07)", color: fgMuted }}>{tag}</span>)}

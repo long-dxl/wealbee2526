@@ -8,13 +8,18 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
+// financialReport/insiderReport/TYPE_LABEL dùng qua _shared/context-builders.ts
 import { valueChainReport, valueChainFrame } from "../_shared/value-chain.ts";
 import { macroContext } from "../_shared/macro.ts";
 import { analystReportsContext } from "../_shared/analyst-reports.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
 import { zaloSend } from "../_shared/zalo.ts";
 import { buildPriceContext, buildNewsContext, faUrl } from "../_shared/market-context.ts";
+import { SourceRegistry } from "../_shared/source-registry.ts";
+import { CORS } from "../_shared/cors.ts";
+import { buildFinancialsContext, buildInsiderContext } from "../_shared/context-builders.ts";
+import { DEFAULT_DAILY_DIGEST_PROMPT, GROUNDING_FORMAT_MARKDOWN, GROUNDING_FORMAT_COLOR } from "../_shared/prompts.ts";
+import { getModelConfig, costVndForModel, toAnthropicToolDef } from "../_shared/llm-adapter.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -24,69 +29,13 @@ const RESEND_API_KEY    = Deno.env.get("RESEND_API_KEY") ?? "";
 const EMAIL_FROM        = Deno.env.get("EMAIL_FROM") ?? "Wealbee <no-reply@wealbee.com>";
 const APP_URL           = Deno.env.get("APP_URL") ?? "https://wealbee.com";
 
-// Studio model ID → { provider, apiModel }
-// Chuẩn hóa toàn hệ thống: mọi lựa chọn model đều chạy gpt-4.1-mini
-// (ổn định output; Beeny trừ theo token thật — xem _shared/credits.ts).
-const MODEL_MAP: Record<string, { provider: "openai" | "anthropic"; apiModel: string }> = {
-  "gpt-4o-mini":   { provider: "openai", apiModel: "gpt-4.1-mini" },
-  "gpt-4o":        { provider: "openai", apiModel: "gpt-4.1-mini" },
-  "claude-sonnet": { provider: "openai", apiModel: "gpt-4.1-mini" },
-  "claude-opus":   { provider: "openai", apiModel: "gpt-4.1-mini" },
-  "gemini-pro":    { provider: "openai", apiModel: "gpt-4.1-mini" },
-  "gemini-flash":  { provider: "openai", apiModel: "gpt-4.1-mini" },
-};
-const DEFAULT_MODEL = { provider: "openai" as const, apiModel: "gpt-4.1-mini" };
+// Model config: xem _shared/llm-adapter.ts (MODEL_CONFIG + getModelConfig)
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-// ─── Build financials context for a specific symbol ──────────────────────────
-
-async function buildFinancialsContext(symbol: string, registry?: SourceRegistry, depth: "full" | "brief" = "full"): Promise<string> {
-  const sym  = symbol.toUpperCase();
-  const lines: string[] = [`\n## Dữ liệu tài chính: ${sym}`];
-
-  // Báo cáo tài chính: IS/BS/CF + chỉ số RIÊNG theo loại hình (Năm + 5 Quý gần nhất,
-  // hoặc rút gọn 2 kỳ cho template không cần phân tích BCTC sâu — xem financial-report.ts)
-  try {
-    const { data: tk } = await sb.from("tickers").select("company_type").eq("symbol", sym).single();
-    const ctype = tk?.company_type ?? "normal";
-    const report = await financialReport(sb, sym, ctype, depth);
-    if (report.trim()) {
-      const ref = registry ? ` ${registry.add("BCTC", faUrl(sym))}` : "";
-      lines.push(`\n### Báo cáo tài chính (${TYPE_LABEL[ctype] ?? ctype})${ref}`);
-      lines.push(report);
-    } else {
-      lines.push(`\n*Không có số liệu tài chính chi tiết cho ${sym} trong hệ thống. Không được tự ước tính các chỉ số tài chính.*`);
-    }
-  } catch { /* ignore */ }
-
-  return lines.length > 1 ? lines.join("\n") : "";
-}
-
-// ─── Build insider context for a specific symbol (tool: insider_trades) ──────
-
-async function buildInsiderContext(symbol: string, registry?: SourceRegistry): Promise<string> {
-  const sym = symbol.toUpperCase();
-  const lines: string[] = [`\n## Cổ tức & Giao dịch nội bộ: ${sym}`];
-
-  const report = await insiderReport(sb, sym);
-  if (report.trim()) {
-    const ref = registry ? ` ${registry.add("Nội bộ", faUrl(sym))}` : "";
-    lines.push(`${ref}`);
-    lines.push(report);
-  } else {
-    lines.push(`\n*Không có dữ liệu cổ tức/giao dịch nội bộ cho ${sym}.*`);
-  }
-
-  return lines.length > 1 ? lines.join("\n") : "";
-}
-
 // Price/news context: dùng bản chung ở _shared/market-context.ts
+// buildFinancialsContext, buildInsiderContext: xem _shared/context-builders.ts
+// SourceRegistry: xem _shared/source-registry.ts
 
 // ─── Source type ─────────────────────────────────────────────────────────────
 
@@ -560,11 +509,7 @@ function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
   return defs;
 }
 
-// Anthropic tool format (input_schema instead of parameters)
-function toAnthropicToolDef(t: any) {
-  const fn = t.function;
-  return { name: fn.name, description: fn.description, input_schema: fn.parameters };
-}
+// toAnthropicToolDef imported từ _shared/llm-adapter.ts
 
 async function executeToolCall(
   name: string,
@@ -588,14 +533,14 @@ async function executeToolCall(
   if (name === "financials") {
     const sym = String(args.symbol ?? "").toUpperCase();
     if (!sym) return "Lỗi: thiếu tham số symbol";
-    const ctx = await buildFinancialsContext(sym, registry, financialsDepth);
+    const ctx = await buildFinancialsContext(sb, sym, registry, financialsDepth);
     await buildSymbolSources(sym, sources);
     return ctx || `Không có dữ liệu tài chính cho ${sym} trong hệ thống`;
   }
   if (name === "insider_trades") {
     const sym = String(args.symbol ?? "").toUpperCase();
     if (!sym) return "Lỗi: thiếu tham số symbol";
-    const ctx = await buildInsiderContext(sym, registry);
+    const ctx = await buildInsiderContext(sb, sym, registry);
     await buildInsiderSource(sym, sources);
     return ctx || `Không có dữ liệu cổ tức/giao dịch nội bộ cho ${sym} trong hệ thống`;
   }
@@ -968,19 +913,7 @@ Deno.serve(async (req: Request) => {
         toolDefs.length = 0;  // đã nạp sẵn → LLM gọi đúng 1 lần
 
         // ── Build system prompt (no pre-fetched data — data comes from tools) ─
-
-        const DEFAULT_DAILY_DIGEST_PROMPT = `Bạn là trợ lý phân tích chứng khoán Wealbee. Nhiệm vụ: tạo bản tin thị trường hàng ngày.
-
-Cấu trúc bản tin:
-1. **Tổng quan thị trường** — VN-Index, HNX, top tăng/giảm trong phiên gần nhất
-2. **Tin tức nổi bật** — các tin có tác động cao nhất trong 24-48h, kèm nguồn và ngày đăng
-3. **Danh mục đáng chú ý** — nếu có tin liên quan mã trong danh sách theo dõi
-4. Disclaimer pháp lý
-
-Nguyên tắc:
-- Chỉ viết dữ liệu có trong kết quả tool, KHÔNG bịa số liệu
-- Mỗi số liệu phải có [ref:N] liền sau
-- Tin tức phải có tên nguồn và ngày đăng rõ ràng`;
+        // DEFAULT_DAILY_DIGEST_PROMPT imported from _shared/prompts.ts
 
         const basePrompt = cleanPrompt.trim()
           || (agent.template_id === "daily_digest" ? DEFAULT_DAILY_DIGEST_PROMPT : "")
@@ -990,17 +923,7 @@ Nguyên tắc:
 
         const isDailyDigest = agent.template_id === "daily_digest";
 
-        const GROUNDING_RULES_FORMAT = isDailyDigest
-          ? `**ĐỊNH DẠNG MÀU SẮC — KHI NGƯỜI DÙNG YÊU CẦU TÔ MÀU**
-- Dùng HTML inline: \`<span style="color:red">con số</span>\` cho màu đỏ
-- Dùng \`<span style="color:green">con số</span>\` cho màu xanh, tương tự với các màu khác
-- CHỈ wrap phần text cần tô màu, không wrap cả câu
-`
-          : `**ĐỊNH DẠNG OUTPUT — BẮT BUỘC**
-- Chỉ dùng **Markdown thuần** (##, ###, -, **, *italic*)
-- TUYỆT ĐỐI KHÔNG dùng HTML tags (<div>, <span>, <a>, <ul>, <li>, <br>, <style>, v.v.)
-- Nếu muốn link: dùng [label](url) — KHÔNG dùng <a href="...">
-`;
+        const GROUNDING_RULES_FORMAT = isDailyDigest ? GROUNDING_FORMAT_COLOR : GROUNDING_FORMAT_MARKDOWN;
 
         const GROUNDING_RULES = `
 
@@ -1060,7 +983,8 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
 
         // ── Model selection ───────────────────────────────────────────────────
 
-        let { provider, apiModel } = MODEL_MAP[agent.model ?? ""] ?? DEFAULT_MODEL;
+        const modelCfg = getModelConfig(agent.model);
+        let { provider, apiModel } = modelCfg;
         if (provider === "anthropic" && !ANTHROPIC_API_KEY) {
           console.warn(`[run-agent] ANTHROPIC_API_KEY not set, falling back to gpt-4o-mini`);
           provider = "openai";
@@ -1430,8 +1354,9 @@ QUY TẮC:
           emit({ type: "sources", sources: uniqueSourcesPersist });
         }
 
-        // Trừ credit theo token thật (1 credit = 40đ giá trị API)
-        const charge = await deduct(sb, user.id, tokensIn, tokensOut, `run-agent:${agent.name ?? ""}`.slice(0, 80), cachedIn);
+        // Trừ credit theo phí thật của model đã chọn (không cố định gpt-4.1-mini nữa)
+        const runCostVnd = costVndForModel(modelCfg, tokensIn, tokensOut, cachedIn);
+        const charge = await deduct(sb, user.id, tokensIn, tokensOut, `run-agent:${agent.name ?? ""}`.slice(0, 80), cachedIn, runCostVnd);
 
         emit({ type: "done", title, brief_id: brief?.id, run_id: run.id, tokens, duration_ms: durationMs, credits_used: charge.credits_used, balance: charge.balance });
 

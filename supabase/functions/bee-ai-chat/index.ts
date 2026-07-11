@@ -16,6 +16,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { valueChainReport } from "../_shared/value-chain.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
+import { CORS_CHAT as CORS } from "../_shared/cors.ts";
 
 // Model chính toàn hệ thống: gpt-4.1-mini (ổn định, output đúng giọng như bản cũ).
 const CHAT_MODEL = "gpt-4.1-mini";
@@ -28,11 +29,7 @@ const BRAVE_SEARCH_KEY     = Deno.env.get("BRAVE_SEARCH_API_KEY") ?? "";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+// CORS imported from _shared/cors.ts as CORS_CHAT
 
 // ─── SSE ─────────────────────────────────────────────────────────────────────
 
