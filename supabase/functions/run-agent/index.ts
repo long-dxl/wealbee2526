@@ -20,6 +20,7 @@ import { CORS } from "../_shared/cors.ts";
 import { buildFinancialsContext, buildInsiderContext } from "../_shared/context-builders.ts";
 import { DEFAULT_DAILY_DIGEST_PROMPT, GROUNDING_FORMAT_MARKDOWN, GROUNDING_FORMAT_COLOR } from "../_shared/prompts.ts";
 import { getModelConfig, costVndForModel, toAnthropicToolDef } from "../_shared/llm-adapter.ts";
+import { registryFromOpenAIDefinitions } from "../_shared/tool-registry.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -500,13 +501,12 @@ const OPENAI_TOOL_DEFS: Record<string, object> = {
   },
 };
 
+const TOOL_REGISTRY = registryFromOpenAIDefinitions(OPENAI_TOOL_DEFS);
+
 function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
-  const defs: object[] = [];
-  for (const name of ["price_feed", "news_feed", "financials", "insider_trades", "value_chain", "macro", "analyst_reports", "portfolio_read"]) {
-    if (enabled.includes(name) && OPENAI_TOOL_DEFS[name]) defs.push(OPENAI_TOOL_DEFS[name]);
-  }
-  if (hasKb) defs.push(OPENAI_TOOL_DEFS.kb_search);
-  return defs;
+  const allowed = enabled.filter(name => name !== "kb_search");
+  if (hasKb) allowed.push("kb_search");
+  return TOOL_REGISTRY.definitions(allowed);
 }
 
 // toAnthropicToolDef imported từ _shared/llm-adapter.ts
@@ -1001,6 +1001,9 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
         ];
+        const callableToolIds = new Set(
+          toolDefs.map((definition: any) => definition?.function?.name).filter(Boolean),
+        );
 
         let fullOutput = "";
         let tokens = 0;
@@ -1059,6 +1062,10 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
 
                 let content: string;
                 try {
+                  TOOL_REGISTRY.assertCallable(name, args, {
+                    userId: user.id,
+                    enabledToolIds: callableToolIds,
+                  });
                   content = await executeToolCall(
                     name, args, registry, sources, user.id, kbDocIds,
                     (agent as any).news_sources ?? undefined,
