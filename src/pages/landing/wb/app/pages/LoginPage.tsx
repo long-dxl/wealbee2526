@@ -73,6 +73,12 @@ export function LoginPage() {
             : authError.message,
         );
       }
+      // Tài khoản admin (framework_role = expert) không được dùng login thông thường
+      const isAdmin = (data.user?.app_metadata as Record<string, unknown>)?.framework_role === "expert";
+      if (isAdmin) {
+        await supabase.auth.signOut();
+        throw new Error("Tài khoản này dành riêng cho Admin Panel. Vui lòng truy cập /admin/login");
+      }
       const mustChange = !!data.user?.user_metadata?.must_change_password;
       if (mustChange) {
         setMode("change");

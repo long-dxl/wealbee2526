@@ -22,6 +22,8 @@ import { ProviderLLMRuntime, type LLMMessage } from "../_shared/llm-runtime.ts";
 import { AgentEngine } from "../_shared/agent-engine.ts";
 import { registryFromOpenAIDefinitions } from "../_shared/tool-registry.ts";
 import { TOOL_DEFINITIONS } from "../_shared/tool-catalog.ts";
+import { buildFrameworkPrompt, resolveFramework } from "../_shared/framework.ts";
+import { deriveDataAsOf, extractClaims, type ToolExecutionRecord } from "../_shared/provenance.ts";
 
 // Model chính toàn hệ thống: gpt-4.1-mini (ổn định, output đúng giọng như bản cũ).
 const CHAT_MODEL = "gpt-4o-mini";
@@ -412,41 +414,6 @@ function toolLabel(name: string, args: Record<string, any>): { loading: string; 
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `Bạn là BeeAI — trợ lý phân tích thị trường chứng khoán Việt Nam của Wealbee.
-
-## CÁCH HOẠT ĐỘNG — BẮT BUỘC GỌI TOOL TRƯỚC KHI TRẢ LỜI
-
-**Chiến lược gọi tool theo loại câu hỏi:**
-- "Hôm nay có gì?", "thị trường?", "tin tức?" → gọi **CẢ HAI**: get_market_data VÀ get_news
-- "VCB/HPG/FPT thế nào?" → gọi get_news(symbols=["VCB"]) VÀ get_financials("VCB")
-- "Cổ tức/giao dịch nội bộ của VCB?" → gọi get_insider_activity("VCB") (KHÔNG cần gọi get_financials nếu câu hỏi chỉ về cổ tức/nội bộ)
-- "Danh mục tôi?" → gọi get_portfolio VÀ get_market_data
-- "Tìm tài liệu..." → gọi search_knowledge_base
-- Cần tin mới nhất ngoài DB → gọi web_search
-
-KHÔNG trả lời từ kiến thức training. KHÔNG bịa số liệu.
-
-**Khi data stale (có cảnh báo ⚠️ trong kết quả tool):**
-Thông báo rõ cho người dùng: "Pipeline cập nhật giá đang bị dừng, dữ liệu giá/chỉ số mới nhất là ngày X. Tôi có thể cung cấp tin tức hôm nay từ market_news."
-
-## QUY TẮC LINK — BẮT BUỘC
-Với tin tức: COPY NGUYÊN VĂN markdown link từ tool vào câu trả lời.
-- Tool trả về dạng [Bao CafeF - 18/06/2026](https://cafef.vn/...) thi giu nguyen, KHONG thay bang "(Nguon: CafeF)"
-- TUYET DOI KHONG viet "(Nguon: X)" dang text thuan khi tool da co link markdown
-
-Voi so lieu gia/BCTC: kem ngay va nguon dang text: "phien 01/06/2026 - Nguon: HOSE"
-
-## PHÁP LÝ
-TUYỆT ĐỐI không khuyến nghị mua/bán cụ thể. Không đưa target price.
-Kết thúc mọi câu trả lời: *Thông tin tham khảo · không phải tư vấn đầu tư theo Luật Chứng khoán 2019*
-
-## ĐỊNH DẠNG
-- Tiếng Việt, ngắn gọn, dùng bullet points
-- **In đậm** số liệu quan trọng
-- Emoji: 📈 📉 💰 📊 📅 📰`;
-
-// ─── Main handler ─────────────────────────────────────────────────────────────
-
 interface ContextCardPayload { id?: string; type: string; label: string; badge?: string; summary?: string; }
 
 async function buildContextHint(cards: ContextCardPayload[]): Promise<string> {
@@ -541,9 +508,13 @@ Deno.serve(async (req) => {
   await sb.from("chat_messages")
     .insert({ session_id: sessionId, user_id: user.id, role: "user", content: message });
 
+  let framework;
+  try { framework = await resolveFramework(sb, { taskType: "chat", companyType: "default" }); }
+  catch (error) { return new Response(JSON.stringify({ error: String(error), code: "framework_unavailable" }), { status: 503, headers: CORS }); }
+
   // Build full system prompt
   const contextHint = await buildContextHint(context_cards ?? []);
-  const fullSystem  = SYSTEM_PROMPT + contextHint;
+  const fullSystem = buildFrameworkPrompt(framework, "Bạn là BeeAI, trợ lý phân tích chứng khoán Việt Nam của Wealbee.") + contextHint;
 
   // Initial messages
   const chatMessages: any[] = [
@@ -562,6 +533,8 @@ Deno.serve(async (req) => {
       let inputTok  = 0;
       let outputTok = 0;
       let cachedTok = 0;
+      const toolRecords: ToolExecutionRecord[] = [];
+      const toolStarts = new Map<string, string>();
 
       try {
         // ── Framework step 1: Observe ─────────────────────────────────────
@@ -586,20 +559,33 @@ Deno.serve(async (req) => {
             totalToks += event.usage.inputTokens + event.usage.outputTokens;
             inputTok += event.usage.inputTokens; outputTok += event.usage.outputTokens; cachedTok += event.usage.cachedInputTokens;
           } else if (event.type === "tool_start") {
+            toolStarts.set(event.call.id, new Date().toISOString());
             const labels = toolLabel(event.call.name, event.call.arguments);
             if (!reasonDone) { ctrl.enqueue(sse({ type: "step", name: "_reason", status: "done", label: `Kế hoạch: ${labels.done}` })); reasonDone = true; }
             ctrl.enqueue(sse({ type: "step", name: event.call.name, status: "loading", label: labels.loading }));
           } else if (event.type === "tool_end") {
+            toolRecords.push({ callKey: `chat-${event.call.id}`, toolId: event.call.name, arguments: event.call.arguments,
+              output: event.content, startedAt: toolStarts.get(event.call.id) ?? new Date().toISOString(),
+              finishedAt: new Date().toISOString(), status: event.content.startsWith("Lỗi thực thi tool") ? "error" : "completed" });
             ctrl.enqueue(sse({ type: "step", name: event.call.name, status: "done", label: toolLabel(event.call.name, event.call.arguments).done }));
           } else if (event.type === "text") {
             if (!reasonDone) { ctrl.enqueue(sse({ type: "step", name: "_reason", status: "done", label: "Đã hoàn tất kế hoạch phân tích" })); reasonDone = true; }
             fullText = event.text; ctrl.enqueue(sse({ type: "chunk", text: fullText }));
           }
         }
+        const chatAsOf = deriveDataAsOf(toolRecords);
+        fullText = `${fullText.trim()}\n\n*Dữ liệu chốt đến: ${chatAsOf.slice(0,10)}*`;
+        ctrl.enqueue(sse({ type: "reset_output", output: fullText }));
+        const chatClaims = extractClaims(fullText, new Set());
+        const chatProvenance = {
+          framework_version: framework.label, as_of: chatAsOf, tool_calls: toolRecords.length,
+          claims: chatClaims.length, unlinked: chatClaims.filter(claim => claim.validation_status !== "grounded").length,
+        };
         // ── Save assistant message ─────────────────────────────────────────
         const { data: assistantMsg } = await sb
           .from("chat_messages")
-          .insert({ session_id: sessionId, user_id: user.id, role: "assistant", content: fullText, tokens: totalToks || null })
+          .insert({ session_id: sessionId, user_id: user.id, role: "assistant", content: fullText, tokens: totalToks || null,
+            framework_version_id: framework.versionId, as_of: chatAsOf, provenance_summary: chatProvenance })
           .select("id")
           .single();
 
@@ -620,6 +606,9 @@ Deno.serve(async (req) => {
           message_id: assistantMsg?.id,
           tokens: totalToks,
           model: finalModel,
+          framework_version: framework.label,
+          as_of: chatAsOf,
+          provenance: chatProvenance,
           credits_used: charge.credits_used,
           balance: charge.balance,
         }));

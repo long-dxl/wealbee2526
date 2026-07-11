@@ -13,13 +13,14 @@ import { zaloSend } from "../_shared/zalo.ts";
 import { faUrl } from "../_shared/market-context.ts";
 import { SourceRegistry } from "../_shared/source-registry.ts";
 import { CORS } from "../_shared/cors.ts";
-import { DEFAULT_DAILY_DIGEST_PROMPT, GROUNDING_FORMAT_MARKDOWN, GROUNDING_FORMAT_COLOR } from "../_shared/prompts.ts";
 import { getModelConfig, costVndForModel, isProviderAvailable } from "../_shared/llm-adapter.ts";
-import { ProviderLLMRuntime } from "../_shared/llm-runtime.ts";
+import { ProviderLLMRuntime, type LLMMessage } from "../_shared/llm-runtime.ts";
 import { AgentEngine } from "../_shared/agent-engine.ts";
 import { registryFromOpenAIDefinitions } from "../_shared/tool-registry.ts";
 import { TOOL_DEFINITIONS } from "../_shared/tool-catalog.ts";
 import { registerRunAgentTools } from "../_shared/run-agent-tools.ts";
+import { applyToolPolicy, buildFrameworkPrompt, resolveCompanyType, resolveFramework } from "../_shared/framework.ts";
+import { deriveDataAsOf, persistRunProvenance, type ToolExecutionRecord } from "../_shared/provenance.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -43,23 +44,6 @@ interface Source {
   url: string | null;
   date?: string;
   source?: string;
-}
-
-// ─── Source registry — numbered references ────────────────────────────────────
-// Instead of embedding long URLs in context (LLM may corrupt them),
-// use [ref:N] tokens and resolve to real URLs in the SSE sources event.
-
-class SourceRegistry {
-  private list: Array<{ label: string; url: string }> = [];
-
-  add(label: string, url: string): string {
-    const existing = this.list.findIndex(s => s.url === url);
-    if (existing !== -1) return `[ref:${existing + 1}]`;
-    this.list.push({ label, url });
-    return `[ref:${this.list.length}]`;
-  }
-
-  toArray() { return this.list.map((s, i) => ({ index: i + 1, ...s })); }
 }
 
 // ─── Build sources for a symbol (deep research) ──────────────────────────────
@@ -462,41 +446,49 @@ async function prefetchToolContext(
   toolNames: string[], syms: string[], registry: SourceRegistry, sources: Source[],
   userId: string, kbDocIds: string[], newsFilter?: string[], kbQuery?: string,
   financialsDepth: "full" | "brief" = "full",
-): Promise<string> {
+): Promise<{ context: string; records: ToolExecutionRecord[] }> {
   const want = new Set(toolNames);
   const jobs: Promise<string>[] = [];
-  const add = (title: string, p: Promise<string>) =>
-    jobs.push(p.then(r => `### ${title}\n${r}`).catch(e => `### ${title}\n(lỗi: ${String(e).slice(0, 80)})`));
+  const records: ToolExecutionRecord[] = [];
+  let callSequence = 0;
+  const add = (title: string, toolId: string, args: Record<string, unknown>, p: Promise<string>) => {
+    const callKey = `prefetch-${++callSequence}-${toolId}`;
+    const startedAt = new Date().toISOString();
+    jobs.push(p.then(output => {
+      records.push({ callKey, toolId, arguments: args, output, startedAt, finishedAt: new Date().toISOString(), status: "completed" });
+      return `### ${title}\n${output}`;
+    }).catch(error => {
+      const output = `(lỗi: ${String(error).slice(0, 80)})`;
+      records.push({ callKey, toolId, arguments: args, output, startedAt, finishedAt: new Date().toISOString(), status: "error", error: String(error) });
+      return `### ${title}\n${output}`;
+    }));
+  };
 
   if (want.has("price_feed"))
-    add("GIÁ & CHỈ SỐ THỊ TRƯỜNG", executeToolCall("price_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
+    add("GIÁ & CHỈ SỐ THỊ TRƯỜNG", "price_feed", { symbols: syms }, executeToolCall("price_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
   if (want.has("news_feed"))
-    add("TIN TỨC (48H)", executeToolCall("news_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
+    add("TIN TỨC (48H)", "news_feed", { symbols: syms }, executeToolCall("news_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
   if (want.has("portfolio_read"))
-    add("DANH MỤC ĐẦU TƯ", executeToolCall("portfolio_read", {}, registry, sources, userId, kbDocIds, newsFilter));
+    add("DANH MỤC ĐẦU TƯ", "portfolio_read", {}, executeToolCall("portfolio_read", {}, registry, sources, userId, kbDocIds, newsFilter));
   if (want.has("macro"))
-    add("BỐI CẢNH VĨ MÔ", executeToolCall("macro", {}, registry, sources, userId, kbDocIds, newsFilter));
+    add("BỐI CẢNH VĨ MÔ", "macro", {}, executeToolCall("macro", {}, registry, sources, userId, kbDocIds, newsFilter));
   for (const sym of syms) {
     if (want.has("financials"))
-      add(`BÁO CÁO TÀI CHÍNH ${sym}`, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter, financialsDepth));
+      add(`BÁO CÁO TÀI CHÍNH ${sym}`, "financials", { symbol: sym }, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter, financialsDepth));
     if (want.has("insider_trades"))
-      add(`CỔ TỨC & GIAO DỊCH NỘI BỘ ${sym}`, executeToolCall("insider_trades", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
+      add(`CỔ TỨC & GIAO DỊCH NỘI BỘ ${sym}`, "insider_trades", { symbol: sym }, executeToolCall("insider_trades", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
     if (want.has("analyst_reports"))
-      add(`BÁO CÁO PHÂN TÍCH CTCK ${sym}`, executeToolCall("analyst_reports", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
+      add(`BÁO CÁO PHÂN TÍCH CTCK ${sym}`, "analyst_reports", { symbol: sym }, executeToolCall("analyst_reports", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
     if (want.has("value_chain")) {
       // Bật tool "Giá hàng hóa" → báo cáo ĐẦY ĐỦ (khung + GIÁ realtime Yahoo)
-      add(`CHUỖI GIÁ TRỊ ${sym}`, executeToolCall("value_chain", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
-    } else {
-      // KHUNG TƯ DUY luôn áp dụng (cấu trúc nhân-quả, không network) — kể cả khi không bật tool giá.
-      const frame = valueChainFrame(sym);
-      if (frame) add(`KHUNG CHUỖI GIÁ TRỊ ${sym}`, Promise.resolve(frame));
+      add(`CHUỖI GIÁ TRỊ ${sym}`, "value_chain", { symbol: sym }, executeToolCall("value_chain", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
     }
   }
   if (want.has("kb_search") && kbQuery)
-    add("KNOWLEDGE BASE", executeToolCall("kb_search", { query: kbQuery }, registry, sources, userId, kbDocIds, newsFilter));
+    add("KNOWLEDGE BASE", "kb_search", { query: kbQuery }, executeToolCall("kb_search", { query: kbQuery }, registry, sources, userId, kbDocIds, newsFilter));
 
   const results = await Promise.all(jobs);
-  return results.join("\n\n");
+  return { context: results.join("\n\n"), records };
 }
 
 function toolStepLabel(name: string, args: Record<string, any>): string {
@@ -619,7 +611,7 @@ Deno.serve(async (req: Request) => {
   // Fetch agent + template
   const { data: agent, error: agentErr } = await sb
     .from("agents")
-    .select("id, user_id, template_id, name, description, system_prompt, tools, run_count, model, email_notify, zalo_notify, kb_document_ids, target_symbols, news_sources")
+    .select("id, user_id, template_id, framework_id, name, description, system_prompt, tools, run_count, model, email_notify, zalo_notify, kb_document_ids, target_symbols, news_sources")
     .eq("id", agent_id)
     .eq("user_id", user.id)
     .single();
@@ -636,10 +628,24 @@ Deno.serve(async (req: Request) => {
     .eq("id", agent.template_id)
     .single();
 
+  let framework;
+  try {
+    const frameworkSymbols = target_symbols.length ? target_symbols : ((agent.target_symbols ?? []) as string[]);
+    framework = await resolveFramework(sb, {
+      frameworkId: agent.framework_id,
+      taskType: agent.template_id || "default",
+      companyType: await resolveCompanyType(sb, frameworkSymbols),
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String(error), code: "framework_unavailable" }), {
+      status: 503, headers: { ...CORS, "Content-Type": "application/json" },
+    });
+  }
+
   // Create run record
   const { data: run, error: runErr } = await sb
     .from("agent_runs")
-    .insert({ agent_id, user_id: user.id, status: "running" })
+    .insert({ agent_id, user_id: user.id, status: "running", framework_version_id: framework.versionId, framework_version: framework.label })
     .select("id")
     .single();
 
@@ -660,7 +666,7 @@ Deno.serve(async (req: Request) => {
       const startedAt = Date.now();
 
       try {
-        const enabledTools: string[] = agent.tools ?? [];
+        const enabledTools = applyToolPolicy(agent.tools ?? [], framework);
 
         const SYM_PREFIX  = "__TARGET_SYMBOL__: ";
         const rawPrompt   = agent.system_prompt ?? "";
@@ -688,17 +694,6 @@ Deno.serve(async (req: Request) => {
         const kbDocIds: string[] = agent.kb_document_ids ?? [];
         const toolDefs = getAgentToolDefs(enabledTools, kbDocIds.length > 0);
 
-        // For portfolio_health template: add portfolio_read automatically if not already
-        if (agent.template_id === "portfolio_health" && !enabledTools.includes("portfolio_read")) {
-          toolDefs.push(TOOL_REGISTRY.get("portfolio_read")!.definition);
-        }
-
-        // daily_digest: đảm bảo luôn có news_feed + price_feed
-        if (agent.template_id === "daily_digest") {
-          if (!enabledTools.includes("news_feed")) toolDefs.push(TOOL_REGISTRY.get("news_feed")!.definition);
-          if (!enabledTools.includes("price_feed")) toolDefs.push(TOOL_REGISTRY.get("price_feed")!.definition);
-        }
-
         // ── TỐI ƯU CHI PHÍ (giữ nguyên output) ──────────────────────────────────
         // Thay tool-loop (LLM gọi tool từng vòng, mỗi vòng gửi lại TOÀN BỘ ngữ cảnh →
         // độn token 80-130k) bằng: NẠP SẴN đúng bộ tool đang bật (song song, 1 lượt)
@@ -712,63 +707,31 @@ Deno.serve(async (req: Request) => {
         const BRIEF_FINANCIALS_TEMPLATES = new Set(["insider_buy", "volume_spike"]);
         const financialsDepth: "full" | "brief" = BRIEF_FINANCIALS_TEMPLATES.has(agent.template_id) ? "brief" : "full";
         let prefetchedContext = "";
+        let toolExecutionRecords: ToolExecutionRecord[] = [];
         if (fetchToolNames.length > 0) {
           emit({ type: "step", step: "prefetch", status: "loading", label: "Đang lấy dữ liệu (giá, tin tức, tài chính)..." });
-          prefetchedContext = await prefetchToolContext(
+          const prefetched = await prefetchToolContext(
             fetchToolNames, syms, registry, sources, user.id, kbDocIds,
             (agent as any).news_sources ?? undefined,
             syms.length ? syms.join(" ") : cleanPrompt.slice(0, 200),
             financialsDepth,
           );
+          prefetchedContext = prefetched.context;
+          toolExecutionRecords = prefetched.records;
           emit({ type: "step", step: "prefetch", status: "done", label: "Đã lấy đủ dữ liệu" });
         }
         const hasData = prefetchedContext.length > 0;
         toolDefs.length = 0;  // đã nạp sẵn → LLM gọi đúng 1 lần
 
         // ── Build system prompt (no pre-fetched data — data comes from tools) ─
-        // DEFAULT_DAILY_DIGEST_PROMPT imported from _shared/prompts.ts
-
         const basePrompt = cleanPrompt.trim()
-          || (agent.template_id === "daily_digest" ? DEFAULT_DAILY_DIGEST_PROMPT : "")
           || template?.system_prompt
           || "Bạn là trợ lý phân tích chứng khoán Việt Nam.";
         console.log(`[run-agent] prompt source: ${cleanPrompt.trim() ? "custom" : template?.system_prompt ? "template" : "fallback"}, tools: [${enabledTools.join(",")}]`);
 
         const isDailyDigest = agent.template_id === "daily_digest";
 
-        const GROUNDING_RULES_FORMAT = isDailyDigest ? GROUNDING_FORMAT_COLOR : GROUNDING_FORMAT_MARKDOWN;
-
-        const GROUNDING_RULES = `
-
-## ══ QUY TẮC BẮT BUỘC TUYỆT ĐỐI ══
-${GROUNDING_RULES_FORMAT}
-**NGUỒN DỮ LIỆU**
-${hasData
-  ? `- Toàn bộ dữ liệu (giá, tin tức, tài chính...) đã được cung cấp SẴN ở mục NGUỒN DỮ LIỆU bên dưới
-- CHỈ dùng dữ liệu đó — KHÔNG dùng kiến thức nền hay số liệu từ training data`
-  : `- Chưa có dữ liệu — hãy thông báo người dùng bật tool trong Agent Studio để lấy dữ liệu thực tế`}
-
-**CHỈ VIẾT NHỮNG GÌ CÓ TRONG DỮ LIỆU**
-- Chỉ được đề cập thông tin, số liệu XUẤT HIỆN TRỰC TIẾP trong dữ liệu cung cấp
-- Nếu chủ đề KHÔNG có trong dữ liệu → bỏ qua hoàn toàn, không nhắc đến
-- KHÔNG ước tính, KHÔNG nội suy từ training data
-
-**BẢNG DỮ LIỆU — GIỮ ĐÚNG ĐỊNH DẠNG NGUỒN**
-- KHÔNG transpose/pivot/reformat bảng từ nguồn dữ liệu
-- Ô "—" trong bảng = không có data — KHÔNG điền số vào ô đó
-
-**TRÍCH DẪN NGUỒN — BẮT BUỘC VỚI MỌI SỐ LIỆU**
-- Mỗi con số, phần trăm, giá trị cụ thể PHẢI có token [ref:N] liền sau
-- Token [ref:N] có sẵn trong kết quả tool — chỉ dùng những ref đó, KHÔNG tự bịa thêm
-
-**THỜI GIAN — CHÍNH XÁC**
-- Mỗi dòng giá có "phiên YYYY-MM-DD" — PHẢI dùng đúng ngày đó
-- Nếu dữ liệu giá ghi "Chưa có dữ liệu trong DB" → bỏ qua mục giá hoàn toàn
-
-**TUÂN THỦ PHÁP LÝ**
-- KHÔNG khuyến nghị mua/bán bất kỳ cổ phiếu nào
-- Cuối output PHẢI có: *"Thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019"*`;
-
+        const frameworkPrompt = buildFrameworkPrompt(framework, basePrompt);
         // Nạp sẵn toàn bộ dữ liệu tool vào system prompt (gọi-1-lần, không tool-loop)
         const dataBlock = hasData
           ? `
@@ -783,7 +746,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
 ═══════════════════════════════════════`
           : "";
 
-        const systemPrompt = basePrompt + GROUNDING_RULES + dataBlock;
+        const systemPrompt = frameworkPrompt + dataBlock;
 
         const symList = syms.length > 0 ? syms.join(", ") : null;
 
@@ -804,7 +767,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
         // ── True tool-call loop ───────────────────────────────────────────────
         // LLM decides WHEN and WHICH tools to call. No pre-fetching.
 
-        const messages = [
+        const messages: LLMMessage[] = [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
         ];
@@ -815,6 +778,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
         let fullOutput = "";
         let tokens = 0;
         let tokensIn = 0, tokensOut = 0, cachedIn = 0;
+        const engineToolStarts = new Map<string, string>();
         for await (const event of AGENT_ENGINE.run({
           model: modelCfg, messages, tools: toolDefs as any, maxTokens: 8000, temperature: 0,
           registry: TOOL_REGISTRY, maxToolIterations: 8,
@@ -827,9 +791,17 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
             tokensIn += event.usage.inputTokens; tokensOut += event.usage.outputTokens;
             cachedIn += event.usage.cachedInputTokens; tokens += event.usage.inputTokens + event.usage.outputTokens;
           } else if (event.type === "tool_start") {
+            engineToolStarts.set(event.call.id, new Date().toISOString());
             const label = toolStepLabel(event.call.name, event.call.arguments as any);
             emit({ type: "step", step: event.call.name, status: "loading", label: `Đang lấy: ${label}...` });
           } else if (event.type === "tool_end") {
+            toolExecutionRecords.push({
+              callKey: `engine-${event.call.id}`, toolId: event.call.name,
+              arguments: event.call.arguments, output: event.content,
+              startedAt: engineToolStarts.get(event.call.id) ?? new Date().toISOString(),
+              finishedAt: new Date().toISOString(), status: event.content.startsWith("Lỗi thực thi tool") ? "error" : "completed",
+              error: event.content.startsWith("Lỗi thực thi tool") ? event.content : undefined,
+            });
             emit({ type: "step", step: event.call.name, status: "done", label: toolStepLabel(event.call.name, event.call.arguments as any) });
           } else if (event.type === "text") {
             fullOutput = event.text; emit({ type: "chunk", text: fullOutput });
@@ -966,13 +938,23 @@ QUY TẮC:
 
         emit({ type: "step", step: "save", status: "loading", label: "Đang lưu vào Inbox..." });
 
+        const allRefs = registry.toArray();
+        const declaredAsOf = deriveDataAsOf(toolExecutionRecords).slice(0, 10);
+        fullOutput = `${fullOutput.trim()}\n\n*Dữ liệu chốt đến: ${declaredAsOf}*`;
+        emit({ type: "reset_output", output: fullOutput });
+        const provenance = await persistRunProvenance(sb, run.id, toolExecutionRecords, allRefs, fullOutput);
+        if (framework.outputContract.unlinked_claim_policy === "block" && provenance.unlinked > 0) {
+          throw new Error(`Grounding contract blocked output: ${provenance.unlinked} claim chưa liên kết evidence`);
+        }
+
         await sb.from("agent_runs").update({
           status: "completed", output: fullOutput, tokens_used: tokens,
           duration_ms: durationMs, finished_at: new Date().toISOString(),
+          data_as_of: provenance.asOf, provenance_summary: provenance,
         }).eq("id", run.id);
 
         // Use pre-validation refs (scanned before validation pass may have stripped them)
-        const regArray = registry.toArray().filter(r => preValidationRefs.has(r.index));
+        const regArray = allRefs.filter(r => preValidationRefs.has(r.index));
 
         // Keep sources that are either cited via [ref:N] OR are news articles (always show)
         const usedUrls = new Set(regArray.map(r => r.url));
@@ -1002,6 +984,8 @@ QUY TẮC:
           impact_score: impact, tickers, is_read: false,
           sources: uniqueSourcesPersist,
           refs: regArray,
+          as_of: provenance.asOf,
+          provenance_summary: provenance,
         }).select("id").single();
 
         if (briefErr) {
@@ -1060,12 +1044,13 @@ QUY TẮC:
         if (uniqueSourcesPersist.length > 0) {
           emit({ type: "sources", sources: uniqueSourcesPersist });
         }
+        emit({ type: "provenance", framework_version: framework.label, as_of: provenance.asOf, summary: provenance });
 
         // Trừ credit theo phí thật của model đã chọn (không cố định gpt-4.1-mini nữa)
         const runCostVnd = costVndForModel(modelCfg, tokensIn, tokensOut, cachedIn);
         const charge = await deduct(sb, user.id, tokensIn, tokensOut, `run-agent:${agent.name ?? ""}`.slice(0, 80), cachedIn, runCostVnd);
 
-        emit({ type: "done", title, brief_id: brief?.id, run_id: run.id, tokens, duration_ms: durationMs, credits_used: charge.credits_used, balance: charge.balance });
+        emit({ type: "done", title, brief_id: brief?.id, run_id: run.id, tokens, duration_ms: durationMs, framework_version: framework.label, as_of: provenance.asOf, credits_used: charge.credits_used, balance: charge.balance });
 
       } catch (err) {
         const durationMs = Date.now() - startedAt;

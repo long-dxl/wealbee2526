@@ -29,8 +29,9 @@ export function normPlan(p?: string | null): string {
 
 /** Phí VND. cachedIn = số token input được OpenAI phục vụ từ cache (tính 10% giá). */
 export function costVnd(tokensIn: number, tokensOut: number, cachedIn = 0): number {
-  const fresh = Math.max(0, tokensIn - cachedIn);
-  return (fresh * PRICE_IN + cachedIn * PRICE_CACHED + tokensOut * PRICE_OUT) * USD_VND;
+  const effectiveCached = Math.min(Math.max(0, cachedIn), tokensIn);
+  const fresh = tokensIn - effectiveCached;
+  return (fresh * PRICE_IN + effectiveCached * PRICE_CACHED + tokensOut * PRICE_OUT) * USD_VND;
 }
 
 /** Phí 1 lượt tính bằng Beeny — SỐ THỰC (làm tròn 4 chữ số thập phân, không ceil). */

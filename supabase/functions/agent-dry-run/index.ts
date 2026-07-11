@@ -11,15 +11,21 @@ import { hasCredits, deduct } from "../_shared/credits.ts";
 import { SourceRegistry } from "../_shared/source-registry.ts";
 import { CORS } from "../_shared/cors.ts";
 import { buildFinancialsContext, buildInsiderContext } from "../_shared/context-builders.ts";
-import { GROUNDING_RULES_DEEP, GROUNDING_RULES_DAILY, DEFAULT_DAILY_DIGEST_PROMPT } from "../_shared/prompts.ts";
+import { applyToolPolicy, buildFrameworkPrompt, resolveCompanyType, resolveFramework, type FrameworkArtifact } from "../_shared/framework.ts";
 import { getModelConfig, isProviderAvailable } from "../_shared/llm-adapter.ts";
 import { ProviderLLMRuntime } from "../_shared/llm-runtime.ts";
+import { deriveDataAsOf } from "../_shared/provenance.ts";
 
 const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LLM_RUNTIME = new ProviderLLMRuntime();
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+interface DryRunResult {
+  output: string; tokensUsed: number; tokensIn: number; tokensOut: number; cachedIn: number; asOf: string;
+  refs: Array<{ index: number; label: string; url: string }>;
+}
 
 async function completeDryRun(modelId: string, system: string, user: string) {
   const model = getModelConfig(modelId);
@@ -30,8 +36,11 @@ async function completeDryRun(modelId: string, system: string, user: string) {
     maxTokens: 8000,
     temperature: 0,
   });
+  const now = new Date().toISOString();
+  const asOf = deriveDataAsOf([{ callKey: "dry-context", toolId: "prefetched_context", arguments: {}, output: system, startedAt: now, finishedAt: now, status: "completed" }]);
   return {
-    output: result.content,
+    output: `${result.content.trim()}\n\n*Dữ liệu chốt đến: ${asOf.slice(0,10)}*`,
+    asOf,
     tokensUsed: result.usage.inputTokens + result.usage.outputTokens,
     tokensIn: result.usage.inputTokens,
     tokensOut: result.usage.outputTokens,
@@ -39,17 +48,14 @@ async function completeDryRun(modelId: string, system: string, user: string) {
   };
 }
 
-// ── Shared: SourceRegistry, CORS, buildFinancialsContext, buildInsiderContext,
-//    GROUNDING_RULES_DEEP, GROUNDING_RULES_DAILY, DEFAULT_DAILY_DIGEST_PROMPT
-//    → đã extract vào _shared/ (source-registry, cors, context-builders, prompts) ─
-
 // ── Daily digest dry-run (with real news from DB) ─────────────────────────────
 
 async function runDailyDigestDry(
   systemPrompt: string,
   watchSymbols: string[],
   model: string,
-): Promise<{ output: string; tokensUsed: number; refs: Array<{ index: number; label: string; url: string }> }> {
+  framework: FrameworkArtifact,
+): Promise<DryRunResult> {
   const registry = new SourceRegistry();
   const syms = watchSymbols.map(s => s.toUpperCase());
 
@@ -112,7 +118,7 @@ async function runDailyDigestDry(
   lines.push(`Có tin: ${hasNews.size > 0 ? [...hasNews].join(", ") : "(không có)"}`);
   lines.push(`Không có tin: ${noNews.length > 0 ? noNews.join(", ") : "(tất cả đều có tin)"}`);
 
-  const groundedSystemPrompt = (systemPrompt.trim() || DEFAULT_DAILY_DIGEST_PROMPT) + GROUNDING_RULES_DAILY + `
+  const groundedSystemPrompt = buildFrameworkPrompt(framework, systemPrompt.trim() || "Bạn là trợ lý phân tích chứng khoán Việt Nam.") + `
 
 ═══════════════════════════════════════
 NGUỒN DỮ LIỆU XÁC NHẬN — CHỈ DÙNG CÁC SỐ LIỆU NÀY
@@ -135,7 +141,8 @@ async function runDeepResearchDry(
   targetSymbol: string,
   model: string,
   tools?: string[],
-): Promise<{ output: string; tokensUsed: number; refs: Array<{ index: number; label: string; url: string }> }> {
+  framework?: FrameworkArtifact,
+): Promise<DryRunResult> {
   const sym = targetSymbol.toUpperCase();
 
   // Strip __TARGET_SYMBOL__ header from prompt (same as run-agent)
@@ -153,7 +160,8 @@ async function runDeepResearchDry(
   const insiderCtx = enabledTools.includes("insider_trades") ? await buildInsiderContext(sb, sym, registry) : "";
 
   // Build grounded system prompt (same pattern as run-agent)
-  const groundedSystemPrompt = cleanPrompt + GROUNDING_RULES_DEEP + `
+  if (!framework) throw new Error("Framework required");
+  const groundedSystemPrompt = buildFrameworkPrompt(framework, cleanPrompt || "Bạn là trợ lý phân tích chứng khoán Việt Nam.") + `
 
 ═══════════════════════════════════════
 NGUỒN DỮ LIỆU XÁC NHẬN — CHỈ DÙNG CÁC SỐ LIỆU NÀY
@@ -201,12 +209,29 @@ Deno.serve(async (req) => {
     tools,
   } = body;
 
+  let pinnedFrameworkId: string | undefined;
+  if (agentId) {
+    const { data: frameworkAgent } = await sb.from("agents").select("framework_id").eq("id", agentId).eq("user_id", user.id).maybeSingle();
+    pinnedFrameworkId = frameworkAgent?.framework_id ?? undefined;
+  }
+  let framework: FrameworkArtifact;
+  try {
+    framework = await resolveFramework(sb, {
+      frameworkId: pinnedFrameworkId,
+      taskType: templateId === "daily_digest" ? "daily_digest" : (templateId || "deep_research"),
+      companyType: await resolveCompanyType(sb, bodySymbols ?? []),
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String(error), code: "framework_unavailable" }), { status: 503, headers: { ...CORS, "Content-Type": "application/json" } });
+  }
+
   const saveSession = async (
     status: "success" | "error",
     output: string | null,
     tokensUsed: number,
     runTimeS: number,
     error?: string,
+    asOf?: string,
   ) => {
     try {
       await sb.from("agent_test_sessions").insert({
@@ -225,7 +250,11 @@ Deno.serve(async (req) => {
           watchSymbols: bodySymbols ?? null,
           templateId,
           agentName: agentName ?? null,
+          frameworkVersion: framework.label,
         },
+        framework_version_id: framework.versionId,
+        data_as_of: asOf ?? null,
+        provenance_summary: { framework_version: framework.label, as_of: asOf ?? null, mode: "dry_run" },
       });
     } catch { /* fire-and-forget: don't fail the response if save fails */ }
   };
@@ -249,10 +278,10 @@ Deno.serve(async (req) => {
     const prompt = systemPrompt ?? "Bạn là chuyên gia phân tích chứng khoán Việt Nam. Phân tích mã __TARGET_SYMBOL__.";
     const t0 = Date.now();
     try {
-      const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDeepResearchDry(prompt, targetSymbol, selectedModel, tools);
-      await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
+      const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs, asOf } = await runDeepResearchDry(prompt, targetSymbol, selectedModel, applyToolPolicy(tools ?? [], framework), framework);
+      await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000, undefined, asOf);
       const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử deep_research", cachedIn);
-      return new Response(JSON.stringify({ output, tokensUsed, targetSymbol, refs, ...charge }), {
+      return new Response(JSON.stringify({ output, tokensUsed, targetSymbol, refs, as_of: asOf, framework_version: framework.label, ...charge }), {
         headers: { ...CORS, "Content-Type": "application/json" },
       });
     } catch (err) {
@@ -270,10 +299,10 @@ Deno.serve(async (req) => {
 
   const t0 = Date.now();
   try {
-    const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, selectedModel);
-    await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
+    const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs, asOf } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, selectedModel, framework);
+    await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000, undefined, asOf);
     const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử daily_digest", cachedIn);
-    return new Response(JSON.stringify({ output, tokensUsed, refs, ...charge }), {
+    return new Response(JSON.stringify({ output, tokensUsed, refs, as_of: asOf, framework_version: framework.label, ...charge }), {
       headers: { ...CORS, "Content-Type": "application/json" },
     });
   } catch (err) {
