@@ -17,9 +17,12 @@ import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial
 import { valueChainReport } from "../_shared/value-chain.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
 import { CORS_CHAT as CORS } from "../_shared/cors.ts";
+import { getModelConfig, isProviderAvailable } from "../_shared/llm-adapter.ts";
+import { ProviderLLMRuntime, type LLMMessage } from "../_shared/llm-runtime.ts";
+import { registryFromOpenAIDefinitions } from "../_shared/tool-registry.ts";
 
 // Model chính toàn hệ thống: gpt-4.1-mini (ổn định, output đúng giọng như bản cũ).
-const CHAT_MODEL = "gpt-4.1-mini";
+const CHAT_MODEL = "gpt-4o-mini";
 
 const SUPABASE_URL         = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -28,6 +31,7 @@ const ANTHROPIC_API_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const BRAVE_SEARCH_KEY     = Deno.env.get("BRAVE_SEARCH_API_KEY") ?? "";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const LLM_RUNTIME = new ProviderLLMRuntime();
 
 // CORS imported from _shared/cors.ts as CORS_CHAT
 
@@ -158,6 +162,9 @@ const TOOL_DEFS = [
     },
   },
 ];
+const CHAT_TOOL_REGISTRY = registryFromOpenAIDefinitions(
+  Object.fromEntries(TOOL_DEFS.map((definition: any) => [definition.function.name, definition])),
+);
 
 // ─── Tool executors ───────────────────────────────────────────────────────────
 
@@ -656,9 +663,10 @@ Deno.serve(async (req) => {
     { role: "user", content: message },
   ];
 
-  // Chuẩn hóa toàn hệ thống về gpt-4.1-mini (tắt nhánh Anthropic; giữ code để bật lại khi cần)
-  const useAnthropic = false && ANTHROPIC_API_KEY.length > 10;
-  const finalModel   = useAnthropic ? "claude-sonnet-4-6" : CHAT_MODEL;
+  const modelConfig = getModelConfig(CHAT_MODEL);
+  if (!isProviderAvailable(modelConfig.provider)) return new Response(JSON.stringify({ error: `${modelConfig.provider} chưa được cấu hình API key` }), { status: 503, headers: CORS });
+  const finalModel = modelConfig.apiModel;
+  const useAnthropic = false; // legacy fallback block below is unreachable after runtime synthesis
 
   const stream = new ReadableStream({
     async start(ctrl) {
@@ -676,7 +684,7 @@ Deno.serve(async (req) => {
           label: `Ngữ cảnh: ${history?.length ?? 0} tin nhắn cũ${context_cards?.length ? `, ${context_cards.length} card` : ""}` }));
 
         // ── Tool-call loop (always OpenAI for tool calls) ──────────────────
-        const loopMessages: any[] = [
+        const loopMessages: LLMMessage[] = [
           { role: "system", content: fullSystem },
           ...chatMessages,
         ];
@@ -688,36 +696,19 @@ Deno.serve(async (req) => {
             ctrl.enqueue(sse({ type: "step", name: "_reason", status: "loading", label: "Phân tích câu hỏi & lên kế hoạch gọi tool..." }));
           }
 
-          const callBody: any = {
-            model: CHAT_MODEL,
-            messages: loopMessages,
-            tools: TOOL_DEFS,
-            tool_choice: "auto",
-            temperature: 0,
-            max_tokens: 4000,
-          };
+          const result = await LLM_RUNTIME.complete({ model: modelConfig, messages: loopMessages, tools: TOOL_DEFS as any, maxTokens: 4000, temperature: 0 });
+          totalToks += result.usage.inputTokens + result.usage.outputTokens;
+          inputTok += result.usage.inputTokens;
+          outputTok += result.usage.outputTokens;
+          cachedTok += result.usage.cachedInputTokens;
 
-          const callRes = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify(callBody),
-          });
-          if (!callRes.ok) throw new Error(`OpenAI tool-call error ${callRes.status}: ${await callRes.text()}`);
-
-          const callJson = await callRes.json();
-          totalToks += callJson.usage?.total_tokens ?? 0;
-          inputTok  += callJson.usage?.prompt_tokens ?? 0;
-          outputTok += callJson.usage?.completion_tokens ?? 0;
-          cachedTok += callJson.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-          const assistantMsg = callJson.choices?.[0]?.message;
-
-          if (!assistantMsg?.tool_calls?.length) {
+          if (!result.toolCalls.length) {
             // LLM decided no tools needed — mark reason done then emit answer
             if (iter === 0) {
               ctrl.enqueue(sse({ type: "step", name: "_reason", status: "done", label: "Có thể trả lời trực tiếp, không cần gọi tool" }));
             }
-            if (assistantMsg?.content) {
-              fullText = assistantMsg.content;
+            if (result.content) {
+              fullText = result.content;
               ctrl.enqueue(sse({ type: "chunk", text: fullText }));
             }
             break;
@@ -725,35 +716,47 @@ Deno.serve(async (req) => {
 
           // Mark Reason done with actual tool names the LLM chose
           if (iter === 0) {
-            const chosenTools = (assistantMsg.tool_calls as any[])
-              .map((tc: any) => toolLabel(tc.function.name, (() => { try { return JSON.parse(tc.function.arguments ?? "{}"); } catch { return {}; } })()).done)
+            const chosenTools = result.toolCalls
+              .map(tc => toolLabel(tc.name, tc.arguments).done)
               .join(" + ");
             ctrl.enqueue(sse({ type: "step", name: "_reason", status: "done", label: `Kế hoạch: ${chosenTools}` }));
           }
 
           // Execute all tool calls in parallel
-          loopMessages.push(assistantMsg);
+          loopMessages.push({ role: "assistant", content: result.content, toolCalls: result.toolCalls });
 
           const toolResults = await Promise.all(
-            (assistantMsg.tool_calls as any[]).map(async (tc) => {
-              let args: Record<string, any> = {};
-              try { args = JSON.parse(tc.function.arguments ?? "{}"); } catch { /* ignore */ }
+            result.toolCalls.map(async (tc) => {
+              const args = tc.arguments as Record<string, any>;
 
-              const labels = toolLabel(tc.function.name, args);
-              ctrl.enqueue(sse({ type: "step", name: tc.function.name, status: "loading", label: labels.loading }));
+              const labels = toolLabel(tc.name, args);
+              ctrl.enqueue(sse({ type: "step", name: tc.name, status: "loading", label: labels.loading }));
 
               let content: string;
-              try { content = await executeTool(tc.function.name, args, user.id); }
-              catch (e) { content = `Lỗi thực thi ${tc.function.name}: ${String(e)}`; }
+              try {
+                CHAT_TOOL_REGISTRY.assertCallable(tc.name, args, { userId: user.id, enabledToolIds: new Set(TOOL_DEFS.map((d: any) => d.function.name)) });
+                content = await executeTool(tc.name, args, user.id);
+              } catch (e) { content = `Lỗi thực thi ${tc.name}: ${String(e)}`; }
 
-              ctrl.enqueue(sse({ type: "step", name: tc.function.name, status: "done", label: labels.done }));
-              return { role: "tool", tool_call_id: tc.id, content };
+              ctrl.enqueue(sse({ type: "step", name: tc.name, status: "done", label: labels.done }));
+              return { role: "tool" as const, toolCallId: tc.id, toolName: tc.name, content };
             })
           );
           loopMessages.push(...toolResults);
         }
 
         // ── If fullText empty, do a proper streaming final answer ────────────
+        if (!fullText) {
+          ctrl.enqueue(sse({ type: "step", name: "_synthesis", status: "loading", label: "Đang tổng hợp phân tích..." }));
+          const finalResult = await LLM_RUNTIME.complete({ model: modelConfig, messages: loopMessages, maxTokens: 4000, temperature: 0 });
+          fullText = finalResult.content;
+          inputTok += finalResult.usage.inputTokens;
+          outputTok += finalResult.usage.outputTokens;
+          cachedTok += finalResult.usage.cachedInputTokens;
+          totalToks += finalResult.usage.inputTokens + finalResult.usage.outputTokens;
+          ctrl.enqueue(sse({ type: "chunk", text: fullText }));
+          ctrl.enqueue(sse({ type: "step", name: "_synthesis", status: "done", label: "Phân tích hoàn tất" }));
+        }
         if (!fullText) {
           ctrl.enqueue(sse({ type: "step", name: "_synthesis", status: "loading", label: "Đang tổng hợp phân tích..." }));
 

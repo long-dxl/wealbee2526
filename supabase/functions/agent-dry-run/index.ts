@@ -12,12 +12,32 @@ import { SourceRegistry } from "../_shared/source-registry.ts";
 import { CORS } from "../_shared/cors.ts";
 import { buildFinancialsContext, buildInsiderContext } from "../_shared/context-builders.ts";
 import { GROUNDING_RULES_DEEP, GROUNDING_RULES_DAILY, DEFAULT_DAILY_DIGEST_PROMPT } from "../_shared/prompts.ts";
+import { getModelConfig, isProviderAvailable } from "../_shared/llm-adapter.ts";
+import { ProviderLLMRuntime } from "../_shared/llm-runtime.ts";
 
 const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const OPENAI_API_KEY  = Deno.env.get("OPENAI_API_KEY")!;
+const LLM_RUNTIME = new ProviderLLMRuntime();
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+async function completeDryRun(modelId: string, system: string, user: string) {
+  const model = getModelConfig(modelId);
+  if (!isProviderAvailable(model.provider)) throw new Error(`${model.provider} chưa được cấu hình API key`);
+  const result = await LLM_RUNTIME.complete({
+    model,
+    messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    maxTokens: 8000,
+    temperature: 0,
+  });
+  return {
+    output: result.content,
+    tokensUsed: result.usage.inputTokens + result.usage.outputTokens,
+    tokensIn: result.usage.inputTokens,
+    tokensOut: result.usage.outputTokens,
+    cachedIn: result.usage.cachedInputTokens,
+  };
+}
 
 // ── Shared: SourceRegistry, CORS, buildFinancialsContext, buildInsiderContext,
 //    GROUNDING_RULES_DEEP, GROUNDING_RULES_DAILY, DEFAULT_DAILY_DIGEST_PROMPT
@@ -105,56 +125,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
 
   const userMessage = `Tạo bản tin hàng ngày theo đúng yêu cầu đã cấu hình. Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`;
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      max_tokens: 8000,
-      stream: true,
-      stream_options: { include_usage: true },
-      messages: [
-        { role: "system", content: groundedSystemPrompt },
-        { role: "user", content: userMessage },
-      ],
-    }),
-  });
-
-  if (!res.ok) throw new Error(`GPT API error: ${await res.text()}`);
-
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let accumulated = "";
-  let tokensUsed = 0;
-  let tokensIn = 0, tokensOut = 0, cachedIn = 0;
-  let leftover = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = leftover + decoder.decode(value, { stream: true });
-    const rawLines = chunk.split("\n");
-    leftover = rawLines.pop() ?? "";
-    for (const line of rawLines) {
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (payload === "[DONE]") continue;
-      try {
-        const parsed = JSON.parse(payload);
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) accumulated += delta;
-        if (parsed.usage?.total_tokens) {
-          tokensUsed = parsed.usage.total_tokens;
-          tokensIn = parsed.usage.prompt_tokens ?? 0;
-          tokensOut = parsed.usage.completion_tokens ?? 0;
-          cachedIn = parsed.usage.prompt_tokens_details?.cached_tokens ?? 0;
-        }
-      } catch { /* skip */ }
-    }
-  }
-
-  return { output: accumulated, tokensUsed, tokensIn, tokensOut, cachedIn, refs: registry.toArray() };
+  return { ...await completeDryRun(model, groundedSystemPrompt, userMessage), refs: registry.toArray() };
 }
 
 // ── Deep research dry-run (with real DB data) ─────────────────────────────────
@@ -195,56 +166,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
 
   const userMessage = `Phân tích cổ phiếu **${sym}** CHỈ dựa trên NGUỒN DỮ LIỆU XÁC NHẬN ở trên. Với chỉ tiêu nào KHÔNG có trong dữ liệu → bỏ qua hoàn toàn. Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`;
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      max_tokens: 8000,
-      stream: true,
-      stream_options: { include_usage: true },
-      messages: [
-        { role: "system", content: groundedSystemPrompt },
-        { role: "user", content: userMessage },
-      ],
-    }),
-  });
-
-  if (!res.ok) throw new Error(`GPT API error: ${await res.text()}`);
-
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let accumulated = "";
-  let tokensUsed = 0;
-  let tokensIn = 0, tokensOut = 0, cachedIn = 0;
-  let leftover = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = leftover + decoder.decode(value, { stream: true });
-    const lines = chunk.split("\n");
-    leftover = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (payload === "[DONE]") continue;
-      try {
-        const parsed = JSON.parse(payload);
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) accumulated += delta;
-        if (parsed.usage?.total_tokens) {
-          tokensUsed = parsed.usage.total_tokens;
-          tokensIn = parsed.usage.prompt_tokens ?? 0;
-          tokensOut = parsed.usage.completion_tokens ?? 0;
-          cachedIn = parsed.usage.prompt_tokens_details?.cached_tokens ?? 0;
-        }
-      } catch { /* skip */ }
-    }
-  }
-
-  return { output: accumulated, tokensUsed, tokensIn, tokensOut, cachedIn, refs: registry.toArray() };
+  return { ...await completeDryRun(model, groundedSystemPrompt, userMessage), refs: registry.toArray() };
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -308,7 +230,7 @@ Deno.serve(async (req) => {
     } catch { /* fire-and-forget: don't fail the response if save fails */ }
   };
 
-  const gptModel = "gpt-4.1-mini"; // Phase 1: LLM Adapter sẽ routing đúng theo model
+  const selectedModel = model ?? "gpt-4o-mini";
 
   // ── Deep research ─────────────────────────────────────────────────────────
   if (templateId !== "daily_digest") {
@@ -327,7 +249,7 @@ Deno.serve(async (req) => {
     const prompt = systemPrompt ?? "Bạn là chuyên gia phân tích chứng khoán Việt Nam. Phân tích mã __TARGET_SYMBOL__.";
     const t0 = Date.now();
     try {
-      const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDeepResearchDry(prompt, targetSymbol, gptModel, tools);
+      const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDeepResearchDry(prompt, targetSymbol, selectedModel, tools);
       await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
       const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử deep_research", cachedIn);
       return new Response(JSON.stringify({ output, tokensUsed, targetSymbol, refs, ...charge }), {
@@ -348,7 +270,7 @@ Deno.serve(async (req) => {
 
   const t0 = Date.now();
   try {
-    const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, gptModel);
+    const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, selectedModel);
     await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
     const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử daily_digest", cachedIn);
     return new Response(JSON.stringify({ output, tokensUsed, refs, ...charge }), {
