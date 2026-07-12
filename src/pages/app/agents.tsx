@@ -13,6 +13,7 @@ import { activateAgentTemplate, READY_TEMPLATE_IDS, type UserAgent } from "../..
 import { NeedPortfolioModal } from "../../components/NeedPortfolioModal";
 import { canCreateAgent } from "../../lib/plan-limits";
 import { notifyWalletChanged } from "../../lib/wallet-events";
+import { useIsMobile } from "../../components/ui/use-mobile";
 import type { Theme } from "../../lib/theme-context";
 import type { AppOutletContext } from "./page-wrappers";
 
@@ -335,6 +336,7 @@ function RunPanel({ panel, onClose, onInbox, onViewTicker, theme: t, isDark }: {
   isDark: boolean;
 }) {
   const outputRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   // Auto-scroll output while streaming
   useEffect(() => {
@@ -378,9 +380,11 @@ function RunPanel({ panel, onClose, onInbox, onViewTicker, theme: t, isDark }: {
         )}
       </div>
 
-      <div style={{ display: "flex", flex: 1, overflow: "hidden", gap: 0 }}>
-        {/* Steps sidebar */}
-        <div style={{ width: 240, flexShrink: 0, borderRight: "1px solid " + t.border, background: t.bgCard, padding: "20px 16px", overflowY: "auto" }}>
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flex: 1, overflow: "hidden", gap: 0 }}>
+        {/* Steps sidebar — mobile: dải ngang phía trên output thay vì cột 240px */}
+        <div style={isMobile
+          ? { flexShrink: 0, maxHeight: 150, borderBottom: "1px solid " + t.border, background: t.bgCard, padding: "12px 16px", overflowY: "auto" }
+          : { width: 240, flexShrink: 0, borderRight: "1px solid " + t.border, background: t.bgCard, padding: "20px 16px", overflowY: "auto" }}>
           <p style={{ fontSize: "0.6875rem", fontWeight: 700, color: t.fgSubtle, letterSpacing: "0.06em", marginBottom: 14 }}>TIẾN TRÌNH</p>
           {panel.steps.length === 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -765,7 +769,7 @@ export function AgentsPage() {
           <p style={{ fontSize: "0.8125rem", color: t.fgSubtle, marginTop: 10 }}>Đang tải…</p>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 14 }}>
           {agents.map(agent => {
             const colors = TEMPLATE_COLOR;
             const tmpl   = templates.find(tp => tp.id === agent.template_id);

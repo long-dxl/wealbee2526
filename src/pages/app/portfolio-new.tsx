@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, ArrowUpRight, RefreshCw, X, GripVertical, Link2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowUpRight, RefreshCw, X, GripVertical, Link2, AlertCircle, CheckCircle2, Sparkles } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -10,6 +10,7 @@ import { useCurrentUser } from "../../lib/hooks/useCurrentUser";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { useBrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { fetchPositions, fetchCashBalance, type DnsePosition, type DnseCashBalance } from "../../lib/services/dnse";
+import { useIsMobile } from "../../components/ui/use-mobile";
 
 interface TickerOption { symbol: string; name: string; }
 
@@ -83,7 +84,10 @@ function PerfTooltip({ active, payload, label, isDark }: any) {
 
 // ── DragHint overlay ──────────────────────────────────────────────────────────
 function DragHint({ isDark }: { isDark: boolean }) {
+  // Mobile không có drag — ẩn hẳn để tap không làm hint kẹt hiển thị
+  const isMobile = useIsMobile();
   const accent = isDark ? "rgba(77,143,232,0.80)" : "rgba(8,73,172,0.65)";
+  if (isMobile) return null;
   return (
     <div className="card-hint" style={{
       position: "absolute", inset: 0, borderRadius: "inherit",
@@ -366,7 +370,7 @@ export function Portfolio({
   onAddContextCard?: (card: ContextCard) => void;
   isDark?: boolean;
 }) {
-  void onAddContextCard;
+  const isMobile = useIsMobile();
   const cardBg = isDark ? "#131824" : "#fff";
   const cardShadow = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08), 0 1px 2px rgba(0,0,0,0.04)";
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
@@ -717,7 +721,7 @@ export function Portfolio({
   `;
 
   return (
-    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px", fontFamily: FONT, background: isDark ? "#0B0D18" : undefined }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "16px" : "24px", fontFamily: FONT, background: isDark ? "#0B0D18" : undefined }}>
       <style>{hoverStyle}</style>
 
       {/* Header summary — draggable */}
@@ -727,7 +731,8 @@ export function Portfolio({
         style={{ background: cardBg, borderRadius: 14, padding: 20, boxShadow: cardShadow, marginBottom: 16, position: "relative", overflow: "hidden" }}
       >
         <DragHint isDark={isDark} />
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        {/* Mobile: xếp dọc — nút Thêm cổ phiếu full-width dưới số liệu, số tổng nhỏ lại để không xuống dòng lẻ "đ" */}
+        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "flex-start", gap: isMobile ? 14 : 0 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: fg, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
               Danh mục của tôi
@@ -735,7 +740,7 @@ export function Portfolio({
                 {portfolioLoading ? "Đang tải…" : `${holdings.length} vị thế`}
               </span>
             </div>
-            <div style={{ fontSize: 34, fontWeight: 700, color: fg, marginBottom: 6 }}>
+            <div style={{ fontSize: isMobile ? 28 : 34, fontWeight: 700, color: fg, marginBottom: 6, whiteSpace: "nowrap" }}>
               {portfolioLoading ? "—" : `${totalValue.toLocaleString("vi-VN")} đ`}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -749,10 +754,12 @@ export function Portfolio({
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); openAdd(); }}
             style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 14px",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              padding: isMobile ? "12px 14px" : "8px 14px",
               borderRadius: 10, border: "none", background: brand,
-              cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#fff", fontFamily: FONT,
+              cursor: "pointer", fontSize: isMobile ? 14 : 13, fontWeight: 600, color: "#fff", fontFamily: FONT,
               transition: "background 150ms ease",
+              whiteSpace: "nowrap", flexShrink: 0,
             }}
           >
             <Plus size={14} strokeWidth={1.5} /> Thêm cổ phiếu
@@ -807,9 +814,10 @@ export function Portfolio({
             </div>
           )}
 
-          {/* Positions table */}
+          {/* Positions table — bọc overflowX cho màn hẹp (tổng cột cứng 522px) */}
           {dnsePositions.length > 0 && (
-            <>
+            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <div style={{ minWidth: 546 }}>
               <div style={{ display: "grid", gridTemplateColumns: "72px 80px 90px 90px 100px 90px", padding: "8px 12px", background: isDark ? "#0f1220" : "#F5F5F7", borderRadius: "8px 8px 0 0" }}>
                 {["Mã", "SL CP", "Giá TB", "Giá TT", "Giá trị TT", "P&L"].map(col => (
                   <div key={col} style={{ fontSize: 11, fontWeight: 700, color: fgSubtle, letterSpacing: "0.05em", textTransform: "uppercase" }}>{col}</div>
@@ -844,7 +852,8 @@ export function Portfolio({
                   </div>
                 );
               })}
-            </>
+            </div>
+            </div>
           )}
 
           {!dnseLoading && !dnseError && dnsePositions.length === 0 && (
@@ -888,8 +897,8 @@ export function Portfolio({
       >
         <DragHint isDark={isDark} />
 
-        {/* Chart header */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18 }}>
+        {/* Chart header — mobile: pills kỳ hạn xuống hàng riêng, cuộn ngang được */}
+        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "flex-start", justifyContent: "space-between", marginBottom: 18, gap: isMobile ? 12 : 0 }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
               Hiệu suất danh mục
@@ -903,6 +912,7 @@ export function Portfolio({
                 color: periodPortfolioPct >= 0 ? GREEN : RED,
                 background: periodPortfolioPct >= 0 ? "rgba(39,200,64,0.10)" : "rgba(255,57,49,0.10)",
                 padding: "3px 9px", borderRadius: 6,
+                whiteSpace: "nowrap",
               }}>
                 trong kỳ {chartPeriod}
               </span>
@@ -912,7 +922,7 @@ export function Portfolio({
           {/* Period selector */}
           <div
             onMouseDown={(e) => e.stopPropagation()}
-            style={{ display: "flex", background: bgMuted, borderRadius: 10, padding: 3, gap: 2, border: `1px solid ${divider}` }}
+            style={{ display: "flex", background: bgMuted, borderRadius: 10, padding: 3, gap: 2, border: `1px solid ${divider}`, overflowX: isMobile ? "auto" : undefined, WebkitOverflowScrolling: "touch", alignSelf: isMobile ? "flex-start" : undefined, maxWidth: "100%" }}
           >
             {PERIODS.map((p) => (
               <button
@@ -924,6 +934,7 @@ export function Portfolio({
                   color: chartPeriod === p ? "#fff" : fgMuted,
                   fontSize: 12, fontWeight: chartPeriod === p ? 700 : 500,
                   fontFamily: FONT, transition: "all 100ms",
+                  flexShrink: 0,
                 }}
               >
                 {p}
@@ -1063,8 +1074,10 @@ export function Portfolio({
         </div>
       </div>
 
-      {/* Holdings table */}
+      {/* Holdings table — bọc overflowX cho màn hẹp (tổng cột cứng 602px + tên) */}
       <div style={{ background: cardBg, borderRadius: 14, boxShadow: cardShadow, overflow: "hidden", marginBottom: 16 }}>
+      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+      <div style={{ minWidth: 700 }}>
         {/* Table header */}
         <div style={{
           display: "grid",
@@ -1138,6 +1151,12 @@ export function Portfolio({
               </div>
               <span style={{ fontSize: 12, color: fgSubtle }}>{h.purchaseDate || "—"}</span>
               <div style={{ display: "flex", gap: 4 }}>
+                {/* Mobile: thay drag-to-AI bằng nút sparkle (HTML5 drag không chạy trên touch) */}
+                {isMobile && onAddContextCard && (
+                  <button onClick={(e) => { e.stopPropagation(); onAddContextCard(tickerCard); }} style={{ background: "rgba(8,73,172,0.10)", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: brand, display: "flex" }} title="Hỏi AI về mã này">
+                    <Sparkles size={14} strokeWidth={1.5} />
+                  </button>
+                )}
                 <button onClick={(e) => { e.stopPropagation(); openEdit(h); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6, color: fgSubtle, display: "flex" }} title="Sửa">
                   <Pencil size={14} strokeWidth={1.5} />
                 </button>
@@ -1151,6 +1170,8 @@ export function Portfolio({
             </div>
           );
         })}
+      </div>
+      </div>
       </div>
 
       {/* Footer actions */}
@@ -1174,7 +1195,7 @@ export function Portfolio({
           style={{ position: "fixed", inset: 0, background: "rgba(26,26,46,0.55)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
         >
-          <div style={{ background: "#fff", borderRadius: 20, padding: 28, width: 480, boxShadow: "0 20px 60px rgba(8,73,172,0.16), 0 4px 12px rgba(0,0,0,0.08)" }}>
+          <div style={{ background: "#fff", borderRadius: 20, padding: 28, width: 480, maxWidth: "100%", boxShadow: "0 20px 60px rgba(8,73,172,0.16), 0 4px 12px rgba(0,0,0,0.08)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#1A1A2E" }}>
                 {editingHolding ? "Sửa cổ phiếu" : "Thêm cổ phiếu vào danh mục"}

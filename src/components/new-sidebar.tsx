@@ -1,11 +1,11 @@
 import { useState, useRef } from "react";
 import {
-  House, Inbox, Bot, Plus, LayoutTemplate, Wrench,
-  BookOpen, Wallet, Settings, List,
+  Plus, Wallet, Settings,
   ChevronsLeft, ChevronsRight, Sparkles, MessageSquarePlus,
 } from "lucide-react";
 import { WealbeeLogo } from "./WealbeeIcon";
 import { lightTheme, type Theme } from "../lib/theme-context";
+import { primaryNavItems, studioNavItems } from "../lib/nav-items";
 
 interface SidebarProps {
   currentPage: string;
@@ -30,16 +30,9 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { id: "dashboard", icon: House,      label: "Tổng quan" },
-  // { id: "tickers",   icon: List,       label: "Cổ phiếu" },
-  { id: "portfolio", icon: Wallet,     label: "Danh mục" },
-  { id: "inbox",     icon: Inbox,      label: "Hộp thư" },
-  { id: "agents",    icon: Bot,        label: "Agent của tôi" },
+  ...primaryNavItems,
   { id: "divider-studio", section: "AGENT STUDIO", icon: Plus, label: "" },
-  // { id: "create-agent", icon: Plus, label: "Tạo Agent" },
-  { id: "templates", icon: LayoutTemplate, label: "Mẫu Agent" },
-  { id: "tools", icon: Wrench, label: "Thư viện công cụ" },
-  { id: "knowledge", icon: BookOpen, label: "Kho kiến thức" },
+  ...studioNavItems,
 ];
 
 export function Sidebar({

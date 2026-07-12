@@ -94,6 +94,9 @@ interface ActionHubProps {
   onClearContextCards: () => void;
   isDark?: boolean;
   theme?: Theme;
+  // "mobile": overlay full-screen (100dvh, fixed) thay vì side panel — chỉ đổi
+  // container ngoài + tắt resize handle, toàn bộ logic chat giữ nguyên.
+  variant?: "desktop" | "mobile";
 }
 
 const pageQuickActions: Record<string, string[]> = {
@@ -164,8 +167,9 @@ const contextLabel: Record<string, string> = {
 export function ActionHub({
   currentPage, open, onClose, width, onWidthChange,
   contextCards, onAddContextCard, onRemoveContextCard, onClearContextCards,
-  isDark = false, theme = lightTheme,
+  isDark = false, theme = lightTheme, variant = "desktop",
 }: ActionHubProps) {
+  const isMobileVariant = variant === "mobile";
   const t = theme;
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -451,16 +455,18 @@ export function ActionHub({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       style={{
-        width: open ? displayWidth : 0,
-        minWidth: open ? displayWidth : 0,
+        width: isMobileVariant ? "100%" : (open ? displayWidth : 0),
+        minWidth: isMobileVariant ? "100%" : (open ? displayWidth : 0),
         transition: isDraggingResize ? "none" : "width 200ms ease-out, min-width 200ms ease-out",
         overflow: "hidden",
         background: t.hubBg,
-        borderLeft: "0.5px solid " + t.border,
+        borderLeft: isMobileVariant ? "none" : "0.5px solid " + t.border,
         display: "flex",
         flexDirection: "column",
-        height: "100vh",
-        position: "relative",
+        height: isMobileVariant ? "100dvh" : "100vh",
+        position: isMobileVariant ? "fixed" : "relative",
+        inset: isMobileVariant ? 0 : undefined,
+        zIndex: isMobileVariant ? 60 : undefined,
         flexShrink: 0,
       }}
     >
@@ -493,7 +499,7 @@ export function ActionHub({
       )}
 
       {/* ── Resize handle ── */}
-      {open && (
+      {open && !isMobileVariant && (
         <div
           onMouseDown={handleResizeMouseDown}
           onDoubleClick={() => onWidthChange(DEFAULT_WIDTH)}
@@ -707,6 +713,7 @@ export function ActionHub({
           {/* Empty state with quick actions */}
           {messages.length === 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* Mobile không kéo-thả được — hướng dẫn bấm nút ✨ trên card thay vì "kéo vào đây" */}
               {contextCards.length === 0 && (
                 <div style={{
                   border: `1px dashed ${t.borderStrong}`, borderRadius: 14,
@@ -719,14 +726,18 @@ export function ActionHub({
                     background: isDark ? "rgba(77,143,232,0.14)" : "rgba(8,73,172,0.09)",
                     display: "flex", alignItems: "center", justifyContent: "center",
                   }}>
-                    <GripVertical size={18} color={t.brand} strokeWidth={1.5} />
+                    {isMobileVariant
+                      ? <Sparkles size={18} color={t.brand} strokeWidth={1.5} />
+                      : <GripVertical size={18} color={t.brand} strokeWidth={1.5} />}
                   </div>
                   <div>
                     <p style={{ margin: "0 0 3px", fontSize: 13, fontWeight: 700, color: t.brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                      Kéo card vào đây
+                      {isMobileVariant ? "Thêm context cho AI" : "Kéo card vào đây"}
                     </p>
                     <p style={{ margin: 0, fontSize: 12, color: t.fgSubtle, fontFamily: "'Montserrat', system-ui, sans-serif", lineHeight: 1.55 }}>
-                      Thả chỉ số, danh mục, tin tức<br />để AI phân tích có context
+                      {isMobileVariant
+                        ? <>Bấm nút <Sparkles size={11} style={{ verticalAlign: "middle" }} /> trên chỉ số, tin tức, danh mục<br />để AI phân tích có context</>
+                        : <>Thả chỉ số, danh mục, tin tức<br />để AI phân tích có context</>}
                     </p>
                   </div>
                 </div>
@@ -896,7 +907,7 @@ export function ActionHub({
 
         {/* Input area */}
         <div style={{
-          padding: "14px 16px 12px",
+          padding: isMobileVariant ? "14px 16px calc(12px + env(safe-area-inset-bottom))" : "14px 16px 12px",
           borderTop: "0.5px solid " + t.border,
           flexShrink: 0,
           background: t.hubBg,
@@ -989,7 +1000,8 @@ export function ActionHub({
               placeholder={contextCards.length > 0 ? `Hỏi về ${contextCards.map(c => c.label).join(", ")}…` : "Hỏi bất cứ điều gì…"}
               style={{
                 flex: 1, border: "none", background: "transparent", outline: "none",
-                fontSize: 14, fontFamily: "'Montserrat', system-ui, sans-serif",
+                // ≥16px trên mobile để iOS Safari không auto-zoom khi focus input
+                fontSize: isMobileVariant ? 16 : 14, fontFamily: "'Montserrat', system-ui, sans-serif",
                 color: t.fg, lineHeight: 1.5,
               }}
             />

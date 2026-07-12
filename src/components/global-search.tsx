@@ -16,6 +16,9 @@ interface Props {
   onSelectTicker: (symbol: string) => void;
   onNavigate: (page: string) => void;
   isDark?: boolean;
+  // "mobile": dùng trong search overlay full-screen — input full-width ≥16px
+  // (chống iOS zoom), kết quả render thành list tĩnh cuộn dọc thay vì dropdown.
+  variant?: "desktop" | "mobile";
 }
 
 const FONT = "'Montserrat', system-ui, sans-serif";
@@ -97,9 +100,10 @@ function useTickers(): TickerRow[] {
   return tickers;
 }
 
-export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Props) {
+export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false, variant = "desktop" }: Props) {
+  const isMobileVariant = variant === "mobile";
   const [query,  setQuery]  = useState("");
-  const [open,   setOpen]   = useState(false);
+  const [open,   setOpen]   = useState(isMobileVariant);
   const [cursor, setCursor] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef     = useRef<HTMLInputElement>(null);
@@ -139,6 +143,7 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
   const footerColor       = isDark ? "#4D8FE8" : "#0849AC";
 
   useEffect(() => {
+    if (isMobileVariant) return; // overlay mobile luôn mở, đóng bằng nút back của overlay
     function handleClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
@@ -147,7 +152,7 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+  }, [isMobileVariant]);
 
   const select = useCallback((symbol: string) => {
     onSelectTicker(symbol);
@@ -175,12 +180,15 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
   }
 
   return (
-    <div ref={containerRef} style={{ position: "relative", width: 340, fontFamily: FONT }}>
+    <div ref={containerRef} style={{
+      position: "relative", width: isMobileVariant ? "100%" : 340, fontFamily: FONT,
+      ...(isMobileVariant ? { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 } : {}),
+    }}>
       {/* Input */}
       <div style={{
         display: "flex", alignItems: "center", gap: 8,
         background: inputBg, border: inputBorder,
-        borderRadius: open ? "12px 12px 0 0" : 12,
+        borderRadius: isMobileVariant ? 12 : (open ? "12px 12px 0 0" : 12),
         padding: "0 12px", height: 38,
         transition: "all 140ms ease", boxShadow: inputShadow,
         backdropFilter: isDark ? "blur(8px)" : undefined,
@@ -189,11 +197,12 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
         <input
           ref={inputRef}
           value={query}
+          autoFocus={isMobileVariant}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); setCursor(-1); }}
           onFocus={() => setOpen(true)}
           onKeyDown={handleKey}
           placeholder="Tìm cổ phiếu, chỉ số..."
-          style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 13, fontFamily: FONT, color: inputTextColor }}
+          style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: isMobileVariant ? 16 : 13, fontFamily: FONT, color: inputTextColor }}
         />
         {query && (
           <button onClick={() => { setQuery(""); inputRef.current?.focus(); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", alignItems: "center" }}>
@@ -202,9 +211,12 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false }: Pro
         )}
       </div>
 
-      {/* Dropdown */}
+      {/* Dropdown (desktop) / list tĩnh cuộn dọc (mobile overlay) */}
       {open && (
-        <div style={{
+        <div style={isMobileVariant ? {
+          flex: 1, minHeight: 0, overflowY: "auto", marginTop: 8,
+          background: "transparent",
+        } : {
           position: "absolute", top: 38, left: 0, right: 0,
           background: dropdownBg, border: dropdownBorder,
           borderTop: dropdownTopBorder, borderRadius: "0 0 14px 14px",

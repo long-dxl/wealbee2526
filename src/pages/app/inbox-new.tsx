@@ -480,10 +480,10 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
 
   // ── List view ─────────────────────────────────────────────────────────────
   return (
-    <div style={{ maxWidth: 1040, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: 1040, margin: "0 auto", padding: "clamp(16px, 4vw, 32px) clamp(16px, 3vw, 24px)", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
 
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+      {/* Header — flexWrap để cụm filter xuống dòng riêng trên màn hẹp */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: fg, letterSpacing: "-0.025em" }}>Inbox</h1>
           {loadingBriefs && <RefreshCw size={14} style={{ color: brand, animation: "spin 1s linear infinite" }} />}

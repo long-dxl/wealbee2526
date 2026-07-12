@@ -42,6 +42,7 @@ export function DashboardRoute() {
       onNavigate={onNavigate}
       onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)}
       isDark={isDark}
+      onAskAI={addContextCard}
     />
   );
 }

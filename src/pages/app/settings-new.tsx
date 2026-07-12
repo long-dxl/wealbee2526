@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, Check, RefreshCw, Save, X, Link2, Unlink, Eye, EyeOff, Wallet, Sparkles, Zap, Crown, MessageCircle, Copy } from "lucide-react";
+import { Bell, Shield, CreditCard, User, Moon, Globe, ChevronRight, ChevronLeft, Check, RefreshCw, Save, X, Link2, Unlink, Eye, EyeOff, Wallet, Sparkles, Zap, Crown, MessageCircle, Copy } from "lucide-react";
 import { useTheme } from "../../lib/theme-context";
 import { supabase } from "../../lib/supabase/client";
 import { getPlanAndBeeny, fmtBeeny, PLAN_LIMITS } from "../../lib/plan-limits";
@@ -11,6 +11,7 @@ import { getZaloLink, genZaloCode, setZaloNotify, unlinkZalo, sendZaloTest, ZALO
 import { TrialGrantedModal } from "../../components/TrialGrantedModal";
 import { useBrokerConfig, type BrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { discoverAccounts } from "../../lib/services/dnse";
+import { useIsMobile } from "../../components/ui/use-mobile";
 
 type SettingsSection = "profile" | "notifications" | "appearance" | "privacy" | "usage" | "billing" | "api";
 
@@ -44,11 +45,15 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 }
 
 export function Settings() {
+  const isMobile = useIsMobile();
   const { isDark, setDark, theme } = useTheme();
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
   const [section,  setSection]  = useState<SettingsSection>(
     (["profile","notifications","appearance","privacy","usage","billing","api"].includes(initialTab ?? "") ? initialTab : "profile") as SettingsSection);
+  // Mobile: drill-down 2 cấp (danh sách đầu mục → nội dung mục + nút back).
+  // Có ?tab= (đi từ menu Beeny) thì vào thẳng nội dung mục đó.
+  const [mobileDrill, setMobileDrill] = useState(initialTab != null);
   const [language, setLanguage] = useState("vi");
 
   // ── Broker / API connection ────────────────────────────────────────────────
@@ -338,38 +343,64 @@ export function Settings() {
     { id: "premium", name: "Premium", priceM: "499.000đ", priceY: "4.990.000đ", features: ["Tối đa 15 Agent", "250 Beeny/ngày", "Tất cả tính năng Pro", "Ưu tiên xử lý tức thì", "Truy cập sớm tính năng mới"] },
   ];
 
-  return (
-    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px", fontFamily: FONT }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: headingColor, margin: "0 0 20px" }}>Cài đặt</h1>
-      <div style={{ display: "flex", gap: 20 }}>
+  const currentItem = sidebarItems.find(i => i.id === section);
 
-        {/* Sidebar */}
-        <div style={{ width: 200, flexShrink: 0 }}>
+  return (
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "16px" : "24px", fontFamily: FONT }}>
+      {/* Header: mobile drill-down có nút back về danh sách đầu mục */}
+      {isMobile && mobileDrill ? (
+        <button
+          onClick={() => setMobileDrill(false)}
+          style={{
+            display: "flex", alignItems: "center", gap: 8, border: "none", background: "transparent",
+            cursor: "pointer", padding: "4px 0", margin: "0 0 16px", fontFamily: FONT,
+            WebkitTapHighlightColor: "transparent",
+          }}
+        >
+          <ChevronLeft size={22} strokeWidth={2} color={headingColor} />
+          <span style={{ fontSize: 20, fontWeight: 700, color: headingColor }}>{currentItem?.label ?? "Cài đặt"}</span>
+        </button>
+      ) : (
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: headingColor, margin: "0 0 20px" }}>Cài đặt</h1>
+      )}
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 14 : 20 }}>
+
+        {/* Nav: dọc 200px trên desktop; mobile là danh sách đầu mục full-width (drill-down cấp 1) */}
+        {(!isMobile || !mobileDrill) && (
+        <div style={isMobile ? { flexShrink: 0 } : { width: 200, flexShrink: 0 }}>
           {sidebarItems.map(item => {
             const Icon   = item.icon;
-            const active = section === item.id;
+            const active = !isMobile && section === item.id;
             return (
               <button
                 key={item.id}
-                onClick={() => setSection(item.id)}
+                onClick={() => { setSection(item.id); if (isMobile) setMobileDrill(true); }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 10, width: "100%",
-                  padding: "10px 12px", borderRadius: 10, border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: isMobile ? 12 : 10,
+                  width: "100%",
+                  padding: isMobile ? "14px 4px" : "10px 12px",
+                  minHeight: isMobile ? 52 : undefined,
+                  borderRadius: 10, border: "none", cursor: "pointer",
+                  borderBottom: isMobile ? "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.07)") : "none",
                   background: active ? (isDark ? "rgba(77,143,232,0.18)" : "rgba(8,73,172,0.08)") : "transparent",
                   color: active ? theme.brand : labelColor,
-                  fontSize: 14, fontWeight: active ? 700 : 400,
-                  fontFamily: FONT, marginBottom: 2, textAlign: "left",
+                  fontSize: isMobile ? 15 : 14, fontWeight: active ? 700 : (isMobile ? 500 : 400),
+                  fontFamily: FONT, marginBottom: isMobile ? 0 : 2, textAlign: "left",
                   transition: "all 120ms ease",
+                  WebkitTapHighlightColor: "transparent",
                 }}
               >
                 <Icon size={18} strokeWidth={1.5} />
-                {item.label}
+                <span style={{ flex: 1 }}>{item.label}</span>
+                {isMobile && <ChevronRight size={17} strokeWidth={1.7} color={isDark ? "rgba(240,242,255,0.4)" : "rgba(26,26,46,0.4)"} />}
               </button>
             );
           })}
         </div>
+        )}
 
-        {/* Content */}
+        {/* Content — mobile chỉ hiện khi đã drill vào 1 mục */}
+        {(!isMobile || mobileDrill) && (
         <div style={{ flex: 1 }}>
 
           {/* ── Profile ─────────────────────────────────────────────────────── */}
@@ -952,7 +983,7 @@ export function Settings() {
               )}
 
               {/* ── Plan cards — bắt mắt: icon gradient, viền/nền nổi cho gói phổ biến ── */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16, alignItems: "stretch", paddingTop: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 16, alignItems: "stretch", paddingTop: 12 }}>
                 {plans.map(pl => {
                   const isCurrent = pl.id === plan;
                   const price = billingYear ? pl.priceY : pl.priceM;
@@ -1034,7 +1065,7 @@ export function Settings() {
                     <h3 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 800, color: headingColor, fontFamily: FONT }}>Mua thêm Beeny cho hôm nay</h3>
                     <p style={{ margin: 0, fontSize: 12.5, color: subtleColor, fontFamily: FONT }}>Cần thêm dung lượng? Nạp nhanh · <b style={{ color: headingColor }}>hết hạn sau 24 giờ</b> · mỗi loại 1 lần/ngày</p>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0,1fr))", gap: 14 }}>
                     {[
                       { id: "pack_5k",  beeny: 120, price: "5.000đ",  raw: 5000 },
                       { id: "pack_10k", beeny: 250, price: "10.000đ", raw: 10000, best: true },
@@ -1064,6 +1095,7 @@ export function Settings() {
           )}
 
         </div>
+        )}
       </div>
 
       {trialModal != null && (

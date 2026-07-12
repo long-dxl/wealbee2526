@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentUser } from "../../lib/hooks/useCurrentUser";
+import { useIsMobile } from "../../components/ui/use-mobile";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { IndexDetailModal } from "../../components/index-detail-modal";
 
@@ -30,6 +31,9 @@ interface DashboardProps {
   onNavigate: (page: string) => void;
   onSelectTicker?: (symbol: string) => void;
   isDark?: boolean;
+  // Mobile: thay drag-to-AI (không chạy trên touch) — tap nút sparkle để thêm
+  // card vào context và mở chat overlay (addContextCard tự mở hub khi đang đóng).
+  onAskAI?: (card: ContextCard) => void;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -120,10 +124,53 @@ function getSectorColor(pct: number) {
 }
 
 function DragHint() {
+  // Mobile không có drag — ẩn hẳn (tap kích hoạt mouseenter khiến hint kẹt hiển thị)
+  const isMobile = useIsMobile();
+  if (isMobile) return null;
   return (
     <div style={{ position: "absolute", top: 8, right: 8, background: "rgba(8,73,172,0.10)", borderRadius: 6, padding: "3px 7px", display: "flex", alignItems: "center", gap: 4, opacity: 0, transition: "opacity 150ms ease", pointerEvents: "none" }} className="drag-hint">
       <span style={{ fontSize: 10, fontWeight: 700, color: "#0849AC", fontFamily: "'Montserrat', system-ui, sans-serif" }}>⠿ Kéo vào AI</span>
     </div>
+  );
+}
+
+// Mobile: nút "Hỏi AI" góc card — thay cho drag-to-AI (HTML5 drag không chạy trên touch)
+function AskAiButton({ card, onAsk }: { card: ContextCard; onAsk?: (c: ContextCard) => void }) {
+  if (!onAsk) return null;
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onAsk(card); }}
+      title="Hỏi AI về mục này"
+      style={{
+        position: "absolute", top: 8, right: 8, width: 32, height: 32, zIndex: 2,
+        borderRadius: "50%", border: "none", cursor: "pointer",
+        background: "rgba(8,73,172,0.10)", color: "#0849AC",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        WebkitTapHighlightColor: "transparent",
+      }}
+    >
+      <Sparkles size={15} strokeWidth={1.8} />
+    </button>
+  );
+}
+
+// Mobile: biến thể inline cho dòng danh sách (điểm nổi bật, insight danh mục)
+function AskAiInline({ card, onAsk }: { card: ContextCard; onAsk?: (c: ContextCard) => void }) {
+  if (!onAsk) return null;
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onAsk(card); }}
+      title="Hỏi AI về mục này"
+      style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 26, height: 26, marginLeft: 4, verticalAlign: "middle",
+        borderRadius: "50%", border: "none", cursor: "pointer",
+        background: "rgba(8,73,172,0.10)", color: "#0849AC", flexShrink: 0,
+        WebkitTapHighlightColor: "transparent",
+      }}
+    >
+      <Sparkles size={13} strokeWidth={1.8} />
+    </button>
   );
 }
 
@@ -313,11 +360,17 @@ async function fetchMarketData(): Promise<{
   });
 
   // allMovers: TOÀN BỘ sàn — dùng khi user lọc theo VN30/HNX (scopeMovers).
+  // Biên độ dao động khác nhau theo sàn (HOSE ±7%, HNX ±10%) nên ngưỡng trần/sàn
+  // phải theo từng sàn — dùng chung ±6.9% sẽ gắn nhãn "trần/sàn" sai cho mã HNX.
+  const ceilFloorThreshold = (exchange: string) => (exchange === "HNX" ? 9.9 : 6.9);
   const sortedAll = [...withPct].sort((a, b) => b.pct - a.pct);
-  const allMovers = sortedAll.map((s) => ({
-    symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, sector: s.sector, exchange: s.exchange,
-    isCeil: s.pct >= 6.9, isFloor: s.pct <= -6.9,
-  }));
+  const allMovers = sortedAll.map((s) => {
+    const t = ceilFloorThreshold(s.exchange);
+    return {
+      symbol: s.symbol, price: s.price, pct: s.pct, vol: s.vol, sector: s.sector, exchange: s.exchange,
+      isCeil: s.pct >= t, isFloor: s.pct <= -t,
+    };
+  });
 
   // gainers/losers mặc định (chưa lọc gì) VÀ heatmap ngành: giữ nguyên như trước, chỉ tính trên HOSE
   // — tránh đổi hành vi mặc định khi chưa bấm chọn sàn nào.
@@ -458,7 +511,10 @@ async function fetchHighlight(): Promise<HighlightResult | null> {
 }
 
 // ── Dashboard component ─────────────────────────────────────────────────────
-export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: DashboardProps) {
+export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI }: DashboardProps) {
+  const isMobile = useIsMobile();
+  // Nút "Hỏi AI" chỉ hiện trên mobile — desktop vẫn dùng drag như cũ
+  const askAI = isMobile ? onAskAI : undefined;
   const cardBg      = isDark ? "#131824" : "#fff";
   const cardShadow  = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08), 0 1px 2px rgba(0,0,0,0.04)";
   const fg          = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
@@ -552,10 +608,14 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   const portfolioTotal = watchHoldings.reduce((s, h) => s + h.price * h.quantity, 0);
 
   // Lọc movers: VN30/HNX ∩ ngành (kết hợp được); null = toàn bộ HOSE (mặc định)
+  // QUAN TRỌNG: luôn phải ràng buộc sàn — mặc định (chưa bật HNX) là HOSE, KHÔNG
+  // được để lọt cả HNX/UPCOM vào khi user chỉ bấm chọn 1 ngành trên heatmap.
+  // Trước đây thiếu ràng buộc này khiến mã UPCOM (biên độ ±15%, không có trong
+  // bảng `tickers` nên bấm vào bị lỗi "Không tìm thấy mã") lộ ra ở Top tăng/giảm.
   const scopeMovers = (vn30Active || hnxActive || selectedSector)
     ? allMovers.filter(m =>
         (!vn30Active || vn30Set.has(m.symbol)) &&
-        (!hnxActive || m.exchange === "HNX") &&
+        (hnxActive ? m.exchange === "HNX" : m.exchange === "HOSE") &&
         (!selectedSector || m.sector === selectedSector)
       )
     : null;
@@ -591,28 +651,31 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
   };
 
   // Kéo 1 dòng trong "Điểm nổi bật hôm nay" / "Cần theo dõi" vào Action Hub
+  // Card factory dùng chung cho cả drag (desktop) và nút "Hỏi AI" (mobile)
+  const highlightCard = (item: NewsHighlight, idPrefix: string): ContextCard => ({
+    id: `${idPrefix}-${item.title.slice(0, 20)}`,
+    type: "news",
+    label: item.title.length > 32 ? item.title.slice(0, 32) + "…" : item.title,
+    badge: item.source_name ?? undefined,
+    summary: [item.source_name, item.published_at ? `${relativeTime(item.published_at)} trước` : null].filter(Boolean).join(" · "),
+  });
+
+  const insightCard = (p: PortfolioInsight): ContextCard => ({
+    id: `insight-${p.symbol}`,
+    type: "mover",
+    label: p.symbol,
+    badge: `${p.pct >= 0 ? "+" : ""}${p.pct.toFixed(2)}%`,
+    summary: [p.insight, p.insight_source].filter(Boolean).join(" · "),
+  });
+
   const handleHighlightDragStart = (e: React.DragEvent, item: NewsHighlight, idPrefix: string) => {
-    const card: ContextCard = {
-      id: `${idPrefix}-${item.title.slice(0, 20)}`,
-      type: "news",
-      label: item.title.length > 32 ? item.title.slice(0, 32) + "…" : item.title,
-      badge: item.source_name ?? undefined,
-      summary: [item.source_name, item.published_at ? `${relativeTime(item.published_at)} trước` : null].filter(Boolean).join(" · "),
-    };
-    e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
+    e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(highlightCard(item, idPrefix)));
     e.dataTransfer.effectAllowed = "copy";
   };
 
   // Kéo 1 dòng trong "Ý nghĩa với danh mục" vào Action Hub
   const handlePortfolioInsightDragStart = (e: React.DragEvent, p: PortfolioInsight) => {
-    const card: ContextCard = {
-      id: `insight-${p.symbol}`,
-      type: "mover",
-      label: p.symbol,
-      badge: `${p.pct >= 0 ? "+" : ""}${p.pct.toFixed(2)}%`,
-      summary: [p.insight, p.insight_source].filter(Boolean).join(" · "),
-    };
-    e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
+    e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(insightCard(p)));
     e.dataTransfer.effectAllowed = "copy";
   };
 
@@ -635,7 +698,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
 
   return (
     <>
-    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px", fontFamily: "'Montserrat', system-ui, sans-serif", background: isDark ? "#0B0D18" : undefined }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "16px" : "24px", fontFamily: "'Montserrat', system-ui, sans-serif", background: isDark ? "#0B0D18" : undefined }}>
 
       {/* Greeting header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
@@ -706,6 +769,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                         </a>
                       )}
                       {h.published_at && <span style={{ fontSize: 12, color: fgSubtle, marginLeft: 5 }}>· {relativeTime(h.published_at)} trước</span>}
+                      <AskAiInline card={highlightCard(h, "highlight")} onAsk={askAI} />
                     </span>
                   </li>
                 ))}
@@ -748,6 +812,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                           {p.insight_at && <span style={{ fontSize: 12, color: fgSubtle, marginLeft: 5 }}>· {relativeTime(p.insight_at)} trước</span>}
                         </span>
                       )}
+                      <AskAiInline card={insightCard(p)} onAsk={askAI} />
                     </li>
                   ))}
                 </ul>
@@ -806,8 +871,8 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
 
       <div style={{ overflow: "hidden", maxHeight: marketExpanded ? 2000 : 0, opacity: marketExpanded ? 1 : 0, transition: "max-height 350ms ease, opacity 200ms ease" }}>
 
-        {/* Index Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+        {/* Index Cards — mobile: 2 cột (4 card thành 2×2) */}
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
           {moversLoading && marketIndices.length === 0 ? (
             [0, 1, 2, 3].map(i => <div key={i} style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, height: 130, opacity: 0.5 }} />)
           ) : (
@@ -831,8 +896,8 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
           />
         )}
 
-        {/* Top Movers */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+        {/* Top Movers — mobile: xếp dọc */}
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 16 }}>
           {/* TĂNG MẠNH */}
           {(() => {
             const gainCard: ContextCard = { id: "top-gainers", type: "mover", label: "Tăng mạnh hôm nay", badge: `${displayGainers.length} mã`, summary: displayGainers.map(s => `${s.symbol} +${s.pct.toFixed(2)}%`).join(" · ") };
@@ -841,9 +906,10 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                 style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, position: "relative", cursor: "grab", userSelect: "none" }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)"; const h = (e.currentTarget as HTMLElement).querySelector(".card-hint") as HTMLElement | null; if (h) h.style.opacity = "1"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; const h = (e.currentTarget as HTMLElement).querySelector(".card-hint") as HTMLElement | null; if (h) h.style.opacity = "0"; }}>
-                <div className="card-hint" style={{ position: "absolute", top: 10, right: 10, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)", borderRadius: 6, padding: "3px 7px", opacity: 0, transition: "opacity 150ms ease", pointerEvents: "none" }}>
+                {!isMobile && <div className="card-hint" style={{ position: "absolute", top: 10, right: 10, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)", borderRadius: 6, padding: "3px 7px", opacity: 0, transition: "opacity 150ms ease", pointerEvents: "none" }}>
                   <span style={{ fontSize: 10, fontWeight: 700, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>⠿ Kéo vào AI</span>
-                </div>
+                </div>}
+                <AskAiButton card={gainCard} onAsk={askAI} />
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
                   <TrendingUp size={15} color="#34C759" strokeWidth={2} />
                   <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fg }}>TĂNG MẠNH</span>
@@ -879,9 +945,10 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                 style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, position: "relative", cursor: "grab", userSelect: "none" }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)"; const h = (e.currentTarget as HTMLElement).querySelector(".card-hint") as HTMLElement | null; if (h) h.style.opacity = "1"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; const h = (e.currentTarget as HTMLElement).querySelector(".card-hint") as HTMLElement | null; if (h) h.style.opacity = "0"; }}>
-                <div className="card-hint" style={{ position: "absolute", top: 10, right: 10, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)", borderRadius: 6, padding: "3px 7px", opacity: 0, transition: "opacity 150ms ease", pointerEvents: "none" }}>
+                {!isMobile && <div className="card-hint" style={{ position: "absolute", top: 10, right: 10, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)", borderRadius: 6, padding: "3px 7px", opacity: 0, transition: "opacity 150ms ease", pointerEvents: "none" }}>
                   <span style={{ fontSize: 10, fontWeight: 700, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>⠿ Kéo vào AI</span>
-                </div>
+                </div>}
+                <AskAiButton card={lossCard} onAsk={askAI} />
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
                   <TrendingDown size={15} color="#FF3B30" strokeWidth={2} />
                   <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fg }}>GIẢM MẠNH</span>
@@ -919,14 +986,15 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
               style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, marginBottom: 16, position: "relative", cursor: "grab", userSelect: "none" }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)"; const h = (e.currentTarget as HTMLElement).querySelector(".card-hint") as HTMLElement | null; if (h) h.style.opacity = "1"; }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; const h = (e.currentTarget as HTMLElement).querySelector(".card-hint") as HTMLElement | null; if (h) h.style.opacity = "0"; }}>
-              <div className="card-hint" style={{ position: "absolute", top: 10, right: 10, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)", borderRadius: 6, padding: "3px 7px", opacity: 0, transition: "opacity 150ms ease", pointerEvents: "none" }}>
+              {!isMobile && <div className="card-hint" style={{ position: "absolute", top: 10, right: 10, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)", borderRadius: 6, padding: "3px 7px", opacity: 0, transition: "opacity 150ms ease", pointerEvents: "none" }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>⠿ Kéo vào AI</span>
-              </div>
+              </div>}
+              <AskAiButton card={heatmapCard} onAsk={askAI} />
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fg }}>HEATMAP NGÀNH</div>
                 {heatmapScopeLabel && <span style={{ fontSize: 10, fontWeight: 700, color: brand, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", padding: "2px 7px", borderRadius: 10 }}>{heatmapScopeLabel}</span>}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
                 {displaySectors.map(s => {
                   const col = getSectorColor(s.pct);
                   const isSelected = selectedSector === s.name;
@@ -991,9 +1059,12 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                   <span style={{ flex: 1, fontSize: 13, color: fgMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</span>
                   <span style={{ width: 80, fontSize: 14, fontWeight: 600, color: fg, textAlign: "right" }}>{h.price.toLocaleString("vi-VN")}</span>
                   <div style={{ width: 80, display: "flex", justifyContent: "flex-end" }}><PctBadge value={h.change} /></div>
-                  <div style={{ width: 90, display: "flex", justifyContent: "flex-end" }}>
-                    <span style={{ fontSize: 12, color: "#34C759" }}>●</span>
-                  </div>
+                  {/* Cột chấm trạng thái chỉ trang trí — ẩn trên mobile cho khỏi tràn ngang */}
+                  {!isMobile && (
+                    <div style={{ width: 90, display: "flex", justifyContent: "flex-end" }}>
+                      <span style={{ fontSize: 12, color: "#34C759" }}>●</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1005,7 +1076,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
       <div style={{ background: cardBg, borderRadius: 14, padding: 20, boxShadow: cardShadow, marginBottom: 16 }}>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: fg, marginBottom: 12 }}>TIN TỨC</div>
         <div style={{ height: "0.5px", background: divider, marginBottom: 12 }} />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
           {newsLoading && dashNews.length === 0 ? (
             Array.from({ length: 4 }).map((_, i) => (
               <div key={i} style={{ height: 90, borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.12)"), background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)" }} />
@@ -1094,7 +1165,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false }: Dashbo
                         <span style={{ fontSize: 12, color: fgSubtle }}>{rp.source_firm ?? "Vietstock"}{reportDate(rp.report_date) ? " · " + reportDate(rp.report_date) : ""}</span>
                         {rp.recommendation && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: rs.bg, color: rs.text }}>{rp.recommendation}</span>}
                         {rp.target_price != null && <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>Giá MT {rp.target_price.toLocaleString("vi-VN")}đ</span>}
-                        <span className="drag-hint" style={{ fontSize: 11, color: fgSubtle, opacity: 0, transition: "opacity 120ms", marginLeft: "auto", whiteSpace: "nowrap" }}>⠿ Kéo vào ActionHub</span>
+                        {!isMobile && <span className="drag-hint" style={{ fontSize: 11, color: fgSubtle, opacity: 0, transition: "opacity 120ms", marginLeft: "auto", whiteSpace: "nowrap" }}>⠿ Kéo vào ActionHub</span>}
                       </div>
                     </div>
                   </div>

@@ -7,6 +7,8 @@ import { ActionHub } from "./new-action-hub";
 import { GlobalSearch } from "./global-search";
 import { CreateAgentModal } from "./CreateAgentModal";
 import { FeedbackModal } from "./FeedbackModal";
+import { MobileShell } from "./mobile/mobile-shell";
+import { useIsMobile } from "./ui/use-mobile";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { ProtectedRoute } from "./protected-route";
 import { supabase } from "../lib/supabase/client";
@@ -62,6 +64,13 @@ function NewLayoutInner() {
   const [beenyBonus, setBeenyBonus] = useState(0);    // Beeny mua thêm (hết hạn 24h)
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const isMobile = useIsMobile();
+
+  // Desktop mặc định mở ActionHub (side panel); mobile là overlay full-screen
+  // nên phải đóng mặc định — chỉ chạy khi isMobile flip (mount trên điện thoại).
+  useEffect(() => {
+    if (isMobile) setActionHubOpen(false);
+  }, [isMobile]);
 
   const fetchWallet = (userId: string) => {
     getPlanAndBeeny(userId).then(({ plan, label, balance, bonus }) => {
@@ -151,7 +160,33 @@ function NewLayoutInner() {
 
   const clearContextCards = () => setHubContextCards([]);
 
+  const outletContext = { onNavigate: handleNavigate, addContextCard, removeContextCard, isDark, theme, openCreateAgentModal: () => setCreateAgentOpen(true) };
+
   return (
+    <>
+    {isMobile ? (
+      <MobileShell
+        theme={theme}
+        isDark={isDark}
+        currentPage={currentPage}
+        isStudioMode={isStudioMode}
+        onNavigate={handleNavigate}
+        onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)}
+        actionHubOpen={actionHubOpen}
+        setActionHubOpen={setActionHubOpen}
+        hubWidth={hubWidth}
+        setHubWidth={setHubWidth}
+        hubContextCards={hubContextCards}
+        onAddContextCard={addContextCard}
+        onRemoveContextCard={removeContextCard}
+        onClearContextCards={clearContextCards}
+        planLabel={planLabel}
+        beenyBalance={beenyBalance}
+        beenyPct={beenyPct}
+        beenyBonus={beenyBonus}
+        outletContext={outletContext}
+      />
+    ) : (
     <div style={{
       display: "flex", height: "100vh", width: "100vw", overflow: "hidden",
       background: theme.bg,
@@ -196,7 +231,7 @@ function NewLayoutInner() {
         {/* paddingBottom > chiều cao thanh compliance footer (22px, position:fixed, xem bên dưới) —
             để nội dung cuối trang (card, nút…) không bị thanh footer đè lên khi cuộn hết */}
         <div style={{ flex: 1, overflowY: "auto", paddingBottom: 44, background: theme.bg }}>
-          <Outlet context={{ onNavigate: handleNavigate, addContextCard, removeContextCard, isDark, theme, openCreateAgentModal: () => setCreateAgentOpen(true) }} />
+          <Outlet context={outletContext} />
         </div>
       </div>
 
@@ -250,24 +285,29 @@ function NewLayoutInner() {
         </p>
       </div>
 
-      <CreateAgentModal
-        open={createAgentOpen}
-        isDark={isDark}
-        onCancel={() => setCreateAgentOpen(false)}
-        onContinue={handleCreateAgentContinue}
-      />
-
-      <FeedbackModal
-        open={feedbackOpen}
-        isDark={isDark}
-        onClose={() => setFeedbackOpen(false)}
-      />
-
-      <Toaster theme={isDark ? "dark" : "light"} position="bottom-right" richColors />
-      <style>{`
-        @keyframes pulse { 0%, 100% { opacity: 0.4; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
-      `}</style>
     </div>
+    )}
+
+    {/* Overlay dùng chung cả 2 shell — render 1 lần, ngoài nhánh mobile/desktop */}
+    <CreateAgentModal
+      open={createAgentOpen}
+      isDark={isDark}
+      onCancel={() => setCreateAgentOpen(false)}
+      onContinue={handleCreateAgentContinue}
+    />
+
+    <FeedbackModal
+      open={feedbackOpen}
+      isDark={isDark}
+      onClose={() => setFeedbackOpen(false)}
+    />
+
+    {/* bottom-right bị tab bar + FAB che trên mobile → top-center */}
+    <Toaster theme={isDark ? "dark" : "light"} position={isMobile ? "top-center" : "bottom-right"} richColors />
+    <style>{`
+      @keyframes pulse { 0%, 100% { opacity: 0.4; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
+    `}</style>
+    </>
   );
 }
 
