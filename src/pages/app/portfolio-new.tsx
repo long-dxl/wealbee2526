@@ -734,6 +734,22 @@ export function Portfolio({
         style={{ background: cardBg, borderRadius: 14, padding: 20, boxShadow: cardShadow, marginBottom: 16, position: "relative", overflow: "hidden" }}
       >
         <DragHint isDark={isDark} />
+        {/* Mobile: hỏi AI về toàn danh mục — thay cho drag card tổng vào hub */}
+        {isMobile && onAddContextCard && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onAddContextCard(summaryCard); }}
+            title="Hỏi AI về danh mục"
+            style={{
+              position: "absolute", top: 14, right: 14, width: 34, height: 34, zIndex: 2,
+              borderRadius: "50%", border: "none", cursor: "pointer",
+              background: "rgba(8,73,172,0.10)", color: brand,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              WebkitTapHighlightColor: "transparent",
+            }}
+          >
+            <Sparkles size={15} strokeWidth={1.7} />
+          </button>
+        )}
         {/* Mobile: xếp dọc — nút Thêm cổ phiếu full-width dưới số liệu, số tổng nhỏ lại để không xuống dòng lẻ "đ" */}
         <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "flex-start", gap: isMobile ? 14 : 0 }}>
           <div>
@@ -1120,6 +1136,13 @@ export function Portfolio({
             const pnl = h.avgPrice ? (h.currentPrice - h.avgPrice) * h.quantity : null;
             const pnlPct = h.avgPrice ? ((h.currentPrice - h.avgPrice) / h.avgPrice) * 100 : null;
             const isUp = pnl !== null && pnl >= 0;
+            const rowCard: ContextCard = {
+              id: `holding-${h.symbol}`,
+              type: "ticker",
+              label: h.symbol,
+              badge: pnlPct !== null ? (pnlPct >= 0 ? `+${pnlPct.toFixed(1)}%` : `${pnlPct.toFixed(1)}%`) : undefined,
+              summary: `${h.name} · SL: ${h.quantity.toLocaleString("vi-VN")} · Giá HT: ${h.currentPrice.toLocaleString("vi-VN")}`,
+            };
             return (
               <div
                 key={h.symbol}
@@ -1152,11 +1175,26 @@ export function Portfolio({
                     <div style={{ fontSize: 11.5, color: fgSubtle, fontStyle: "italic", marginTop: 2 }}>Chưa có giá mua</div>
                   )}
                 </div>
+                {/* Hỏi AI trực tiếp 1 tap — không phải qua menu ⋯ */}
+                {onAddContextCard && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onAddContextCard(rowCard); }}
+                    title={`Hỏi AI về ${h.symbol}`}
+                    style={{
+                      width: 34, height: 34, flexShrink: 0, border: "none", borderRadius: "50%",
+                      background: "rgba(8,73,172,0.10)", color: brand,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      cursor: "pointer", WebkitTapHighlightColor: "transparent",
+                    }}
+                  >
+                    <Sparkles size={15} strokeWidth={1.7} />
+                  </button>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); setActionSheetFor(h); }}
                   title="Thao tác"
                   style={{
-                    width: 40, height: 40, flexShrink: 0, border: "none", background: "transparent",
+                    width: 36, height: 40, flexShrink: 0, border: "none", background: "transparent",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     cursor: "pointer", color: fgSubtle, WebkitTapHighlightColor: "transparent",
                   }}

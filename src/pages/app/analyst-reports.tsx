@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
-import { FileText, Eye, Search, ArrowLeft, Plus } from "lucide-react";
+import { FileText, Eye, Search, ArrowLeft, Sparkles } from "lucide-react";
 
 interface AnalystReport {
   id: string; ticker: string | null; title: string; source_firm: string | null;
@@ -135,7 +135,7 @@ export function AnalystReportsPage({ isDark, addContextCard }: { isDark: boolean
 
         {/* Grid */}
         {loading ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 14 }}>
             {Array.from({ length: 6 }).map((_, i) => <div key={i} style={{ height: 128, borderRadius: 14, background: cardBg, boxShadow: cardShadow }} />)}
           </div>
         ) : filtered.length === 0 ? (
@@ -144,7 +144,7 @@ export function AnalystReportsPage({ isDark, addContextCard }: { isDark: boolean
             <p style={{ margin: 0, fontSize: 14 }}>Không có báo cáo khớp bộ lọc</p>
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 14 }}>
             {filtered.map(rp => {
               const rs = recoStyle(rp.recommendation, isDark);
               const dt = reportDate(rp.report_date);
@@ -168,8 +168,8 @@ export function AnalystReportsPage({ isDark, addContextCard }: { isDark: boolean
                   </div>
                   <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
                     <button onClick={() => addContextCard(toCard(rp))}
-                      style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 9, border: "none", background: isDark ? "rgba(77,143,232,0.14)" : "rgba(8,73,172,0.08)", color: brand, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
-                      <Plus size={13} strokeWidth={2} /> ActionHub
+                      style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 9, border: "none", background: isDark ? "rgba(77,143,232,0.14)" : "rgba(8,73,172,0.08)", color: brand, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT, WebkitTapHighlightColor: "transparent" }}>
+                      <Sparkles size={13} strokeWidth={2} /> Hỏi AI
                     </button>
                     <button onClick={() => window.open(rp.pdf_url, "_blank", "noopener")}
                       style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 9, border: "0.5px solid " + divider, background: "transparent", color: fgSubtle, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>

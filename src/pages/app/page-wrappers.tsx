@@ -51,8 +51,8 @@ export function DashboardRoute() {
 }
 
 export function AnalystReportsRoute() {
-  const { addContextCard, isDark } = useApp();
-  return <AnalystReportsPage isDark={isDark} addContextCard={addContextCard} />;
+  const { addContextCard, openActionHub, isDark } = useApp();
+  return <AnalystReportsPage isDark={isDark} addContextCard={(card) => { addContextCard(card); openActionHub(); }} />;
 }
 
 export function InboxRoute() {

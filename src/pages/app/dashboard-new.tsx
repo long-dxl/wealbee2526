@@ -646,9 +646,14 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
     ? scopeMovers.filter(m => m.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5).map(m => ({ ...m, isCeil: false }))
     : losers;
 
+  const newsCard = (item: NewsItem): ContextCard => ({
+    id: `news-${item.title.slice(0, 20)}`, type: "news",
+    label: item.title.length > 32 ? item.title.slice(0, 32) + "…" : item.title,
+    badge: item.tag, summary: `${item.source} · ${item.time}`,
+  });
+
   const handleNewsDragStart = (e: React.DragEvent, item: NewsItem) => {
-    const card: ContextCard = { id: `news-${item.title.slice(0, 20)}`, type: "news", label: item.title.length > 32 ? item.title.slice(0, 32) + "…" : item.title, badge: item.tag, summary: `${item.source} · ${item.time}` };
-    e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
+    e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(newsCard(item)));
     e.dataTransfer.effectAllowed = "copy";
   };
 
@@ -1145,7 +1150,8 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "1"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.transform = "none"; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "0"; }}>
                 <DragHint />
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <AskAiButton card={newsCard(item)} onAsk={askAI} />
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, paddingRight: askAI ? 36 : 0 }}>
                   <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 6, background: tagStyle.bg, color: tagStyle.text }}>{item.tag}</span>
                   <span style={{ fontSize: 12, color: fgSubtle }}>{item.source} · {item.time}</span>
                 </div>
@@ -1210,9 +1216,12 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: fg, lineHeight: 1.4, flex: 1, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{rp.title}</div>
-                        <button onClick={e => { e.stopPropagation(); window.open(rp.pdf_url, "_blank", "noopener"); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: "transparent", color: brand, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                          <Eye size={12} strokeWidth={1.5} /> Xem
-                        </button>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                          <AskAiInline card={card} onAsk={askAI} />
+                          <button onClick={e => { e.stopPropagation(); window.open(rp.pdf_url, "_blank", "noopener"); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: "transparent", color: brand, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                            <Eye size={12} strokeWidth={1.5} /> Xem
+                          </button>
+                        </div>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 12, color: fgSubtle }}>{rp.source_firm ?? "Vietstock"}{reportDate(rp.report_date) ? " · " + reportDate(rp.report_date) : ""}</span>
