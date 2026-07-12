@@ -76,6 +76,13 @@ function fmtVol(v: number | null): string {
   return `${v}`;
 }
 
+// "Cập nhật lúc HH:mm:ss" — updated_at tự cập nhật mỗi lần job intraday ghi đè
+// giá trong phiên, KHÔNG phải created_at (chỉ set 1 lần lúc tạo dòng đầu ngày).
+function fmtUpdatedAt(iso: string | null): string | null {
+  if (!iso) return null;
+  return new Date(iso).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+}
+
 function normLabel(label: string | null): string {
   if (!label) return "Trung lập";
   const l = label.toLowerCase();
@@ -287,6 +294,7 @@ async function fetchMarketData(): Promise<{
   losers: MoverRow[];
   sectors: SectorRow[];
   marketIndices: IndexState[];
+  marketUpdatedAt: string | null;
 }> {
   // Vũ trụ TOÀN BỘ sàn (HOSE + HNX + UPCoM) + sector, để có thể lọc theo từng sàn
   // khi user bấm vào card chỉ số (VN30/HNX) — xem scopeMovers trong component.
@@ -306,7 +314,7 @@ async function fetchMarketData(): Promise<{
   const [stocksRows, indicesRes, vn30Res] = await Promise.all([
     fetchAllStocks(),
     supabase.from("market_indices")
-      .select("index_code,close,change_pct,date")
+      .select("index_code,close,change_pct,date,updated_at")
       .in("index_code", ["VNINDEX", "HNX", "VN30", "UPCOM"])
       .order("date", { ascending: false })
       .limit(60),
@@ -396,12 +404,16 @@ async function fetchMarketData(): Promise<{
     .sort((a, b) => b.pct - a.pct).slice(0, 12);
 
   // — Market Indices —
-  const indexGroups: Record<string, { close: number; date: string; change_pct: number | null }[]> = {};
+  const indexGroups: Record<string, { close: number; date: string; change_pct: number | null; updated_at?: string }[]> = {};
   indicesRes.data?.forEach((row: any) => {
     if (!indexGroups[row.index_code]) indexGroups[row.index_code] = [];
     indexGroups[row.index_code].push(row);
   });
   const NAMES: Record<string, string> = { VNINDEX: "VN-INDEX", HNX: "HNX-INDEX", VN30: "VN30", UPCOM: "UPCOM" };
+  // "Cập nhật lúc" cạnh tiêu đề CHỈ SỐ THỊ TRƯỜNG = mốc MỚI NHẤT trong 4 chỉ số
+  // (updated_at tự cập nhật mỗi lần job intraday ghi đè giá trong phiên — xem
+  // migration 20260712000000_price_updated_at.sql).
+  let marketUpdatedAt: string | null = null;
   const marketIndices: IndexState[] = ["VNINDEX", "VN30", "HNX", "UPCOM"].map(code => {
     const rows = (indexGroups[code] ?? []).sort((a: any, b: any) => a.date.localeCompare(b.date));
     if (!rows.length) return { code, name: NAMES[code], value: 0, change: 0, pct: 0, sparkline: [], vol: "—" };
@@ -410,10 +422,11 @@ async function fetchMarketData(): Promise<{
     const spark  = rows.slice(-7).map((r: any) => r.close);
     const change = prev ? latest.close - prev.close : 0;
     const pct    = latest.change_pct ?? (prev && prev.close ? (change / prev.close) * 100 : 0);
+    if (latest.updated_at && (!marketUpdatedAt || latest.updated_at > marketUpdatedAt)) marketUpdatedAt = latest.updated_at;
     return { code, name: NAMES[code], value: latest.close, change, pct, sparkline: spark, vol: "—" };
   });
 
-  return { vn30Set, allMovers, gainers, losers, sectors, marketIndices };
+  return { vn30Set, allMovers, gainers, losers, sectors, marketIndices, marketUpdatedAt };
 }
 
 async function fetchDashboardNews(): Promise<NewsItem[]> {
@@ -540,6 +553,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
   const [dashNews,      setDashNews]      = useState<NewsItem[]>([]);
   const [watchHoldings, setWatchHoldings] = useState<WatchRow[]>([]);
   const [marketIndices, setMarketIndices] = useState<IndexState[]>([]);
+  const [marketUpdatedAt, setMarketUpdatedAt] = useState<string | null>(null);
   const [detailIndex,   setDetailIndex]   = useState<{ code: "VNINDEX" | "HNX" | "VN30" | "UPCOM"; name: string } | null>(null);
   const [briefs,        setBriefs]        = useState<BriefRow[]>([]);
   const [reports,       setReports]       = useState<AnalystReport[]>([]);
@@ -592,6 +606,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
     setLosers(m.losers);
     setSectors(m.sectors);
     setMarketIndices(m.marketIndices);
+    setMarketUpdatedAt(m.marketUpdatedAt);
   }, [marketQuery.data]);
   useEffect(() => { if (newsQuery.data) setDashNews(newsQuery.data); }, [newsQuery.data]);
   useEffect(() => { if (watchlistQuery.data) setWatchHoldings(watchlistQuery.data); }, [watchlistQuery.data]);
@@ -866,7 +881,10 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
 
       {/* Market section */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: fg }}>CHỈ SỐ THỊ TRƯỜNG</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: fg }}>CHỈ SỐ THỊ TRƯỜNG</span>
+          {marketUpdatedAt && <span style={{ fontSize: 10, color: fgSubtle }}>Cập nhật lúc {fmtUpdatedAt(marketUpdatedAt)}</span>}
+        </div>
         <button onClick={() => setMarketExpanded(v => !v)}
           style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 6px", borderRadius: 6, display: "flex", alignItems: "center", gap: 4, color: fgSubtle, transition: "background 120ms ease" }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}

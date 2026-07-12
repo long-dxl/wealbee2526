@@ -1,19 +1,27 @@
 // Chart giá cổ phiếu — Chiến lược A: tự vẽ bằng lightweight-charts (thư viện mã
 // nguồn mở do chính TradingView duy trì) + data OHLCV thật từ Supabase prices_daily
 // (nguồn DNSE, pipeline hiện có). Thay cho AreaChart Recharts trước đây.
-// 2 chế độ: Nến (candlestick + volume, dùng OHLC thật) và % so sánh (mã vs
-// VN-Index vs HNX-Index, giữ nguyên tính năng cũ).
-import { useEffect, useRef, useState } from "react";
+// 2 chế độ: Nến (candlestick + volume, dùng OHLC thật — riêng khung "1D" là nến
+// 1 phút trong phiên lấy trực tiếp từ DNSE qua edge function intraday-quote,
+// không đi qua Supabase DB) và % so sánh (mã vs VN-Index vs HNX-Index).
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart, CandlestickSeries, HistogramSeries, LineSeries,
   ColorType, LineStyle, type IChartApi, type ISeriesApi, type UTCTimestamp,
 } from "lightweight-charts";
+import { supabase } from "../lib/supabase/client";
 
 type OhlcRow = { date: string; open: number; high: number; low: number; close: number; volume: number };
 type IndexRow = { date: string; close: number };
+// Dạng chuẩn hoá dùng chung để đổ vào series — "date" (chuỗi ngày, dùng cho data
+// theo ngày) hoặc "1D" (nến phút, time là unix giây thật) đều quy về đây trước
+// khi vẽ, để phần còn lại của component không cần biết đang ở nguồn nào.
+type Bar = { time: UTCTimestamp; open: number; high: number; low: number; close: number; volume: number };
 
 interface PriceChartLWProps {
   ohlc: OhlcRow[];
+  periodCutoff: string;   // mốc ngày bắt đầu của khung đang chọn (7D/1M/3M/YTD/5Y) — chỉ dùng để ZOOM + làm baseline %, KHÔNG cắt bỏ data
+  period: string;         // "1D" | "7D" | "1M" | "3M" | "YTD" | "5Y" — "1D" kích hoạt chế độ nến phút riêng
   vniPrices: IndexRow[];
   hnxPrices: IndexRow[];
   sym: string;
@@ -29,16 +37,29 @@ interface PriceChartLWProps {
 
 const toTime = (dateStr: string): UTCTimestamp => (Math.floor(new Date(dateStr + "T00:00:00Z").getTime() / 1000) as UTCTimestamp);
 
-function buildPctSeries(ohlc: OhlcRow[], vniPrices: IndexRow[], hnxPrices: IndexRow[]) {
+const fmtVol = (v: number): string => {
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+  return String(v);
+};
+
+function buildPctSeries(ohlc: OhlcRow[], vniPrices: IndexRow[], hnxPrices: IndexRow[], periodCutoff: string) {
   if (!ohlc.length) return { stock: [], vni: [], hnx: [] };
   const vniMap: Record<string, number> = {};
   vniPrices.forEach(v => { vniMap[v.date] = Number(v.close); });
   const hnxMap: Record<string, number> = {};
   hnxPrices.forEach(v => { hnxMap[v.date] = Number(v.close); });
 
-  const baseStock = Number(ohlc[0].close);
-  const firstVni = ohlc.find(p => vniMap[p.date] != null);
-  const firstHnx = ohlc.find(p => hnxMap[p.date] != null);
+  // Chart So sánh KHÔNG áp dụng kiểu "zoom, giữ nguyên data cũ" như chart Nến —
+  // chuẩn tài chính khi so sánh hiệu suất là chỉ hiển thị ĐÚNG trong khung đã
+  // chọn, mốc đầu tiên luôn = 0%. Nên phải CẮT data về đúng khung (periodCutoff)
+  // trước khi build series, chứ không chỉ dịch baseline như trước.
+  const periodOhlc = ohlc.filter(p => p.date >= periodCutoff);
+  if (!periodOhlc.length) return { stock: [], vni: [], hnx: [] };
+
+  const baseStock = Number(periodOhlc[0].close);
+  const firstVni = periodOhlc.find(p => vniMap[p.date] != null);
+  const firstHnx = periodOhlc.find(p => hnxMap[p.date] != null);
   const baseVni = firstVni ? vniMap[firstVni.date] : 0;
   const baseHnx = firstHnx ? hnxMap[firstHnx.date] : 0;
 
@@ -46,7 +67,7 @@ function buildPctSeries(ohlc: OhlcRow[], vniPrices: IndexRow[], hnxPrices: Index
   const stock: { time: UTCTimestamp; value: number }[] = [];
   const vni: { time: UTCTimestamp; value: number }[] = [];
   const hnx: { time: UTCTimestamp; value: number }[] = [];
-  ohlc.forEach(p => {
+  periodOhlc.forEach(p => {
     if (vniMap[p.date] != null) lastVni = vniMap[p.date];
     if (hnxMap[p.date] != null) lastHnx = hnxMap[p.date];
     const t = toTime(p.date);
@@ -57,14 +78,21 @@ function buildPctSeries(ohlc: OhlcRow[], vniPrices: IndexRow[], hnxPrices: Index
   return { stock, vni, hnx };
 }
 
-export function PriceChartLW({ ohlc, vniPrices, hnxPrices, sym, tk, isDark, GREEN, RED, VNI_C, HNX_C, fmtPct, FONT }: PriceChartLWProps) {
+export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices, sym, tk, isDark, GREEN, RED, VNI_C, HNX_C, fmtPct, FONT }: PriceChartLWProps) {
   const [mode, setMode] = useState<"candle" | "pct">("candle");
   const [showVni, setShowVni] = useState(true);
   const [showHnx, setShowHnx] = useState(true);
+  const [hoverBar, setHoverBar] = useState<Bar | null>(null);   // null = chưa hover, hiện nến mới nhất
+
+  const [intradayBars, setIntradayBars] = useState<Bar[]>([]);
+  const [intradayLoading, setIntradayLoading] = useState(false);
+  const [intradayError, setIntradayError] = useState<string | null>(null);
+  const is1D = period === "1D";
 
   const candleHostRef = useRef<HTMLDivElement>(null);
   const volHostRef    = useRef<HTMLDivElement>(null);
   const pctHostRef     = useRef<HTMLDivElement>(null);
+  const ohlcByTimeRef  = useRef<Map<number, Bar>>(new Map());
 
   const candleChartRef  = useRef<IChartApi | null>(null);
   const volChartRef     = useRef<IChartApi | null>(null);
@@ -75,11 +103,28 @@ export function PriceChartLW({ ohlc, vniPrices, hnxPrices, sym, tk, isDark, GREE
   const vniLineRef      = useRef<ISeriesApi<"Line"> | null>(null);
   const hnxLineRef      = useRef<ISeriesApi<"Line"> | null>(null);
 
+  // Nến hiện đang vẽ trên chart Nến/Volume — "1D" dùng nến phút từ DNSE (edge
+  // function, không lưu DB), các khung còn lại dùng data ngày sẵn có trong `ohlc`.
+  // BẮT BUỘC useMemo: nếu tính lại (map) mỗi lần render sẽ ra mảng MỚI dù nội
+  // dung y hệt — effect đổ data bên dưới lấy activeBars làm dependency nên sẽ
+  // tưởng data đổi và chạy lại applyCandleZoom() mỗi khi component render lại
+  // (kể cả chỉ vì di chuột đổi hoverBar), kéo camera zoom về đúng khung period
+  // ban đầu liên tục → user tưởng bị KHOÁ zoom, không zoom ra được (đã gặp thực tế).
+  const activeBars: Bar[] = useMemo(() => (
+    is1D
+      ? intradayBars
+      : ohlc.map(r => ({ time: toTime(r.date), open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume }))
+  ), [is1D, intradayBars, ohlc]);
+
   const baseOpts = (host: HTMLDivElement) => ({
     width: host.clientWidth,
     layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: tk.MUTED, fontFamily: FONT },
     grid: { vertLines: { color: tk.GRID_STROKE }, horzLines: { color: tk.GRID_STROKE } },
-    rightPriceScale: { borderColor: tk.BORDER },
+    // minimumWidth cố định — bắt buộc để cột giá bên phải của chart Nến và Volume
+    // rộng bằng nhau (nếu không, label "9,500.00" so với "555.1K" khác độ rộng
+    // ký tự sẽ khiến 2 chart co giãn khác nhau, làm đường crosshair bị lệch trục
+    // dọc giữa 2 pane dù cùng 1 vị trí thời gian).
+    rightPriceScale: { borderColor: tk.BORDER, minimumWidth: 70 },
     timeScale: { borderColor: tk.BORDER, timeVisible: false },
     crosshair: { mode: 0 },
   });
@@ -88,14 +133,21 @@ export function PriceChartLW({ ohlc, vniPrices, hnxPrices, sym, tk, isDark, GREE
   useEffect(() => {
     if (!candleHostRef.current || !volHostRef.current || !pctHostRef.current) return;
 
-    const candleChart = createChart(candleHostRef.current, { ...baseOpts(candleHostRef.current), height: 220 });
+    // Chart Nến KHÔNG hiện trục thời gian riêng (ẩn hẳn hàng tháng/ngày) — chỉ
+    // chart Volume bên dưới hiện, để không bị lặp 2 hàng label. Logo TradingView
+    // cũng dời xuống góc chart Volume cho đồng bộ với chỗ hiện trục thời gian.
+    const candleChart = createChart(candleHostRef.current, {
+      ...baseOpts(candleHostRef.current), height: 220,
+      layout: { ...baseOpts(candleHostRef.current).layout, attributionLogo: false },
+      timeScale: { ...baseOpts(candleHostRef.current).timeScale, visible: false },
+    });
     const candleSeries = candleChart.addSeries(CandlestickSeries, {
       upColor: GREEN, downColor: RED, borderVisible: false, wickUpColor: GREEN, wickDownColor: RED,
     });
     candleChartRef.current = candleChart;
     candleSeriesRef.current = candleSeries;
 
-    const volChart = createChart(volHostRef.current, { ...baseOpts(volHostRef.current), height: 70 });
+    const volChart = createChart(volHostRef.current, { ...baseOpts(volHostRef.current), height: 70, layout: { ...baseOpts(volHostRef.current).layout, attributionLogo: true } });
     const volSeries = volChart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "" });
     volChartRef.current = volChart;
     volSeriesRef.current = volSeries;
@@ -104,10 +156,42 @@ export function PriceChartLW({ ohlc, vniPrices, hnxPrices, sym, tk, isDark, GREE
     candleChart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) volChart.timeScale().setVisibleLogicalRange(r); });
     volChart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) candleChart.timeScale().setVisibleLogicalRange(r); });
 
-    const pctChart = createChart(pctHostRef.current, { ...baseOpts(pctHostRef.current), height: 240 });
-    const stockLine = pctChart.addSeries(LineSeries, { color: GREEN, lineWidth: 2 });
-    const vniLine   = pctChart.addSeries(LineSeries, { color: VNI_C, lineWidth: 1, lineStyle: LineStyle.Dashed });
-    const hnxLine   = pctChart.addSeries(LineSeries, { color: HNX_C, lineWidth: 1, lineStyle: LineStyle.Dashed });
+    // Rê chuột vào 1 cây nến → hiện O/H/L/C/Volume của đúng ngày/phút đó (tra
+    // theo ohlcByTimeRef, luôn được cập nhật ở effect đổ data bên dưới). Đồng
+    // thời ĐỒNG BỘ crosshair (đường kẻ dọc + nhãn thời gian trên trục dưới,
+    // nhãn giá bên phải) sang chart Volume — 2 chart tách biệt nên mặc định
+    // không tự nối với nhau, phải setCrosshairPosition thủ công để trông liền
+    // mạch như 1 chart 2 pane. Đồng bộ CẢ 2 CHIỀU: rê ở Volume cũng phải phản
+    // chiếu ngược lại chart Nến. isSyncingRef chặn vòng lặp nếu
+    // setCrosshairPosition vô tình bắn lại sự kiện subscribeCrosshairMove của
+    // chính chart vừa set.
+    const isSyncingRef = { current: false };
+    candleChart.subscribeCrosshairMove(param => {
+      if (isSyncingRef.current) return;
+      if (!param.time) { setHoverBar(null); volChart.clearCrosshairPosition(); return; }
+      const row = ohlcByTimeRef.current.get(param.time as number);
+      setHoverBar(row ?? null);
+      isSyncingRef.current = true;
+      if (row) volChart.setCrosshairPosition(row.volume, param.time, volSeries);
+      else volChart.clearCrosshairPosition();
+      isSyncingRef.current = false;
+    });
+    volChart.subscribeCrosshairMove(param => {
+      if (isSyncingRef.current) return;
+      if (!param.time) { setHoverBar(null); candleChart.clearCrosshairPosition(); return; }
+      const row = ohlcByTimeRef.current.get(param.time as number);
+      setHoverBar(row ?? null);
+      isSyncingRef.current = true;
+      if (row) candleChart.setCrosshairPosition(row.close, param.time, candleSeries);
+      else candleChart.clearCrosshairPosition();
+      isSyncingRef.current = false;
+    });
+
+    const pctChart = createChart(pctHostRef.current, { ...baseOpts(pctHostRef.current), height: 240, layout: { ...baseOpts(pctHostRef.current).layout, attributionLogo: false } });
+    const pctFormat = { type: "custom" as const, formatter: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%` };
+    const stockLine = pctChart.addSeries(LineSeries, { color: GREEN, lineWidth: 2, priceFormat: pctFormat });
+    const vniLine   = pctChart.addSeries(LineSeries, { color: VNI_C, lineWidth: 1, lineStyle: LineStyle.Dashed, priceFormat: pctFormat });
+    const hnxLine   = pctChart.addSeries(LineSeries, { color: HNX_C, lineWidth: 1, lineStyle: LineStyle.Dashed, priceFormat: pctFormat });
     pctChartRef.current = pctChart;
     stockLineRef.current = stockLine;
     vniLineRef.current = vniLine;
@@ -126,38 +210,95 @@ export function PriceChartLW({ ohlc, vniPrices, hnxPrices, sym, tk, isDark, GREE
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Đổ data khi ohlc/index đổi
+  // Gọi edge function intraday-quote khi bật khung "1D" — nến 1 phút lấy trực
+  // tiếp từ DNSE, KHÔNG qua Supabase DB (pipeline hiện tại chỉ gộp nến phút
+  // thành 1 dòng ngày, không lưu lịch sử theo phút). Mỗi lần bật lại "1D" hoặc
+  // đổi mã đều fetch mới (không cache) vì đây là dữ liệu realtime trong phiên.
+  useEffect(() => {
+    if (!is1D || !sym) { setIntradayError(null); return; }
+    let cancelled = false;
+    setIntradayLoading(true);
+    setIntradayError(null);
+    supabase.functions.invoke("intraday-quote", { body: { symbol: sym } })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error || !data?.bars) {
+          setIntradayError("Không tải được dữ liệu trong phiên hôm nay.");
+          setIntradayBars([]);
+          return;
+        }
+        const bars: Bar[] = (data.bars as any[]).map(b => ({
+          time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
+        }));
+        setIntradayBars(bars);
+        if (!bars.length) setIntradayError("Ngoài giờ giao dịch hoặc chưa có dữ liệu phiên hôm nay.");
+      })
+      .catch(() => { if (!cancelled) { setIntradayError("Lỗi kết nối."); setIntradayBars([]); } })
+      .finally(() => { if (!cancelled) setIntradayLoading(false); });
+    return () => { cancelled = true; };
+  }, [is1D, sym]);
+
+  // Chart Nến/Volume — khung "1D": fit vừa khít nến phút trong phiên (không có
+  // "lịch sử ngoài khung" để zoom/pan ra). Các khung ngày khác: ZOOM vào
+  // [periodCutoff, nến mới nhất] bằng LOGICAL RANGE (theo index nến, không theo
+  // timestamp — đáng tin cậy hơn setVisibleRange vì không phụ thuộc periodCutoff
+  // có trùng khớp chính xác ngày giao dịch hay không cuối tuần/lễ), data vẫn
+  // giữ NGUYÊN toàn bộ lịch sử để pan/kéo ra ngoài khung.
+  const applyCandleZoom = () => {
+    if (!activeBars.length) return;
+    if (is1D) { candleChartRef.current?.timeScale().fitContent(); return; }
+    const fromIdx = ohlc.findIndex(p => p.date >= periodCutoff);
+    const from = fromIdx === -1 ? 0 : fromIdx;
+    const logicalRange = { from: from - 0.5, to: activeBars.length - 0.5 };
+    candleChartRef.current?.timeScale().setVisibleLogicalRange(logicalRange);
+    // volChart tự đồng bộ theo candleChart qua subscribeVisibleLogicalRangeChange ở trên
+  };
+
+  // Chart So sánh: data đã được buildPctSeries CẮT đúng khung periodCutoff rồi
+  // (chuẩn tài chính: mốc đầu = 0%, không hiện gì trước đó), nên chỉ cần fit
+  // vừa khít toàn bộ data hiện có, không zoom theo full-history. Không áp dụng
+  // cho "1D" (so sánh % theo phút với chỉ số ngày không có ý nghĩa).
+  const applyPctFit = () => {
+    pctChartRef.current?.timeScale().fitContent();
+  };
+
+  // Đổ data khi ohlc/index/period đổi
   useEffect(() => {
     if (!candleSeriesRef.current || !volSeriesRef.current) return;
-    candleSeriesRef.current.setData(ohlc.map(r => ({ time: toTime(r.date), open: r.open, high: r.high, low: r.low, close: r.close })));
-    volSeriesRef.current.setData(ohlc.map(r => ({ time: toTime(r.date), value: r.volume, color: r.close >= r.open ? `${GREEN}80` : `${RED}80` })));
-    candleChartRef.current?.timeScale().fitContent();
-    volChartRef.current?.timeScale().fitContent();
+    candleSeriesRef.current.setData(activeBars.map(b => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close })));
+    volSeriesRef.current.setData(activeBars.map(b => ({ time: b.time, value: b.volume, color: b.close >= b.open ? `${GREEN}80` : `${RED}80` })));
+    ohlcByTimeRef.current = new Map(activeBars.map(b => [b.time, b]));
 
-    const pct = buildPctSeries(ohlc, vniPrices, hnxPrices);
-    stockLineRef.current?.setData(pct.stock);
-    vniLineRef.current?.setData(pct.vni);
-    hnxLineRef.current?.setData(pct.hnx);
-    pctChartRef.current?.timeScale().fitContent();
-  }, [ohlc, vniPrices, hnxPrices, GREEN, RED]);
+    // Trục thời gian dưới Volume: "1D" hiện giờ:phút, các khung khác hiện ngày/tháng.
+    volChartRef.current?.applyOptions({ timeScale: { timeVisible: is1D, secondsVisible: false } });
+
+    if (!is1D) {
+      const pct = buildPctSeries(ohlc, vniPrices, hnxPrices, periodCutoff);
+      stockLineRef.current?.setData(pct.stock);
+      vniLineRef.current?.setData(pct.vni);
+      hnxLineRef.current?.setData(pct.hnx);
+      applyPctFit();
+    }
+
+    applyCandleZoom();
+  }, [activeBars, ohlc, vniPrices, hnxPrices, periodCutoff, is1D, GREEN, RED]);
 
   // Đổi tab Nến/% so sánh: container vừa hiện lại từ display:none có thể vẫn giữ
   // clientWidth=0 tại thời điểm chart được tạo (nếu tab đó chưa từng hiện) — phải
-  // đo lại kích thước thật và resize + fit lại range mỗi lần tab được hiện ra.
+  // đo lại kích thước thật và fit/zoom lại đúng khung period hiện tại mỗi lần tab hiện ra.
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
       if (mode === "candle") {
         if (candleHostRef.current) candleChartRef.current?.applyOptions({ width: candleHostRef.current.clientWidth });
         if (volHostRef.current) volChartRef.current?.applyOptions({ width: volHostRef.current.clientWidth });
-        candleChartRef.current?.timeScale().fitContent();
-        volChartRef.current?.timeScale().fitContent();
+        applyCandleZoom();
       } else {
         if (pctHostRef.current) pctChartRef.current?.applyOptions({ width: pctHostRef.current.clientWidth });
-        pctChartRef.current?.timeScale().fitContent();
+        applyPctFit();
       }
     });
     return () => cancelAnimationFrame(raf);
-  }, [mode]);
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggle hiện/ẩn VN-Index, HNX-Index trên chart %
   useEffect(() => {
@@ -179,8 +320,12 @@ export function PriceChartLW({ ohlc, vniPrices, hnxPrices, sym, tk, isDark, GREE
     });
   }, [isDark, tk]);
 
+  const displayBar = hoverBar ?? activeBars[activeBars.length - 1] ?? null;
+  const barUp = displayBar ? displayBar.close >= displayBar.open : true;
+  const barColor = barUp ? GREEN : RED;
+
   const lastPct = { stock: 0, vni: 0, hnx: 0 };
-  const pctPreview = buildPctSeries(ohlc, vniPrices, hnxPrices);
+  const pctPreview = buildPctSeries(ohlc, vniPrices, hnxPrices, periodCutoff);
   if (pctPreview.stock.length) lastPct.stock = pctPreview.stock[pctPreview.stock.length - 1].value;
   if (pctPreview.vni.length)   lastPct.vni   = pctPreview.vni[pctPreview.vni.length - 1].value;
   if (pctPreview.hnx.length)   lastPct.hnx   = pctPreview.hnx[pctPreview.hnx.length - 1].value;
@@ -194,14 +339,30 @@ export function PriceChartLW({ ohlc, vniPrices, hnxPrices, sym, tk, isDark, GREE
             background: mode === m ? "#0849AC" : tk.CARD2,
             color: mode === m ? "#fff" : tk.MUTED,
             fontSize: 12, fontWeight: mode === m ? 700 : 500, fontFamily: FONT,
-          }}>{m === "candle" ? "Nến" : "% so sánh"}</button>
+          }}>{m === "candle" ? "Nến" : "So sánh"}</button>
         ))}
       </div>
 
       {/* Cả 2 luôn mount (giữ chart instance sống), chỉ ẩn/hiện bằng display để tránh
           phải huỷ/tạo lại chart mỗi lần đổi chế độ (tốn hiệu năng + mất trạng thái zoom). */}
       <div style={{ display: mode === "candle" ? "block" : "none" }}>
-        <div ref={candleHostRef} />
+        <div style={{ position: "relative" }}>
+          {displayBar && (
+            <div style={{ position: "absolute", top: 6, left: 6, zIndex: 2, display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "2px 10px", fontSize: 12, fontFamily: FONT, pointerEvents: "none" }}>
+              <span style={{ color: tk.MUTED }}>O <b style={{ color: barColor }}>{displayBar.open.toLocaleString("vi-VN")}</b></span>
+              <span style={{ color: tk.MUTED }}>H <b style={{ color: barColor }}>{displayBar.high.toLocaleString("vi-VN")}</b></span>
+              <span style={{ color: tk.MUTED }}>L <b style={{ color: barColor }}>{displayBar.low.toLocaleString("vi-VN")}</b></span>
+              <span style={{ color: tk.MUTED }}>C <b style={{ color: barColor }}>{displayBar.close.toLocaleString("vi-VN")}</b></span>
+              <span style={{ color: tk.MUTED }}>Vol <b style={{ color: tk.TEXT }}>{fmtVol(displayBar.volume)}</b></span>
+            </div>
+          )}
+          {is1D && (intradayLoading || intradayError) && (
+            <div style={{ position: "absolute", inset: 0, zIndex: 3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontFamily: FONT, color: tk.MUTED, background: isDark ? "rgba(11,13,24,0.5)" : "rgba(255,255,255,0.6)" }}>
+              {intradayLoading ? "Đang tải dữ liệu trong phiên…" : intradayError}
+            </div>
+          )}
+          <div ref={candleHostRef} />
+        </div>
         <div ref={volHostRef} style={{ marginTop: 2 }} />
       </div>
       <div style={{ display: mode === "pct" ? "block" : "none" }}>

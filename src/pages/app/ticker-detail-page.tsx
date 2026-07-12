@@ -94,8 +94,12 @@ const SECTOR_PALETTE: Record<string, string> = {
 };
 function sc(sector: string) { return SECTOR_PALETTE[sector] ?? "#4B5563"; }
 
-const PERIOD_DAYS: Record<string, number> = { "7D": 7, "1M": 30, "3M": 90, "YTD": 365, "5Y": 1825 };
-const PERIODS = ["7D", "1M", "3M", "YTD", "5Y"] as const;
+// "1D" không dùng PERIOD_DAYS để cắt data lịch sử — đây là chế độ RIÊNG (nến 1
+// phút trong phiên, lấy trực tiếp từ DNSE qua edge function `intraday-quote`,
+// chỉ áp dụng cho tab "Nến"), xem PriceChartLW. Giữ "1D": 0 ở đây chỉ để không
+// vỡ type khi periodCutoff lỡ tính theo period này.
+const PERIOD_DAYS: Record<string, number> = { "1D": 0, "7D": 7, "1M": 30, "3M": 90, "YTD": 365, "5Y": 1825 };
+const PERIODS = ["1D", "7D", "1M", "3M", "YTD", "5Y"] as const;
 type Period = typeof PERIODS[number];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -108,6 +112,14 @@ const fmtPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
 const fmtRatio = (n: number) => `${Number((n * 100).toFixed(2))}%`;
 const fmtDate = (d: string) => { const dt = new Date(d); return `${dt.getDate()}/${dt.getMonth() + 1}/${dt.getFullYear()}`; };
 const fmtShort = (d: string) => { const dt = new Date(d); return `${dt.getDate()}/${dt.getMonth() + 1}`; };
+// "Cập nhật lúc HH:mm:ss" — dùng updated_at (cột tự cập nhật mỗi lần job ghi đè
+// giá, KHÔNG phải created_at chỉ set 1 lần lúc tạo dòng đầu ngày). Trong phiên
+// sẽ nhảy theo mỗi lần job intraday chạy; hết phiên đứng yên ở lần cập nhật
+// cuối; sáng hôm sau chỉ nhảy tiếp khi có job mới (mở cửa) ghi đè.
+const fmtUpdatedAt = (iso?: string | null): string | null => {
+  if (!iso) return null;
+  return new Date(iso).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+};
 const fmtB = (n: number | null | undefined) => {
   if (n == null) return "—";
   const b = n / 1e9;
@@ -754,7 +766,7 @@ export function TickerDetailPage() {
         { data: ratioData },
       ] = await Promise.all([
         supabase.from("tickers").select("symbol,name,exchange,sector,in_vn30,company_type,founded_year,listing_date").eq("symbol", s).single(),
-        fetchAllRows("prices_daily", q => q.select("date,open,high,low,close,volume").eq("symbol", s).order("date", { ascending: true })),
+        fetchAllRows("prices_daily", q => q.select("date,open,high,low,close,volume,updated_at").eq("symbol", s).order("date", { ascending: true })),
         supabase.from("financial_statements").select("statement,period,item_code,value").eq("symbol", s).eq("period_type", "FY").limit(2000),
         supabase.from("dividends").select("id,ex_date,payment_date,dividend_type,amount").eq("symbol", s).order("ex_date", { ascending: false }).limit(10),
         supabase.from("dividend_announcements").select("id,dividend_type,amount,announced_date").eq("symbol", s).order("announced_date", { ascending: false }).limit(5),
@@ -847,6 +859,7 @@ export function TickerDetailPage() {
   const chgAbs  = latest && prev ? Number(latest.close) - Number(prev.close) : null;
   const chgPct  = latest && prev ? (chgAbs! / Number(prev.close)) * 100 : null;
   const isUp    = chgPct != null ? chgPct >= 0 : null;
+  const priceUpdatedAt = fmtUpdatedAt(latest?.updated_at);
 
   const stockPeriodPct = chartData.length >= 2 ? chartData[chartData.length - 1].stock : 0;
 
@@ -931,12 +944,13 @@ export function TickerDetailPage() {
                   {!isMobile && <span style={{ fontSize: 10, fontWeight: 700, background: sc(ticker.sector ?? ""), color: "#fff", padding: "2px 8px", borderRadius: 4, whiteSpace: "nowrap" }}>{ticker.sector}</span>}
                   <span style={{ fontSize: 11, color: tk.MUTED, whiteSpace: "nowrap" }}>{ticker.exchange} · {ticker.symbol}</span>
                   {ticker.in_vn30 && <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(8,73,172,0.12)", color: "#0849AC", padding: "2px 6px", borderRadius: 4 }}>VN30</span>}
+                  {priceUpdatedAt && !isMobile && <span style={{ fontSize: 11, color: tk.MUTED, whiteSpace: "nowrap" }}>· Cập nhật lúc {priceUpdatedAt}</span>}
                 </div>
               </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 14, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: isMobile ? 8 : 6, flexShrink: 0 }}>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.8px", color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                 {latest ? latest.close.toLocaleString("vi-VN") : "—"}
@@ -1130,8 +1144,11 @@ export function TickerDetailPage() {
               <div>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
                     <div>
-                      <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-1.5px", marginBottom: 6, color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                        {latest ? latest.close.toLocaleString("vi-VN") : "—"}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-1.5px", color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                          {latest ? latest.close.toLocaleString("vi-VN") : "—"}
+                        </div>
+                        {priceUpdatedAt && <span style={{ fontSize: 11, color: tk.MUTED, whiteSpace: "nowrap" }}>Cập nhật lúc {priceUpdatedAt}</span>}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         {chgPct != null && (
@@ -1160,6 +1177,7 @@ export function TickerDetailPage() {
                   <PriceChartLW
                     ohlc={prices}
                     periodCutoff={periodCutoff}
+                    period={period}
                     vniPrices={vniPrices}
                     hnxPrices={hnxPrices}
                     sym={sym}
