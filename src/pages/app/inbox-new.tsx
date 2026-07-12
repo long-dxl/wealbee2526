@@ -73,13 +73,23 @@ function stripMdArtifacts(s: string): string {
     .trim();
 }
 
-// Title sạch; nếu title gốc là rác markdown → lấy câu đầu của summary,
+// Chuẩn tiêu đề (đồng bộ logic với run-agent backend): loại phân tích + phạm vi,
+// ≤60 ký tự — cắt trước marker section agent hay nối cùng dòng, rồi clamp tại
+// ranh giới từ. Data cũ đã lỡ lưu title dài cũng được dọn khi hiển thị.
+function smartTitle(s: string): string {
+  let t = s.split(/\s+(?=Mã chứng khoán:|Mã CK:|Tin tức\s*\d|Metric chính|Tác động:|Nguồn:)/)[0].trim();
+  if (t.length > 60) t = t.slice(0, 60).replace(/\s+\S*$/, "") + "…";
+  return t.replace(/[\s:,\-–—]+…?$/, (m) => (m.endsWith("…") ? "…" : ""));
+}
+
+// Title sạch; nếu title gốc là rác markdown → lấy dòng đầu có nghĩa của summary,
 // cuối cùng fallback theo tên agent để không bao giờ hiện chuỗi vô nghĩa.
 function displayTitle(rawTitle: string, rawSummary: string, agentName: string): string {
   const t = stripMdArtifacts(rawTitle);
-  if (t.length >= 4 && t.toLowerCase() !== "markdown" && t !== "Untitled") return t;
-  const s = stripMdArtifacts(rawSummary).split(/(?<=[.!?])\s|\n/)[0]?.trim() ?? "";
-  if (s.length >= 4) return s;
+  if (t.length >= 4 && t.toLowerCase() !== "markdown" && t !== "Untitled") return smartTitle(t);
+  // Lấy theo DÒNG (trước khi collapse xuống 1 dòng) để không nuốt cả đoạn làm title
+  const line = rawSummary.split(/\n/).map(l => stripMdArtifacts(l)).find(l => l.length >= 4) ?? "";
+  if (line.length >= 4) return smartTitle(line);
   return `Báo cáo từ ${agentName}`;
 }
 

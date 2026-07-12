@@ -1297,10 +1297,20 @@ QUY TẮC:
         // ── Extract metadata ──────────────────────────────────────────────────
 
         const outLines = fullOutput.split("\n").map(l => l.trim()).filter(Boolean);
-        let title = agent.name;
+        // Title = loại phân tích + phạm vi, ≤60 ký tự — KHÔNG nhồi nội dung chi tiết.
+        // Title này thành subject email + header Zalo + tiêu đề Inbox nên phải gọn.
+        let title = `${agent.name} · ${new Date().toLocaleDateString("vi-VN", { day: "numeric", month: "numeric" })}`;
         for (const line of outLines) {
           const cleaned = line.replace(/^#+\s*/, "").replace(/^\d+\.\s*/, "").replace(/\*\*/g, "").trim();
-          if (cleaned.length >= 10) { title = cleaned.substring(0, 100); break; }
+          // Bỏ dòng rác: code fence ```markdown, bảng |...|, divider ---
+          if (/^`{3}/.test(cleaned) || cleaned.includes("|") || /^[-–—=~\s]+$/.test(cleaned)) continue;
+          if (cleaned.length < 10) continue;
+          // Cắt trước marker section agent hay nối vào cùng dòng ("...danh mục Mã chứng khoán: HPG - Tin tức 2: ...")
+          let t = cleaned.split(/\s+(?=Mã chứng khoán:|Mã CK:|Tin tức\s*\d|Metric chính|Tác động:|Nguồn:)/)[0].trim();
+          // Clamp 60 ký tự tại ranh giới từ, bỏ dấu câu lơ lửng cuối
+          if (t.length > 60) t = t.slice(0, 60).replace(/\s+\S*$/, "") + "…";
+          t = t.replace(/[\s:,\-–—]+…?$/, (m) => m.endsWith("…") ? "…" : "");
+          if (t.length >= 10) { title = t; break; }
         }
         const summary   = fullOutput.replace(/\*\*/g, "").replace(/^#+\s*/gm, "").split("\n").filter(l => l.trim()).slice(1, 4).join(" ").substring(0, 200);
         const extracted = extractTickers(fullOutput);
