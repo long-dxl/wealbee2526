@@ -24,6 +24,13 @@ CRON_TZ=Asia/Ho_Chi_Minh
 # Script tự bỏ qua ngoài giờ/lễ/cuối tuần (is_in_session). Phục vụ Top tăng/giảm + heatmap ngành.
 */15 9-11,13-14 * * 1-5 cd __APP__/toolcrawldata && __VENV__/bin/python seed_prices_dnse.py --intraday >> /var/log/wealbee/prices.log 2>&1
 
+# ── PHÁT HIỆN MÃ BỊ GÁN SAI SÀN (stocks.exchange): 15:05, T2–T6, ngay sau job giá EOD ──
+# stocks.exchange không có cơ chế đồng bộ lại sau khi seed 1 lần — mã bị hủy niêm yết
+# HOSE/HNX chuyển UPCoM sẽ bị kẹt exchange cũ, lộ ra ở Top tăng/giảm dashboard vì %biến
+# động vượt trần sàn đang gán (case thực tế: SDA/AAV/DDG/VAF, phát hiện 2026-07-12).
+# Chỉ GHI VÀO exchange_review_queue để review, KHÔNG tự sửa exchange.
+5 15 * * 1-5 cd __APP__/toolcrawldata && __VENV__/bin/python detect_exchange_anomalies.py >> /var/log/wealbee/prices.log 2>&1
+
 # ── CỔ TỨC + GIAO DỊCH NỘI BỘ (VCI) cho TOÀN BỘ mã active trong `tickers`: 1 lần/ngày 16:30 ──
 # seed_financials.py tự đọc mã từ bảng tickers (không cần bảo trì tay); đã bỏ financials_annual.
 30 16 * * *  cd __APP__/toolcrawldata && __VENV__/bin/python seed_financials.py >> /var/log/wealbee/financials.log 2>&1
