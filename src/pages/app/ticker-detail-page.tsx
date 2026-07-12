@@ -14,12 +14,14 @@ import {
 } from "lucide-react";
 import { VN30_PROFILES } from "../../data/vn30-profiles";
 import {
-  AreaChart, Area, BarChart, Bar,
+  BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
 import { supabase } from "../../lib/supabase/client";
 import type { AppOutletContext } from "./page-wrappers";
+import { useIsMobile } from "../../components/ui/use-mobile";
+import { PriceChartLW } from "../../components/price-chart-lw";
 
 // ─── Theme tokens ─────────────────────────────────────────────────────────────
 
@@ -133,25 +135,6 @@ function MetricPill({ label, value }: { label: string; value: string }) {
     <div style={{ background: tk.CARD2, borderRadius: 10, padding: "10px 14px", border: `1px solid ${tk.BORDER}` }}>
       <div style={{ fontSize: 10, color: tk.MUTED, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
       <div style={{ fontSize: 15, fontWeight: 700, color: tk.TEXT }}>{value}</div>
-    </div>
-  );
-}
-
-function ChartTooltip({ active, payload, label }: any) {
-  const tk = useTK();
-  if (!active || !payload?.length) return null;
-  return (
-    <div style={{ background: tk.TOOLTIP_BG, border: `1px solid ${tk.BORDER2}`, borderRadius: 10, padding: "10px 14px", fontFamily: FONT, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
-      <div style={{ fontSize: 11, color: tk.MUTED, marginBottom: 6 }}>{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: p.color }} />
-          <span style={{ fontSize: 12, color: tk.MUTED }}>{p.name}:</span>
-          <span style={{ fontSize: 12, color: p.color, fontWeight: 700 }}>
-            {fmtPct(p.value)}
-          </span>
-        </div>
-      ))}
     </div>
   );
 }
@@ -679,6 +662,7 @@ function StatementPanel({ tab, companyType, stmt, ratios }: {
 export function TickerDetailPage() {
   const { symbol } = useParams<{ symbol: string }>();
   const navigate   = useNavigate();
+  const isMobile   = useIsMobile();
 
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
@@ -703,8 +687,6 @@ export function TickerDetailPage() {
   const [news,       setNews]       = useState<any[]>([]);
   const [period,     setPeriod]     = useState<Period>("3M");
   const [finTab,     setFinTab]     = useState<FinTab>("income");
-  const [showVni,    setShowVni]    = useState(true);
-  const [showHnx,    setShowHnx]    = useState(true);
   const [extraTab,   setExtraTab]   = useState<"dividends" | "insiders" | "news">("dividends");
   const [aboutExpanded, setAboutExpanded] = useState(false);
 
@@ -847,7 +829,6 @@ export function TickerDetailPage() {
   const isUp    = chgPct != null ? chgPct >= 0 : null;
 
   const stockPeriodPct = chartData.length >= 2 ? chartData[chartData.length - 1].stock : 0;
-  const STOCK_C = stockPeriodPct >= 0 ? GREEN : RED;
 
   const FIN_TABS: { id: FinTab; icon: React.ElementType; label: string }[] = [
     { id: "metrics",   icon: BarChart2,   label: "Chỉ số" },
@@ -894,25 +875,27 @@ export function TickerDetailPage() {
           position: "sticky", top: 0, zIndex: 20,
           background: tk.HEADER_BG, backdropFilter: "blur(20px)",
           borderBottom: `1px solid ${tk.BORDER}`,
-          padding: "0 32px", height: 60,
+          padding: isMobile ? "0 12px" : "0 32px", height: 60,
           display: "flex", alignItems: "center", justifyContent: "space-between",
+          gap: 8,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 18, minWidth: 0, flex: 1 }}>
             <button
               onClick={() => navigate(-1)}
               style={{
                 display: "flex", alignItems: "center", gap: 6,
                 background: tk.BACK_BTN_BG, border: `1px solid ${tk.BORDER}`,
-                borderRadius: 8, padding: "6px 14px", color: tk.TEXT, fontSize: 13,
+                borderRadius: 8, padding: isMobile ? "8px" : "6px 14px", color: tk.TEXT, fontSize: 13,
                 cursor: "pointer", fontFamily: FONT, fontWeight: 600, transition: "background 100ms",
+                flexShrink: 0,
               }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = tk.BACK_BTN_HOV; }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = tk.BACK_BTN_BG; }}
             >
-              <ArrowLeft size={14} strokeWidth={2} /> Quay lại
+              <ArrowLeft size={14} strokeWidth={2} />{!isMobile && " Quay lại"}
             </button>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 12, minWidth: 0 }}>
               <div style={{
                 width: 40, height: 40, borderRadius: 11,
                 background: sc(ticker.sector ?? ""),
@@ -921,8 +904,8 @@ export function TickerDetailPage() {
               }}>
                 {ticker.symbol.slice(0, 3)}
               </div>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.3px", color: tk.TEXT }}>{ticker.name}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.3px", color: tk.TEXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ticker.name}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
                   <span style={{ fontSize: 10, fontWeight: 700, background: sc(ticker.sector ?? ""), color: "#fff", padding: "2px 8px", borderRadius: 4 }}>{ticker.sector}</span>
                   <span style={{ fontSize: 11, color: tk.MUTED }}>{ticker.exchange} · {ticker.symbol}</span>
@@ -932,7 +915,7 @@ export function TickerDetailPage() {
             </div>
           </div>
 
-          <div style={{ textAlign: "right" }}>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
             <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.8px", color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
               {latest ? latest.close.toLocaleString("vi-VN") : "—"}
               <span style={{ fontSize: 13, color: tk.MUTED, marginLeft: 5 }}>đ</span>
@@ -946,7 +929,7 @@ export function TickerDetailPage() {
         </div>
 
         {/* ── Body ─────────────────────────────────────────────────────────── */}
-        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px 32px" }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "clamp(16px, 3vw, 24px) clamp(16px, 4vw, 32px)" }}>
 
           {/* 2-col: company info + price */}
           {(() => {
@@ -983,7 +966,7 @@ export function TickerDetailPage() {
             );
 
             return (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))", gap: 14, marginBottom: 14 }}>
 
                 {/* Company Info card */}
                 <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, padding: "20px 22px" }}>
@@ -1104,7 +1087,7 @@ export function TickerDetailPage() {
           <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, overflow: "hidden", marginBottom: 14 }}>
             <div style={{ padding: "22px 24px" }}>
               <div>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
                     <div>
                       <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-1.5px", marginBottom: 6, color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
                         {latest ? latest.close.toLocaleString("vi-VN") : "—"}
@@ -1133,60 +1116,27 @@ export function TickerDetailPage() {
                     </div>
                   </div>
 
-                  <div style={{ height: 240 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="gStock" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%"   stopColor={STOCK_C} stopOpacity={isDark ? 0.28 : 0.20} />
-                            <stop offset="100%" stopColor={STOCK_C} stopOpacity={0.01} />
-                          </linearGradient>
-                          <linearGradient id="gVni" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%"   stopColor={VNI_C} stopOpacity={0.10} />
-                            <stop offset="100%" stopColor={VNI_C} stopOpacity={0.00} />
-                          </linearGradient>
-                          <linearGradient id="gHnx" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%"   stopColor={HNX_C} stopOpacity={0.08} />
-                            <stop offset="100%" stopColor={HNX_C} stopOpacity={0.00} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid stroke={tk.GRID_STROKE} vertical={false} />
-                        <XAxis dataKey="date" tick={{ fill: tk.MUTED, fontSize: 10, fontFamily: FONT }} axisLine={false} tickLine={false} interval={Math.max(1, Math.floor(chartData.length / 7))} />
-                        <YAxis tick={{ fill: tk.MUTED, fontSize: 10, fontFamily: FONT }} axisLine={false} tickLine={false} width={48} tickFormatter={v => `${v > 0 ? "+" : ""}${v.toFixed(0)}%`} />
-                        <Tooltip content={<ChartTooltip />} />
-                        <ReferenceLine y={0} stroke={tk.REF_STROKE} strokeDasharray="3 3" />
-                        <Area type="monotone" dataKey="stock" stroke={STOCK_C}  strokeWidth={2.5} fill="url(#gStock)" dot={false} name={sym} />
-                        {showVni && <Area type="monotone" dataKey="vni" stroke={VNI_C} strokeWidth={1.5} fill="url(#gVni)" dot={false} name="VN-Index"  strokeDasharray="5 2" />}
-                        {showHnx && <Area type="monotone" dataKey="hnx" stroke={HNX_C} strokeWidth={1.5} fill="url(#gHnx)" dot={false} name="HNX-Index" strokeDasharray="5 2" />}
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {/* Legend */}
-                  <div style={{ marginTop: 16, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 13px", borderRadius: 99, background: isDark ? "rgba(255,255,255,0.06)" : "rgba(26,26,46,0.05)", border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(26,26,46,0.12)"}` }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: STOCK_C, boxShadow: `0 0 0 3px ${STOCK_C}30` }} />
-                      <span style={{ fontSize: 12, fontWeight: 700, color: tk.TEXT }}>{sym}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: stockPeriodPct >= 0 ? GREEN : RED }}>{fmtPct(stockPeriodPct)}</span>
-                    </div>
-                    <button onClick={() => setShowVni(v => !v)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 13px", borderRadius: 99, cursor: "pointer", fontFamily: FONT, background: showVni ? (isDark ? "rgba(93,127,255,0.12)" : "rgba(93,127,255,0.08)") : "transparent", border: showVni ? "1px solid rgba(93,127,255,0.30)" : `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(26,26,46,0.08)"}` }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: showVni ? VNI_C : "transparent", border: showVni ? "none" : `2px solid ${VNI_C}` }} />
-                      <span style={{ fontSize: 12, fontWeight: showVni ? 700 : 400, color: showVni ? tk.TEXT : tk.MUTED }}>VN-Index</span>
-                      {showVni && chartData.length > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: chartData[chartData.length - 1].vni >= 0 ? GREEN : RED }}>{fmtPct(chartData[chartData.length - 1].vni)}</span>}
-                    </button>
-                    <button onClick={() => setShowHnx(v => !v)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 13px", borderRadius: 99, cursor: "pointer", fontFamily: FONT, background: showHnx ? (isDark ? "rgba(139,92,246,0.12)" : "rgba(139,92,246,0.08)") : "transparent", border: showHnx ? "1px solid rgba(139,92,246,0.30)" : `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(26,26,46,0.08)"}` }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: showHnx ? HNX_C : "transparent", border: showHnx ? "none" : `2px solid ${HNX_C}` }} />
-                      <span style={{ fontSize: 12, fontWeight: showHnx ? 700 : 400, color: showHnx ? tk.TEXT : tk.MUTED }}>HNX-Index</span>
-                      {showHnx && chartData.length > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: chartData[chartData.length - 1].hnx >= 0 ? GREEN : RED }}>{fmtPct(chartData[chartData.length - 1].hnx)}</span>}
-                    </button>
-                  </div>
+                  <PriceChartLW
+                    ohlc={filteredPrices}
+                    vniPrices={vniPrices}
+                    hnxPrices={hnxPrices}
+                    sym={sym}
+                    tk={tk}
+                    isDark={isDark}
+                    GREEN={GREEN}
+                    RED={RED}
+                    VNI_C={VNI_C}
+                    HNX_C={HNX_C}
+                    fmtPct={fmtPct}
+                    FONT={FONT}
+                  />
                 </div>
             </div>
           </div>
 
           {/* ── Financial section (always visible below chart) ─────────────── */}
           <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, overflow: "hidden", marginBottom: 14 }}>
-            <div style={{ display: "flex", borderBottom: `1px solid ${tk.BORDER}`, padding: "0 8px", gap: 2 }}>
+            <div style={{ display: "flex", borderBottom: `1px solid ${tk.BORDER}`, padding: "0 8px", gap: 2, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               {FIN_TABS.map(tab => {
                 const Icon   = tab.icon;
                 const active = finTab === tab.id;
@@ -1194,6 +1144,7 @@ export function TickerDetailPage() {
                   <button key={tab.id} onClick={() => setFinTab(tab.id)} style={{
                     display: "flex", alignItems: "center", gap: 6,
                     padding: "14px 16px", border: "none", background: "transparent",
+                    flexShrink: 0, whiteSpace: "nowrap",
                     cursor: "pointer", fontFamily: FONT,
                     borderBottom: active ? `2px solid ${tk.ACCENT}` : "2px solid transparent",
                     color: active ? tk.ACCENT : tk.MUTED,
@@ -1216,7 +1167,7 @@ export function TickerDetailPage() {
 
           {/* ── Cổ tức / Insider / Tin tức ────────────────────────────────── */}
           <div style={{ background: tk.CARD, borderRadius: 16, border: `1px solid ${tk.BORDER}`, overflow: "hidden", marginBottom: 14 }}>
-            <div style={{ display: "flex", borderBottom: `1px solid ${tk.BORDER}`, padding: "0 8px", gap: 2 }}>
+            <div style={{ display: "flex", borderBottom: `1px solid ${tk.BORDER}`, padding: "0 8px", gap: 2, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               {EXTRA_TABS.map(tab => {
                 const Icon   = tab.icon;
                 const active = extraTab === tab.id;
@@ -1224,6 +1175,7 @@ export function TickerDetailPage() {
                   <button key={tab.id} onClick={() => setExtraTab(tab.id)} style={{
                     display: "flex", alignItems: "center", gap: 6,
                     padding: "14px 16px", border: "none", background: "transparent",
+                    flexShrink: 0, whiteSpace: "nowrap",
                     cursor: "pointer", fontFamily: FONT,
                     borderBottom: active ? `2px solid ${tk.ACCENT}` : "2px solid transparent",
                     color: active ? tk.ACCENT : tk.MUTED,

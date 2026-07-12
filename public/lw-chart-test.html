@@ -1,0 +1,189 @@
+<!doctype html>
+<!--
+  Test độc lập cho Chiến lược A: tự vẽ chart bằng lightweight-charts (thư viện mã
+  nguồn mở của TradingView) + data OHLCV THẬT lấy trực tiếp từ Supabase prices_daily
+  (nguồn DNSE — pipeline hiện tại đã có sẵn). Không đụng vào ticker-detail-page.tsx
+  (đang bị phiên khác sửa dở mobile responsive) — file tĩnh, Vite serve riêng.
+  Anon key ở đây là key client-side vốn đã lộ trong bundle build của app, bảo vệ
+  bằng RLS, không phải secret.
+  Xoá file này sau khi so sánh xong nếu không dùng tới.
+-->
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <title>Test lightweight-charts — AAA (data thật Supabase)</title>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f5f5f7; color: #1a1a2e; }
+    .bar { display: flex; align-items: center; gap: 12px; padding: 14px 20px; background: #fff; border-bottom: 1px solid #e5e5ea; flex-wrap: wrap; }
+    .bar h1 { font-size: 15px; margin: 0; }
+    .bar select, .bar button { padding: 6px 10px; border-radius: 6px; border: 1px solid #d0d0d8; font-size: 13px; background: #fff; cursor: pointer; }
+    .bar button.active { background: #0849AC; color: #fff; border-color: #0849AC; }
+    .wrap { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+    .card { background: #fff; border-radius: 12px; border: 1px solid #e5e5ea; padding: 16px; }
+    .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 10px; color: #6b6b80; }
+    #candleHost { height: 380px; }
+    #volHost { height: 100px; margin-top: 4px; }
+    #pctHost { height: 340px; }
+    .legend { display: flex; gap: 16px; margin-top: 8px; font-size: 12px; }
+    .legend span.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+    .status { font-size: 12px; color: #6b6b80; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <h1>Test Chiến lược A — lightweight-charts + data Supabase thật</h1>
+    <select id="symbolSelect">
+      <option value="AAA">AAA — Nhựa An Phát Xanh (HOSE)</option>
+      <option value="VCB">VCB — Vietcombank (HOSE)</option>
+      <option value="HPG">HPG — Hòa Phát (HOSE)</option>
+    </select>
+    <button id="btn5D">5D</button>
+    <button id="btn1M">1M</button>
+    <button id="btn3M" class="active">3M</button>
+    <button id="btnYTD">YTD</button>
+    <button id="btn5Y">5Y</button>
+    <span class="status" id="status">Đang tải...</span>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <h2>Nến giá + Volume (data OHLCV thật từ prices_daily)</h2>
+      <div id="candleHost"></div>
+      <div id="volHost"></div>
+    </div>
+    <div class="card">
+      <h2>So sánh % — giống card hiện tại (stock vs VN-Index vs HNX-Index)</h2>
+      <div id="pctHost"></div>
+      <div class="legend">
+        <span><span class="dot" style="background:#27C840"></span>Mã đang chọn</span>
+        <span><span class="dot" style="background:#5D7FFF"></span>VN-Index</span>
+        <span><span class="dot" style="background:#8B5CF6"></span>HNX-Index</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = "https://fkwsvyzguehtsjpwmttb.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrd3N2eXpndWVodHNqcHdtdHRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MjczNTYsImV4cCI6MjA5MTAwMzM1Nn0.5GeYbx69S0n3R5FRhw8jlgTqL0GPVl2SsKUSNOCpiSw";
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const PERIOD_DAYS = { "5D": 5, "1M": 30, "3M": 90, "YTD": 400, "5Y": 1825 };
+    let periodKey = "3M";
+    let symbol = "AAA";
+    let candleChart, volSeries, candleSeries, pctChart, stockLine, vniLine, hnxLine;
+
+    function setStatus(msg) { document.getElementById("status").textContent = msg; }
+
+    function initCharts() {
+      const candleHost = document.getElementById("candleHost");
+      candleChart = LightweightCharts.createChart(candleHost, {
+        width: candleHost.clientWidth, height: 380,
+        layout: { background: { color: "#fff" }, textColor: "#3D3D52" },
+        grid: { vertLines: { color: "#eee" }, horzLines: { color: "#eee" } },
+        timeScale: { borderColor: "#e5e5ea" },
+        rightPriceScale: { borderColor: "#e5e5ea" },
+      });
+      candleSeries = candleChart.addCandlestickSeries({
+        upColor: "#27C840", downColor: "#FF3931", borderVisible: false,
+        wickUpColor: "#27C840", wickDownColor: "#FF3931",
+      });
+
+      const volHost = document.getElementById("volHost");
+      const volChart = LightweightCharts.createChart(volHost, {
+        width: volHost.clientWidth, height: 100,
+        layout: { background: { color: "#fff" }, textColor: "#3D3D52" },
+        grid: { vertLines: { color: "#eee" }, horzLines: { color: "#eee" } },
+        timeScale: { borderColor: "#e5e5ea" },
+        rightPriceScale: { borderColor: "#e5e5ea" },
+      });
+      volSeries = volChart.addHistogramSeries({ color: "#5D7FFF" });
+      candleChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+        if (range) volChart.timeScale().setVisibleLogicalRange(range);
+      });
+
+      const pctHost = document.getElementById("pctHost");
+      pctChart = LightweightCharts.createChart(pctHost, {
+        width: pctHost.clientWidth, height: 340,
+        layout: { background: { color: "#fff" }, textColor: "#3D3D52" },
+        grid: { vertLines: { color: "#eee" }, horzLines: { color: "#eee" } },
+        timeScale: { borderColor: "#e5e5ea" },
+        rightPriceScale: { borderColor: "#e5e5ea", scaleMargins: { top: 0.1, bottom: 0.1 } },
+      });
+      stockLine = pctChart.addLineSeries({ color: "#27C840", lineWidth: 2, priceFormat: { type: "custom", formatter: v => `${v>=0?"+":""}${v.toFixed(2)}%` } });
+      vniLine   = pctChart.addLineSeries({ color: "#5D7FFF", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed });
+      hnxLine   = pctChart.addLineSeries({ color: "#8B5CF6", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed });
+    }
+
+    async function fetchPricesDaily(sym, days) {
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+      const { data, error } = await sb.from("prices_daily")
+        .select("date,open,high,low,close,volume")
+        .eq("symbol", sym)
+        .gte("date", cutoff.toISOString().slice(0, 10))
+        .order("date", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function fetchIndex(code, days) {
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+      const { data, error } = await sb.from("market_indices")
+        .select("date,close")
+        .eq("index_code", code)
+        .gte("date", cutoff.toISOString().slice(0, 10))
+        .order("date", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    }
+
+    function toPctSeries(rows, key) {
+      if (!rows.length) return [];
+      const base = Number(rows[0][key]);
+      return rows.map(r => ({ time: r.date, value: base > 0 ? ((Number(r[key]) - base) / base) * 100 : 0 }));
+    }
+
+    async function render() {
+      setStatus("Đang tải dữ liệu thật từ Supabase (prices_daily / market_indices)...");
+      const days = PERIOD_DAYS[periodKey];
+      try {
+        const [stockRows, vniRows, hnxRows] = await Promise.all([
+          fetchPricesDaily(symbol, days),
+          fetchIndex("VNINDEX", days),
+          fetchIndex("HNX", days),
+        ]);
+
+        if (!stockRows.length) { setStatus(`Không có dữ liệu prices_daily cho mã ${symbol} trong ${days} ngày.`); return; }
+
+        candleSeries.setData(stockRows.map(r => ({ time: r.date, open: r.open, high: r.high, low: r.low, close: r.close })));
+        volSeries.setData(stockRows.map(r => ({ time: r.date, value: r.volume, color: r.close >= r.open ? "rgba(39,200,64,0.5)" : "rgba(255,57,49,0.5)" })));
+        candleChart.timeScale().fitContent();
+
+        stockLine.setData(toPctSeries(stockRows, "close"));
+        vniLine.setData(toPctSeries(vniRows, "close"));
+        hnxLine.setData(toPctSeries(hnxRows, "close"));
+        pctChart.timeScale().fitContent();
+
+        setStatus(`OK — ${symbol}: ${stockRows.length} phiên (nguồn: prices_daily, gốc DNSE). VN-Index: ${vniRows.length} phiên, HNX-Index: ${hnxRows.length} phiên.`);
+      } catch (e) {
+        setStatus("Lỗi tải dữ liệu: " + (e.message || e));
+        console.error(e);
+      }
+    }
+
+    initCharts();
+    render();
+
+    document.getElementById("symbolSelect").addEventListener("change", e => { symbol = e.target.value; render(); });
+    ["5D", "1M", "3M", "YTD", "5Y"].forEach(p => {
+      document.getElementById("btn" + p).addEventListener("click", (e) => {
+        periodKey = p;
+        document.querySelectorAll(".bar button").forEach(b => b.classList.remove("active"));
+        e.target.classList.add("active");
+        render();
+      });
+    });
+  </script>
+</body>
+</html>
