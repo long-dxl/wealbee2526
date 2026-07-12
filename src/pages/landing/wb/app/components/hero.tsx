@@ -22,7 +22,7 @@ function MobileScaledMock() {
   }, []);
 
   return (
-    <div ref={ref} className="w-full" style={{ height: MOCK_NATURAL_H * scale }}>
+    <div ref={ref} className="relative w-full" style={{ height: MOCK_NATURAL_H * scale }}>
       <div style={{ width: MOCK_NATURAL_W, transform: `scale(${scale})`, transformOrigin: "top left" }}>
         <div
           className="overflow-hidden rounded-[16px]"
@@ -41,6 +41,28 @@ function MobileScaledMock() {
           <DashboardMock />
         </div>
       </div>
+
+      {/* 2 card nổi — desktop có trong Showcase3D, mobile cũng phải có (điểm nhấn sản phẩm).
+          Không scale theo mock để chữ giữ kích thước đọc được. */}
+      <motion.div
+        className="absolute -right-1 -top-3 rounded-xl px-3.5 py-2.5"
+        style={{ background: "linear-gradient(135deg, #0849AC, #4D8FE8)", boxShadow: "0 16px 40px rgba(8,73,172,0.45)" }}
+        animate={{ y: [0, -6, 0] }}
+        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
+      >
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: "rgba(255,255,255,0.7)" }}>Cảnh báo tức thời</div>
+        <div style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 700, fontSize: 14, color: "#fff" }}>VHM −2,64% ⚑</div>
+      </motion.div>
+      <motion.div
+        className="absolute -bottom-3 -left-1 flex items-center gap-2 rounded-full px-3.5 py-2"
+        style={{ background: "var(--wb-mock-window)", border: "1px solid rgba(52,199,89,0.4)", boxShadow: "0 12px 30px rgba(0,0,0,0.35)" }}
+        animate={{ y: [0, 6, 0] }}
+        transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+      >
+        <span className="size-2 rounded-full" style={{ background: "#34C759" }} />
+        <span style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 700, fontSize: 12, color: "#34C759" }}>+2.250.000đ</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, color: "var(--wb-mock-dim)" }}>danh mục</span>
+      </motion.div>
     </div>
   );
 }

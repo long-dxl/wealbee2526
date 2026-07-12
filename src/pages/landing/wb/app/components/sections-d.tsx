@@ -241,9 +241,10 @@ export function Testimonials() {
           </h2>
         </Reveal>
 
-        <div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-3">
+        {/* Mobile: carousel vuốt ngang snap — 3 quote xếp dọc dài và lặp nhịp; card ló mép gợi vuốt */}
+        <div className="-mx-5 mt-10 flex snap-x snap-mandatory gap-5 overflow-x-auto px-5 pb-4 md:mx-0 md:mt-14 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0">
           {QUOTES.map((q, i) => (
-            <Reveal key={q.name} delay={i * 0.08}>
+            <Reveal key={q.name} delay={i * 0.08} className="min-w-[84%] snap-center md:min-w-0">
               <div className="flex h-full flex-col rounded-[14px] border p-6" style={{ background: "var(--wb-card)", borderColor: "var(--wb-border)" }}>
                 <p className="flex-1" style={{ fontFamily: "Montserrat, sans-serif", fontSize: 15, lineHeight: 1.65, color: "var(--wb-text)" }}>"{q.text}"</p>
                 <div className="mt-5 flex items-center gap-3">

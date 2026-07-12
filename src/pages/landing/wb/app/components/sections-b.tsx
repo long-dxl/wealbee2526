@@ -197,9 +197,11 @@ export function TemplateAgents() {
           </h2>
         </Reveal>
 
-        <div className="mt-14 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Mobile: carousel vuốt ngang snap (4 card xếp dọc quá dài, kém hấp dẫn);
+            card sau ló mép gợi ý vuốt tiếp. Từ sm trở lên giữ grid như cũ. */}
+        <div className="-mx-5 mt-10 flex snap-x snap-mandatory gap-3.5 overflow-x-auto px-5 pb-4 sm:mx-0 sm:mt-14 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-4">
           {TEMPLATES.map((t, i) => (
-            <Reveal key={t.name} delay={i * 0.06}>
+            <Reveal key={t.name} delay={i * 0.06} className="min-w-[76%] snap-center sm:min-w-0">
               <div className="flex h-full flex-col rounded-2xl border p-6 transition-all hover:-translate-y-0.5 hover:shadow-[0_20px_50px_var(--wb-glow)]" style={{ background: "var(--wb-card)", borderColor: "var(--wb-border)" }}>
                 <div className="mb-4 flex size-9 items-center justify-center rounded-xl" style={{ background: "rgba(77,143,232,0.1)" }}>
                   <t.icon size={17} style={{ color: "var(--wb-bright)" }} />

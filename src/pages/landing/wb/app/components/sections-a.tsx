@@ -1,6 +1,6 @@
 import { AlertTriangle, BellOff, Newspaper, MessageSquareOff, MessageSquare, Settings2, BellRing } from "lucide-react";
 import { Reveal, CountUp, Eyebrow, Ticker } from "./primitives";
-import { AgentStudio3D } from "./agent-studio-mock";
+import { AgentStudio3D, AgentStudioMobile } from "./agent-studio-mock";
 
 /* ───────────────────────────── Trust strip ───────────────────────────── */
 const STATS = [
@@ -193,6 +193,10 @@ export function HowItWorks() {
           </Reveal>
           <div className="mx-auto mt-12 hidden max-w-[980px] overflow-visible pb-16 md:block">
             <AgentStudio3D />
+          </div>
+          {/* Mobile: heading phía trên từng trơ trọi vì showcase bị ẩn hẳn — hiện bản scale vừa màn hình */}
+          <div className="mx-auto mt-8 max-w-[480px] pb-10 md:hidden">
+            <AgentStudioMobile />
           </div>
         </div>
       </div>
