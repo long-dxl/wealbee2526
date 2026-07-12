@@ -656,15 +656,18 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
             summary: brief.summary,
           };
 
-          // Mobile: giờ không kèm ngày dễ hiểu nhầm (23:45 vs 07:35 là 2 ngày khác nhau)
-          // → chèn header nhóm ngày kiểu app mail
-          const showDayHeader = isMobile && (idx === 0 || filtered[idx - 1].dayLabel !== brief.dayLabel);
+          // Giờ không kèm ngày dễ hiểu nhầm (23:45 vs 07:35 là 2 ngày khác nhau)
+          // → chèn header nhóm ngày kiểu app mail. Học từ bản mobile, áp cho cả
+          // desktop — row desktop cũng chỉ hiện giờ, cùng vấn đề.
+          const showDayHeader = idx === 0 || filtered[idx - 1].dayLabel !== brief.dayLabel;
 
           return (
             <Fragment key={brief.id}>
             {showDayHeader && (
               <div style={{
-                padding: idx === 0 ? "12px 16px 6px" : "16px 16px 6px",
+                padding: isMobile
+                  ? (idx === 0 ? "12px 16px 6px" : "16px 16px 6px")
+                  : (idx === 0 ? "14px 20px 7px" : "18px 20px 7px"),
                 fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase",
                 color: fgSubtle, background: isDark ? "rgba(255,255,255,0.02)" : "rgba(8,73,172,0.02)",
                 borderBottom: `1px solid ${divider}`,
