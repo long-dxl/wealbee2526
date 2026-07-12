@@ -725,28 +725,33 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                       }}>
                         {brief.agentName}
                       </span>
-                      {brief.symbols.length > 0 && (
+                      {/* ≤2 mã: nêu đích danh từng chip. >2 mã (brief quét cả danh mục): chip
+                          trung tính "N mã" — không thiên vị mã đầu mảng, không giấu thông tin
+                          sau dấu "+N"; tap row mở brief là thấy đủ danh sách. */}
+                      {brief.symbols.length > 0 && brief.symbols.length <= 2 && (
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                          <span
-                            onClick={(e) => { e.stopPropagation(); onSelectTicker?.(brief.symbols[0]); }}
-                            style={{
-                              fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5,
-                              background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
-                              color: brand, cursor: onSelectTicker ? "pointer" : "default",
-                            }}
-                          >
-                            {brief.symbols[0]}
-                          </span>
-                          {/* Brief phân tích nhiều mã — "+N" để user biết không chỉ 1 mã */}
-                          {brief.symbols.length > 1 && (
-                            <span title={brief.symbols.slice(1).join(", ")} style={{
-                              fontSize: 10.5, fontWeight: 700, padding: "1px 5px", borderRadius: 5,
-                              background: isDark ? "rgba(255,255,255,0.06)" : "rgba(26,26,46,0.06)",
-                              color: fgSubtle,
-                            }}>
-                              +{brief.symbols.length - 1}
+                          {brief.symbols.map(sym => (
+                            <span
+                              key={sym}
+                              onClick={(e) => { e.stopPropagation(); onSelectTicker?.(sym); }}
+                              style={{
+                                fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5,
+                                background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
+                                color: brand, cursor: onSelectTicker ? "pointer" : "default",
+                              }}
+                            >
+                              {sym}
                             </span>
-                          )}
+                          ))}
+                        </span>
+                      )}
+                      {brief.symbols.length > 2 && (
+                        <span style={{
+                          fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 5, flexShrink: 0,
+                          background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
+                          color: brand,
+                        }}>
+                          {brief.symbols.length} mã
                         </span>
                       )}
                       <span style={{ fontSize: 11.5, color: fgSubtle, flexShrink: 0 }}>{brief.time}</span>
@@ -778,8 +783,9 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                       <BookOpen size={10} strokeWidth={2} style={{ flexShrink: 0 }} />
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{brief.agentName}</span>
                     </span>
-                    {/* Hiện tối đa 3 mã + "+N" — brief thường phân tích cả danh mục, gán mỗi 1 mã gây hiểu nhầm */}
-                    {brief.symbols.slice(0, 3).map(sym => (
+                    {/* ≤3 mã: nêu đích danh (tap mở từng mã). >3 mã: chip trung tính "N mã"
+                        (tooltip liệt kê đủ) — không thiên vị mã đầu mảng */}
+                    {brief.symbols.length > 0 && brief.symbols.length <= 3 && brief.symbols.map(sym => (
                       <span
                         key={sym}
                         onClick={(e) => { e.stopPropagation(); onSelectTicker?.(sym); }}
@@ -793,12 +799,12 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                       </span>
                     ))}
                     {brief.symbols.length > 3 && (
-                      <span title={brief.symbols.slice(3).join(", ")} style={{
-                        fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 5, flexShrink: 0,
-                        background: isDark ? "rgba(255,255,255,0.06)" : "rgba(26,26,46,0.06)",
-                        color: fgSubtle,
+                      <span title={brief.symbols.join(", ")} style={{
+                        fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 5, flexShrink: 0,
+                        background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
+                        color: brand,
                       }}>
-                        +{brief.symbols.length - 3}
+                        {brief.symbols.length} mã
                       </span>
                     )}
                     {!brief.read && (
