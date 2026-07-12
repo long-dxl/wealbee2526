@@ -7,6 +7,7 @@ import {
 import { supabase } from "../../lib/supabase/client";
 import { activateAgentTemplate, findAgentByTemplate, READY_TEMPLATE_IDS } from "../../lib/services/agent-templates";
 import { NeedPortfolioModal } from "../../components/NeedPortfolioModal";
+import { useIsMobile } from "../../components/ui/use-mobile";
 
 // trigger_type → nhãn điều kiện kích hoạt
 const TRIGGER_LABEL: Record<string, { label: string; type: "cron" | "event" | "manual" }> = {
@@ -57,6 +58,7 @@ interface AgentTemplate {
 }
 
 export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNavigate: (page: string) => void; onCreateAgent: () => void; isDark?: boolean }) {
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -121,7 +123,7 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
   };
 
   return (
-    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "16px" : "32px 24px", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
 
       {needPortfolio && <NeedPortfolioModal onDismiss={() => setNeedPortfolio(false)} />}
 
@@ -150,9 +152,11 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
         </button>
       </div>
 
-      {/* Filter tabs */}
+      {/* Filter tabs — mobile: 1 hàng cuộn ngang thay vì wrap 2 hàng */}
       {!loading && (
-        <div style={{ display: "flex", gap: 2, marginBottom: 28, flexWrap: "wrap" }}>
+        <div style={isMobile
+          ? { display: "flex", gap: 2, marginBottom: 16, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4 }
+          : { display: "flex", gap: 2, marginBottom: 28, flexWrap: "wrap" }}>
           {CATS.map(cat => {
             const on = cat === active;
             return (
@@ -163,6 +167,7 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
                 background: on ? (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)") : "transparent",
                 fontFamily: "'Montserrat', system-ui, sans-serif",
                 transition: "all 120ms",
+                flexShrink: 0, whiteSpace: "nowrap",
               }}>
                 {cat}
               </button>
@@ -180,9 +185,11 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
         </div>
       )}
 
-      {/* Grid */}
+      {/* Grid — mobile: 1 cột list-row compact (kiểu App Store); desktop: grid 3 cột */}
       {!loading && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+        <div style={isMobile
+          ? { display: "flex", flexDirection: "column", gap: 10 }
+          : { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
           {list.map(t => {
             const isReady    = READY_TEMPLATE_IDS.includes(t.id);
             const meta       = CAT_META[t.category];
@@ -190,6 +197,72 @@ export function Templates({ onNavigate, onCreateAgent, isDark = false }: { onNav
             const catText    = isReady ? (isDark ? meta?.dText : meta?.text) ?? brand                 : (isDark ? "rgba(255,255,255,0.25)" : "rgba(26,26,46,0.30)");
             const catLabel   = meta?.label ?? t.category;
             const sched      = TRIGGER_LABEL[t.trigger_type ?? "manual"] ?? TRIGGER_LABEL.manual;
+
+            if (isMobile) {
+              return (
+                <div
+                  key={t.id}
+                  style={{
+                    background: cardBg, borderRadius: 14,
+                    border: `1px solid ${divider}`, boxShadow: cardShadow,
+                    display: "flex", alignItems: "flex-start", gap: 12,
+                    padding: "14px",
+                    opacity: isReady ? 1 : 0.55,
+                    filter: isReady ? "none" : "grayscale(0.6)",
+                  }}
+                >
+                  <div style={{ width: 40, height: 40, borderRadius: 11, background: catBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <TemplateIcon icon={t.icon} color={catText} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: isReady ? fg : fgSubtle, letterSpacing: "-0.015em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {t.name}
+                    </div>
+                    <p style={{
+                      margin: "3px 0 6px", fontSize: 12.5, color: fgMuted, lineHeight: 1.5,
+                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const, overflow: "hidden",
+                    }}>
+                      {t.description}
+                    </p>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, background: catBg, color: catText, whiteSpace: "nowrap" }}>
+                        {catLabel}
+                      </span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: fgSubtle, whiteSpace: "nowrap" }}>
+                        <TriggerIcon type={sched.type} color={fgSubtle} />
+                        {sched.label}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ flexShrink: 0, alignSelf: "center" }}>
+                    {!isReady ? (
+                      <span style={{ fontSize: 10.5, fontWeight: 600, color: fgSubtle, padding: "6px 10px", borderRadius: 20, border: `0.5px solid ${divider}`, whiteSpace: "nowrap" }}>
+                        Sắp ra mắt
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleUse(t)}
+                        disabled={activatingId === t.id}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 4,
+                          padding: "9px 15px", borderRadius: 20, border: "none",
+                          background: catBg, color: catText,
+                          fontSize: 13, fontWeight: 700,
+                          cursor: activatingId === t.id ? "default" : "pointer",
+                          opacity: activatingId === t.id ? 0.6 : 1,
+                          fontFamily: "'Montserrat', system-ui, sans-serif",
+                          whiteSpace: "nowrap", WebkitTapHighlightColor: "transparent",
+                        }}
+                      >
+                        {activatingId === t.id
+                          ? <Loader2 size={13} strokeWidth={2} style={{ animation: "spin 1s linear infinite" }} />
+                          : <>Dùng <ArrowRight size={12} strokeWidth={2} /></>}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            }
 
             return (
               <div

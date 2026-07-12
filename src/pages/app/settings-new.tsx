@@ -863,8 +863,11 @@ export function Settings() {
                   </div>
                 ) : (
                   <>
-                    {/* Số dư + tiêu dùng — nền neutral, chỉ số dư nhấn màu brand */}
-                    <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
+                    {/* Số dư + tiêu dùng — nền neutral, chỉ số dư nhấn màu brand.
+                        Mobile: 4 tile flex ngang bị cắt ở 390px → grid 2×2 */}
+                    <div style={isMobile
+                      ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }
+                      : { display: "flex", gap: 12, marginBottom: 18 }}>
                       {[
                         { label: "Số dư hiện tại", value: balance == null ? "…" : fmtBeeny(balance),
                           sub: bonus > 0 ? `gồm +${fmtBeeny(bonus)} mua thêm (còn ${bonusExp ? Math.max(0, Math.ceil((Date.parse(bonusExp) - Date.now()) / 3600000)) : 0}h)` : `Beeny · reset ${PLAN_LIMITS[plan]?.daily ?? 10}/ngày`, accent: true },
@@ -872,9 +875,9 @@ export function Settings() {
                         { label: "Trung bình / ngày", value: fmtBeeny(totalBeeny / 30), sub: "Beeny/ngày" },
                         { label: "Số lần chạy", value: String(usageLog.length), sub: "lần (30 ngày)" },
                       ].map((c, i) => (
-                        <div key={i} style={{ flex: 1, padding: "12px 16px", borderRadius: 10, background: isDark ? "rgba(255,255,255,0.03)" : "rgba(8,73,172,0.025)", border: "0.5px solid " + borderColor }}>
+                        <div key={i} style={{ flex: isMobile ? undefined : 1, padding: isMobile ? "12px 14px" : "12px 16px", borderRadius: 10, background: isDark ? "rgba(255,255,255,0.03)" : "rgba(8,73,172,0.025)", border: "0.5px solid " + borderColor }}>
                           <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginBottom: 4 }}>{c.label}</div>
-                          <div style={{ fontSize: 22, fontWeight: 800, color: c.accent ? theme.brand : headingColor, fontFamily: FONT }}>{c.value}</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: c.accent ? theme.brand : headingColor, fontFamily: FONT, fontVariantNumeric: "tabular-nums" }}>{c.value}</div>
                           <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT }}>{c.sub}</div>
                         </div>
                       ))}
@@ -914,8 +917,29 @@ export function Settings() {
                             const dt = new Date(row.created_at);
                             const dateStr = `${dt.getDate()}/${dt.getMonth() + 1}`;
                             const timeStr = `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
+                            // Label kỹ thuật ("run-agent:Deep Research", "actionhub bee-ai-chat")
+                            // → tên thân thiện, đủ chỗ đọc trên mobile
+                            const niceLabel = row.label
+                              .replace(/^run-agent:\s*/i, "Agent · ")
+                              .replace(/^actionhub bee-ai[\w-]*/i, "Chat BeeAI");
+                            const rowBg = i % 2 === 0 ? "transparent" : (isDark ? "rgba(255,255,255,0.02)" : "rgba(8,73,172,0.015)");
+                            if (isMobile) {
+                              return (
+                                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: rowBg }}>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 13, color: headingColor, fontFamily: FONT, fontWeight: 600, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const, lineHeight: 1.4 }}>
+                                      {niceLabel}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: subtleColor, fontFamily: FONT, marginTop: 2 }}>{dateStr} · {timeStr}</div>
+                                  </div>
+                                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: FONT, color: isDark ? "#F5C518" : "#B8860B", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                                    −{fmtBeeny(row.beeny)}
+                                  </span>
+                                </div>
+                              );
+                            }
                             return (
-                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: i % 2 === 0 ? "transparent" : (isDark ? "rgba(255,255,255,0.02)" : "rgba(8,73,172,0.015)") }}>
+                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: rowBg }}>
                                 <span style={{ fontSize: 10, color: subtleColor, fontFamily: FONT, minWidth: 36 }}>{dateStr}</span>
                                 <span style={{ fontSize: 10, color: subtleColor, fontFamily: FONT, minWidth: 36 }}>{timeStr}</span>
                                 <span style={{ fontSize: 12, color: labelColor, fontFamily: FONT, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.label}</span>

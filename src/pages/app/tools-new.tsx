@@ -5,6 +5,7 @@ import {
   Activity, GitBranch, Search, Check, ChevronRight, Users,
 } from "lucide-react";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
+import { useIsMobile } from "../../components/ui/use-mobile";
 
 export type Category = "Tất cả" | "Thị trường" | "Tài chính" | "Định giá" | "Kỹ thuật" | "Tin tức" | "Vĩ mô";
 
@@ -166,6 +167,7 @@ export const catStyle: Record<Exclude<Category, "Tất cả">, { bg: string; tex
 const CATS: Category[] = ["Tất cả", "Thị trường", "Tài chính", "Định giá", "Kỹ thuật", "Tin tức", "Vĩ mô"];
 
 export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
+  const isMobile = useIsMobile();
   const cardBg = isDark ? "#131824" : "#fff";
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
   const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
@@ -204,17 +206,31 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
   };
 
   return (
-    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "24px", fontFamily: "'Montserrat', system-ui, sans-serif", background: isDark ? "#0B0D18" : undefined }}>
+    <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "16px" : "24px", fontFamily: "'Montserrat', system-ui, sans-serif", background: isDark ? "#0B0D18" : undefined }}>
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: fg, margin: "0 0 4px" }}>Công cụ phân tích</h1>
         <p style={{ margin: 0, fontSize: 13, color: fgSubtle }}>
-          {tools.length} công cụ tích hợp sẵn · Bấm để xem chi tiết · Kéo vào Action Hub để hỏi sâu hơn
+          {/* Mobile không kéo-thả được — hướng dẫn đúng hành vi touch */}
+          {tools.length} công cụ tích hợp sẵn · Bấm để xem chi tiết{!isMobile && " · Kéo vào Action Hub để hỏi sâu hơn"}
         </p>
       </div>
 
-      {/* Category tabs + search */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+      {/* Category tabs + search — mobile: pills cuộn ngang 1 hàng, search full-width hàng riêng */}
+      {isMobile && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: inputBg, border: "0.5px solid " + inputBorder, borderRadius: 10, padding: "0 12px", height: 42, marginBottom: 12 }}>
+          <Search size={15} strokeWidth={1.5} color={fgDisabled} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tìm công cụ…"
+            style={{ border: "none", outline: "none", background: "transparent", fontSize: 16, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif", flex: 1 }}
+          />
+        </div>
+      )}
+      <div style={isMobile
+        ? { display: "flex", alignItems: "center", gap: 8, marginBottom: 16, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4 }
+        : { display: "flex", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
         {CATS.map((cat) => (
           <button
             key={cat}
@@ -226,7 +242,7 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
               fontSize: 12, fontWeight: active === cat ? 700 : 500,
               fontFamily: "'Montserrat', system-ui, sans-serif",
               transition: "all 120ms ease",
-              whiteSpace: "nowrap",
+              whiteSpace: "nowrap", flexShrink: 0,
             }}
           >
             {cat}
@@ -236,6 +252,7 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
           </button>
         ))}
 
+        {!isMobile && (
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, background: inputBg, border: "0.5px solid " + inputBorder, borderRadius: 10, padding: "0 12px", height: 36 }}>
           <Search size={14} strokeWidth={1.5} color={fgDisabled} />
           <input
@@ -245,10 +262,11 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
             style={{ border: "none", outline: "none", background: "transparent", fontSize: 13, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif", width: 140 }}
           />
         </div>
+        )}
       </div>
 
-      {/* 3-column card grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+      {/* Card grid — mobile 1 cột (3 cột cứng gây tràn ngang 390px) */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
         {filtered.map((tool) => {
           const cs = catStyle[tool.category];
           const Icon = tool.icon;
@@ -297,8 +315,8 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
                   <Icon size={22} color={cs.text} strokeWidth={1.5} />
                 </div>
 
-                {/* Hint: kéo vào AI (nếu dùng được) hoặc mở chi tiết */}
-                <div style={{
+                {/* Hint: kéo vào AI (nếu dùng được) hoặc mở chi tiết — hover-only, ẩn trên mobile (tap làm hint kẹt hiển thị) */}
+                {!isMobile && <div style={{
                   opacity: hovered ? 1 : 0,
                   transition: "opacity 150ms ease",
                   background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.08)",
@@ -309,7 +327,7 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
                   pointerEvents: "none",
                 }}>
                   {unavail ? <>Xem chi tiết <ChevronRight size={11} strokeWidth={2.5} /></> : "⠿ Kéo vào AI"}
-                </div>
+                </div>}
               </div>
 
               {/* Name + verified / coming soon */}
