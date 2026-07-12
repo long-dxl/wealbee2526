@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet } from "react-router";
-import { Search, Sparkles, ArrowLeft } from "lucide-react";
+import { Search, Sparkles, ArrowLeft, Monitor } from "lucide-react";
 import { WealbeeLogo } from "../WealbeeIcon";
 import { ActionHub } from "../new-action-hub";
 import { GlobalSearch } from "../global-search";
@@ -49,7 +49,43 @@ export function MobileShell({
   const [moreOpen, setMoreOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
-  const showChrome = !isStudioMode;
+  // Agent Studio chỉ tối ưu desktop — trên mobile hiện màn thông báo thay vì
+  // render studio (chặn cả URL trực tiếp lẫn nút "Sửa" agent điều hướng thẳng).
+  const showChrome = true;
+  if (isStudioMode) {
+    return (
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        height: "100dvh", width: "100vw", padding: "32px 24px", boxSizing: "border-box",
+        background: theme.bg, fontFamily: FONT, textAlign: "center",
+      }}>
+        <div style={{
+          width: 64, height: 64, borderRadius: 18, marginBottom: 16,
+          background: isDark ? "rgba(77,143,232,0.14)" : "rgba(8,73,172,0.08)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <Monitor size={30} color={theme.brand} strokeWidth={1.6} />
+        </div>
+        <p style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 700, color: isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E" }}>
+          Agent Studio dành cho máy tính
+        </p>
+        <p style={{ margin: "0 0 24px", fontSize: 14, color: isDark ? "rgba(240,242,255,0.7)" : "#3D3D52", lineHeight: 1.65, maxWidth: 320 }}>
+          Việc tạo và chỉnh sửa Agent cần không gian thao tác rộng.
+          Vui lòng mở <b>Wealbee trên trình duyệt máy tính</b> để trải nghiệm tốt nhất.
+        </p>
+        <button
+          onClick={() => onNavigate("agents")}
+          style={{
+            minHeight: 44, padding: "0 24px", borderRadius: 12, border: "none",
+            background: theme.brand, color: "#fff", fontSize: 14, fontWeight: 700,
+            cursor: "pointer", fontFamily: FONT, WebkitTapHighlightColor: "transparent",
+          }}
+        >
+          Về Agent của tôi
+        </button>
+      </div>
+    );
+  }
   const bottomPad = showChrome
     ? `calc(${TAB_BAR_HEIGHT + 16}px + env(safe-area-inset-bottom))`
     : "calc(16px + env(safe-area-inset-bottom))";

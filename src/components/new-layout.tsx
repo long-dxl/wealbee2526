@@ -7,6 +7,7 @@ import { ActionHub } from "./new-action-hub";
 import { GlobalSearch } from "./global-search";
 import { CreateAgentModal } from "./CreateAgentModal";
 import { FeedbackModal } from "./FeedbackModal";
+import { DesktopOnlyModal } from "./DesktopOnlyModal";
 import { MobileShell } from "./mobile/mobile-shell";
 import { useIsMobile } from "./ui/use-mobile";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
@@ -64,6 +65,9 @@ function NewLayoutInner() {
   const [beenyBonus, setBeenyBonus] = useState(0);    // Beeny mua thêm (hết hạn 24h)
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // Mobile: Agent Studio chỉ tối ưu trên desktop — mọi lối vào "Tạo Agent"
+  // hiện modal hướng dẫn lên web máy tính thay vì mở studio.
+  const [desktopOnlyOpen, setDesktopOnlyOpen] = useState(false);
   const isMobile = useIsMobile();
 
   // Desktop mặc định mở ActionHub (side panel); mobile là overlay full-screen
@@ -129,6 +133,8 @@ function NewLayoutInner() {
   const handleNavigate = (page: string) => {
     // "Tạo Agent" luôn mở modal đặt tên trước — không điều hướng ngay để user
     // có thể Huỷ/click ra ngoài mà không rời trang đang xem.
+    // Mobile: studio chỉ dành cho desktop → modal hướng dẫn thay vì mở.
+    if ((page === "create-agent" || page === "agent-studio") && isMobile) { setDesktopOnlyOpen(true); return; }
     if (page === "create-agent") { setCreateAgentOpen(true); return; }
     if (page === "feedback") { setFeedbackOpen(true); return; }
     const route = PAGE_ROUTE[page];
@@ -163,7 +169,7 @@ function NewLayoutInner() {
 
   const clearContextCards = () => setHubContextCards([]);
 
-  const outletContext = { onNavigate: handleNavigate, addContextCard, removeContextCard, isDark, theme, openCreateAgentModal: () => setCreateAgentOpen(true), openActionHub: () => setActionHubOpen(true) };
+  const outletContext = { onNavigate: handleNavigate, addContextCard, removeContextCard, isDark, theme, openCreateAgentModal: () => (isMobile ? setDesktopOnlyOpen(true) : setCreateAgentOpen(true)), openActionHub: () => setActionHubOpen(true) };
 
   return (
     <>
@@ -303,6 +309,12 @@ function NewLayoutInner() {
       open={feedbackOpen}
       isDark={isDark}
       onClose={() => setFeedbackOpen(false)}
+    />
+
+    <DesktopOnlyModal
+      open={desktopOnlyOpen}
+      isDark={isDark}
+      onClose={() => setDesktopOnlyOpen(false)}
     />
 
     {/* bottom-right bị tab bar + FAB che trên mobile → top-center */}
