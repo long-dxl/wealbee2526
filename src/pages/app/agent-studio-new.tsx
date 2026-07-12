@@ -6,7 +6,7 @@ import {
   Zap, Clock, RefreshCw, CheckCircle2, AlertTriangle, Eye,
   Lightbulb, Inbox, Info, Settings, History, RotateCcw,
   Search, BarChart2, Activity, Globe, Calculator, ArrowRight, Users,
-  MessageCircle, Copy, Bell,
+  MessageCircle, Copy, ClipboardList, Bell,
 } from "lucide-react";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { MdContent, RichContent } from "../../components/MdContent";
@@ -16,6 +16,7 @@ import { getZaloLink, genZaloCode, ZALO_BOT_LINK, ZALO_BOT_QR } from "../../lib/
 import { notifyWalletChanged } from "../../lib/wallet-events";
 import { projectId } from "../../utils/supabase/info";
 import wealbeeLogo from "../../assets/Logo.svg";
+import { PUBLIC_TOOL_METADATA } from "../../../supabase/functions/_shared/tool-catalog";
 
 type ScheduleFrequency = "daily" | "weekdays" | "weekly" | "custom";
 
@@ -87,43 +88,43 @@ const MODELS = [
     id: "gpt-4o-mini", name: "GPT-4o mini", provider: "OpenAI",
     tags: ["image", "function call"],
     desc: "Tốc độ cao, chi phí thấp. Phù hợp trích xuất dữ liệu định kỳ, format báo cáo và các tác vụ lặp lại trong pipeline tài chính.",
-    available: false,
+    available: true,
   },
   {
     id: "gpt-4o", name: "GPT-4o", provider: "OpenAI",
     tags: ["image", "function call"],
     desc: "Đọc hiểu biểu đồ kỹ thuật, BCTC dạng PDF và ảnh chụp màn hình thị trường. Mạnh về phân tích đa phương thức cho nhà đầu tư.",
-    available: false,
+    available: true,
   },
   {
     id: "claude-haiku", name: "Claude Haiku 4.5", provider: "Anthropic",
     tags: ["function call"],
     desc: "Phản hồi tức thì với chi phí thấp nhất. Lý tưởng cho theo dõi giá realtime, cảnh báo ngưỡng và trả lời nhanh về trạng thái danh mục.",
-    available: false,
+    available: false, disabledReason: "Chưa có API key",
   },
   {
     id: "claude-sonnet", name: "Claude Sonnet 4", provider: "Anthropic",
     tags: ["function call", "vision"],
     desc: "Cân bằng tối ưu giữa tốc độ và độ chính xác. Lý luận tài chính sâu, tổng hợp tin tức thị trường và phân tích xu hướng trong ngữ cảnh dài 200K token.",
-    available: false,
+    available: false, disabledReason: "Chưa có API key",
   },
   {
     id: "claude-opus", name: "Claude Opus 4", provider: "Anthropic",
     tags: ["function call", "vision"],
     desc: "Khả năng lý luận phức tạp nhất. Phù hợp định giá tài sản, xây dựng luận điểm đầu tư nhiều chiều và phân tích rủi ro danh mục chuyên sâu.",
-    available: false,
+    available: false, disabledReason: "Chưa có API key",
   },
   {
     id: "gemini-flash", name: "Gemini 2.0 Flash", provider: "Google",
     tags: ["video", "image", "audio", "function call"],
     desc: "Xử lý đồng thời văn bản, hình ảnh, âm thanh và video. Phù hợp tổng hợp đa nguồn dữ liệu thị trường và phân tích nội dung hội nghị nhà đầu tư.",
-    available: false,
+    available: false, disabledReason: "Sắp tích hợp",
   },
   {
     id: "gemini-pro", name: "Gemini 2.5 Pro", provider: "Google",
     tags: ["video", "image", "audio", "+2"],
     desc: "Ngữ cảnh 1 triệu token - đọc toàn bộ hồ sơ doanh nghiệp, nhiều năm BCTC hoặc transcript roadshow trong một lần duy nhất.",
-    available: false,
+    available: false, disabledReason: "Sắp tích hợp",
   },
 ];
 
@@ -273,7 +274,7 @@ function FileTypeTag({ type, size = 36 }: { type: string; size?: number }) {
 
 // ── Tool groups ───────────────────────────────────────────────────────────────
 // IDs khớp với những gì run-agent kiểm tra qua enabledTools.includes(id)
-const TOOL_GROUPS = [
+const TOOL_GROUP_PRESENTATION = [
   {
     id: "market", category: "Dữ liệu thị trường",
     tools: [
@@ -305,6 +306,12 @@ const TOOL_GROUPS = [
         desc: "Lịch sử chi trả cổ tức (tiền mặt/cổ phiếu) và giao dịch mua/bán của lãnh đạo, cổ đông nội bộ",
         available: true,
         includes: ["Lịch sử cổ tức", "Giao dịch nội bộ (MUA/BÁN)"],
+      },
+      {
+        id: "analyst_reports", name: "Báo cáo phân tích CTCK", Icon: ClipboardList,
+        desc: "Khuyến nghị + GIÁ MỤC TIÊU của các CTCK (SSI, VNDirect, Rồng Việt…) cho từng mã, kèm đồng thuận và link PDF gốc",
+        available: true,
+        includes: ["Khuyến nghị (MUA/Khả quan…)", "Giá mục tiêu", "Đồng thuận CTCK + link PDF"],
       },
       {
         id: "value_chain", name: "Giá hàng hóa (chuỗi cung ứng)", Icon: Activity,
@@ -339,6 +346,11 @@ const TOOL_GROUPS = [
     ],
   },
 ];
+const registryToolMetadata = new Map(PUBLIC_TOOL_METADATA.map(tool => [tool.id, tool]));
+const TOOL_GROUPS = TOOL_GROUP_PRESENTATION.map(group => ({ ...group, tools: group.tools.map(tool => {
+  const metadata = registryToolMetadata.get(tool.id);
+  return metadata ? { ...tool, name: metadata.label, desc: metadata.description, available: tool.available !== false } : { ...tool, available: false };
+}) }));
 const ALL_TOOLS = TOOL_GROUPS.flatMap(g => g.tools);
 const AVAILABLE_TOOLS_COUNT = ALL_TOOLS.filter(t => t.available).length;
 
@@ -358,6 +370,18 @@ const POPULAR_STOCKS = ["VCB", "HPG", "FPT", "VIC", "TCB", "ACB", "MWG", "VNM", 
 
 // ══════════════════════════════════════════════════════════════════════════════
 export function AgentStudio({ onBack, agentId, initialName, initialDescription, initialToolId, isDark = false }: StudioProps) {
+  const [runtimeModels, setRuntimeModels] = useState<Record<string, boolean>>({ default: true });
+  useEffect(() => {
+    fetch(`https://${projectId}.supabase.co/functions/v1/platform-metadata`)
+      .then(response => response.ok ? response.json() : Promise.reject(new Error(String(response.status))))
+      .then(data => setRuntimeModels({ default: true, ...Object.fromEntries((data.models ?? []).map((model: any) => [model.id, !!model.available])) }))
+      .catch(() => { /* giữ availability mặc định nếu metadata endpoint tạm lỗi */ });
+  }, []);
+  const models = MODELS.map(model => ({
+    ...model,
+    available: runtimeModels[model.id] ?? model.available,
+    disabledReason: (runtimeModels[model.id] ?? model.available) ? undefined : "Provider chưa được cấu hình",
+  }));
   const fg = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
   const fgMuted = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
   const fgSubtle = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
@@ -411,6 +435,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   const [toolsSearch, setToolsSearch] = useState("");
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [showWatchlistPicker, setShowWatchlistPicker] = useState(false);
+  // Khi mở watchlist picker ở chế độ BẮT BUỘC (agent phải có ≥1 mã mới lưu/chạy được):
+  // "save" | "run" = hành động chờ thực hiện sau khi user chọn đủ mã; null = mở bình thường.
+  const [symbolGate, setSymbolGate] = useState<null | "save" | "run">(null);
   const [showTriggerPicker, setShowTriggerPicker] = useState(false);
 
   // ── Accordion ─────────────────────────────────────────────────────────────
@@ -645,8 +672,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       setPrompt(data.system_prompt && !isOldSystemPrompt ? data.system_prompt : DEFAULT_PROMPT);
       setPromptLoading(false);
       if (data.model) {
-        const available = MODELS.find(m => m.id === data.model)?.available;
-        setSelectedModel(available ? data.model : "default");
+        setSelectedModel(MODELS.some(m => m.id === data.model) ? data.model : "default");
       }
       if (data.tools?.length) setSelectedTools(new Set(data.tools));
       if (data.news_sources?.length) setNewsSources(data.news_sources);
@@ -677,7 +703,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
 
   // ── Run test ──────────────────────────────────────────────────────────────
   const handleRunTest = async () => {
-    // Mã quan tâm là TÙY CHỌN — nếu trống, brain tự rút mã từ prompt
+    // BẮT BUỘC có ≥1 mã: không mã → tool không biết lấy dữ liệu mã nào → model dễ bịa.
+    // Mở modal chọn mã (chế độ bắt buộc), sau khi chọn đủ sẽ tự chạy tiếp.
+    if (allSymbols.length === 0) { setSymbolGate("run"); setShowWatchlistPicker(true); return; }
     setIsRunning(true);
     setRunResult(null);
     setRunResultText(null);
@@ -722,6 +750,8 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
 
   // ── Save agent ────────────────────────────────────────────────────────────
   const handleSave = async () => {
+    // BẮT BUỘC có ≥1 mã trước khi lưu — chặn agent "rỗng mã" (nguyên nhân báo cáo bịa mã).
+    if (allSymbols.length === 0) { setSymbolGate("save"); setShowWatchlistPicker(true); return; }
     setIsSaved(true);
     const schedule = triggerType === "scheduled"
       ? buildScheduleValue(frequency, scheduleTime, [...selectedDays].sort((a, b) => a - b))
@@ -790,7 +820,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
     }
   };
 
-  const curModel = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
+  const curModel = models.find(m => m.id === selectedModel) ?? models[0];
   const selTools = ALL_TOOLS.filter(t => selectedTools.has(t.id));
   const selFiles = kbDocs.filter(f => selectedKB.has(f.id));
   // "Kết nối danh mục" là trạng thái SUY RA (derived), không phải cờ lưu riêng: bật khi và chỉ khi
@@ -1427,7 +1457,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
       {/* ════════ MODEL PICKER MODAL ════════ */}
       {showModelPicker && (() => {
         const lower = modelSearch.toLowerCase();
-        const filtered = MODELS.filter(m => !modelSearch || m.name.toLowerCase().includes(lower) || m.provider.toLowerCase().includes(lower));
+        const filtered = models.filter(m => !modelSearch || m.name.toLowerCase().includes(lower) || m.provider.toLowerCase().includes(lower));
         const close = () => { setShowModelPicker(false); setModelSearch(""); };
         return (
           <div onClick={close} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.30)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1445,7 +1475,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
               </div>
               <div style={{ overflowY: "auto", flex: 1 }}>
                 {MODEL_GROUPS.map(group => {
-                  const groupModels = group.ids.map(id => MODELS.find(m => m.id === id)!).filter(m => m && filtered.includes(m));
+                  const groupModels = group.ids.map(id => models.find(m => m.id === id)!).filter(m => m && filtered.includes(m));
                   if (groupModels.length === 0) return null;
                   return (
                     <div key={group.provider}>
@@ -1460,7 +1490,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
                                 <span style={{ fontSize: 14, fontWeight: 700, color: sel ? brand : fg }}>{m.name}</span>
                                 {sel && <Check size={13} color={brand} strokeWidth={2.5} />}
-                                {disabled && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(26,26,46,0.07)", color: fgDisabled }}>Sắp tích hợp</span>}
+                                {disabled && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(26,26,46,0.07)", color: fgDisabled }}>{(m as any).disabledReason ?? "Sắp tích hợp"}</span>}
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
                                 {m.tags.map(tag => <span key={tag} style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(255,255,255,0.09)" : "rgba(26,26,46,0.07)", color: fgMuted }}>{tag}</span>)}
@@ -1604,14 +1634,22 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
 
       {/* ════════ WATCHLIST PICKER MODAL ════════ */}
       {showWatchlistPicker && (
-        <div onClick={() => setShowWatchlistPicker(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.30)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={() => { setShowWatchlistPicker(false); setSymbolGate(null); }} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.30)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div onClick={e => e.stopPropagation()} style={{ width: 520, maxHeight: "80vh", borderRadius: 16, overflow: "hidden", background: bgPanel, display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.22), 0 0 0 0.5px " + divider }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 20px 14px", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
               <TrendingUp size={16} color={brand} strokeWidth={1.5} />
-              <span style={{ fontSize: 16, fontWeight: 700, color: fg, flex: 1 }}>Theo dõi thị trường</span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: fg, flex: 1 }}>{symbolGate ? "Chọn mã cổ phiếu" : "Theo dõi thị trường"}</span>
               <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.10)", color: brand }}>{totalMa} mã</span>
-              <button onClick={() => setShowWatchlistPicker(false)} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: "none", background: "transparent", cursor: "pointer" }}><X size={16} color={fgMuted} strokeWidth={1.5} /></button>
+              <button onClick={() => { setShowWatchlistPicker(false); setSymbolGate(null); }} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: "none", background: "transparent", cursor: "pointer" }}><X size={16} color={fgMuted} strokeWidth={1.5} /></button>
             </div>
+            {symbolGate && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 9, padding: "12px 20px", background: isDark ? "rgba(255,159,10,0.10)" : "rgba(255,149,0,0.08)", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
+                <AlertTriangle size={15} color="#FF9500" strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12.5, color: fg, lineHeight: 1.5 }}>
+                  Agent cần <strong>ít nhất 1 mã cổ phiếu</strong> để {symbolGate === "save" ? "lưu" : "chạy"}. Chọn mã bên dưới rồi bấm <strong>{symbolGate === "save" ? "Lưu agent" : "Chạy thử"}</strong>. Không có mã, agent sẽ không biết phân tích cổ phiếu nào.
+                </span>
+              </div>
+            )}
             <div style={{ overflowY: "auto", flex: 1 }}>
               <div style={{ padding: "14px 20px", borderBottom: "0.5px solid " + divider }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Kết nối danh mục</div>
@@ -1679,6 +1717,20 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 </div>
               )}
             </div>
+            {symbolGate && (
+              <div style={{ display: "flex", gap: 10, padding: "14px 20px", borderTop: "0.5px solid " + divider, flexShrink: 0 }}>
+                <button onClick={() => { setShowWatchlistPicker(false); setSymbolGate(null); }} style={{ padding: "10px 18px", borderRadius: 9, border: "0.5px solid " + divider, background: "transparent", color: fgMuted, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>Huỷ</button>
+                <button disabled={allSymbols.length === 0} onClick={() => {
+                  const action = symbolGate;
+                  setShowWatchlistPicker(false);
+                  setSymbolGate(null);
+                  if (action === "save") handleSave();
+                  else if (action === "run") handleRunTest();
+                }} style={{ flex: 1, padding: "10px 18px", borderRadius: 9, border: "none", background: allSymbols.length === 0 ? (isDark ? "rgba(77,143,232,0.30)" : "rgba(8,73,172,0.30)") : brand, color: "#fff", fontSize: 13, fontWeight: 700, cursor: allSymbols.length === 0 ? "not-allowed" : "pointer", fontFamily: FONT }}>
+                  {symbolGate === "save" ? "Lưu agent" : "Chạy thử"} với {totalMa} mã
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

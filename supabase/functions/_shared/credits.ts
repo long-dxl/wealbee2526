@@ -29,8 +29,9 @@ export function normPlan(p?: string | null): string {
 
 /** Phí VND. cachedIn = số token input được OpenAI phục vụ từ cache (tính 10% giá). */
 export function costVnd(tokensIn: number, tokensOut: number, cachedIn = 0): number {
-  const fresh = Math.max(0, tokensIn - cachedIn);
-  return (fresh * PRICE_IN + cachedIn * PRICE_CACHED + tokensOut * PRICE_OUT) * USD_VND;
+  const effectiveCached = Math.min(Math.max(0, cachedIn), tokensIn);
+  const fresh = tokensIn - effectiveCached;
+  return (fresh * PRICE_IN + effectiveCached * PRICE_CACHED + tokensOut * PRICE_OUT) * USD_VND;
 }
 
 /** Phí 1 lượt tính bằng Beeny — SỐ THỰC (làm tròn 4 chữ số thập phân, không ceil). */
@@ -109,10 +110,18 @@ export async function hasCredits(sb: any, userId: string): Promise<{ ok: boolean
   }
 }
 
-/** Trừ Beeny theo phí thật SAU khi chạy. Tiêu BONUS trước (hết hạn 24h), rồi balance ngày. */
+/**
+ * Trừ Beeny theo phí thật SAU khi chạy. Tiêu BONUS trước (hết hạn 24h), rồi balance ngày.
+ * @param costVndOverride nếu có → dùng giá này thay vì tính lại từ giá gpt-4.1-mini.
+ *   Dùng khi model đắt hơn (gpt-4o / claude-sonnet / claude-opus) — tính qua costVndForModel().
+ */
 export async function deduct(sb: any, userId: string, tokensIn: number, tokensOut: number,
-                             note = "", cachedIn = 0): Promise<{ credits_used: number; balance: number | null }> {
-  const n = beenyFor(tokensIn, tokensOut, cachedIn);
+                             note = "", cachedIn = 0, costVndOverride?: number): Promise<{ credits_used: number; balance: number | null }> {
+  const vnd = costVndOverride ?? costVnd(tokensIn, tokensOut, cachedIn);
+  const VND_PER_BEENY_LOCAL = 40;
+  const n = costVndOverride != null
+    ? Math.round((vnd / VND_PER_BEENY_LOCAL) * 10000) / 10000
+    : beenyFor(tokensIn, tokensOut, cachedIn);
   if (n <= 0) return { credits_used: 0, balance: null };
   try {
     const w = await getWallet(sb, userId);
@@ -123,7 +132,7 @@ export async function deduct(sb: any, userId: string, tokensIn: number, tokensOu
       balance: newBal, bonus_balance: newBonus, updated_at: new Date().toISOString(),
     }).eq("user_id", userId);
     await log(sb, userId, -n, newBal + newBonus, "deduct", tokensIn, tokensOut,
-              Math.round(costVnd(tokensIn, tokensOut, cachedIn) * 100) / 100, note);
+              Math.round(vnd * 100) / 100, note);
     return { credits_used: n, balance: newBal + newBonus };  // tổng còn lại
   } catch (_e) {
     return { credits_used: n, balance: null };

@@ -41,6 +41,11 @@ import { ToolDetailPage } from "./pages/app/tool-detail-page";
 // Legacy admin page
 import { AdminDailyReview } from "./pages/admin-daily-review";
 
+// Admin panel (framework manager)
+import { AdminLogin } from "./pages/admin/admin-login";
+import { AdminFrameworks } from "./pages/admin/admin-frameworks";
+import { RequireAdmin } from "./components/require-admin";
+
 export const router = createBrowserRouter([
   // ── Public routes ──────────────────────────────────────────────────────────
   { path: "/",              Component: LandingPage    },
@@ -82,6 +87,17 @@ export const router = createBrowserRouter([
           { path: "admin/daily-review", Component: AdminDailyReview },
         ],
       },
+    ],
+  },
+
+  // ── Admin panel — route riêng, không dùng NewLayout ──────────────────────
+  { path: "/admin/login",      Component: AdminLogin },
+  { path: "/admin",            element: <Navigate to="/admin/login" replace /> },
+  {
+    path: "/admin",
+    Component: RequireAdmin,
+    children: [
+      { path: "frameworks", Component: AdminFrameworks },
     ],
   },
 

@@ -9,11 +9,15 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { buildPriceContext, buildNewsContext } from "../_shared/market-context.ts";
+import { getModelConfig, isProviderAvailable } from "../_shared/llm-adapter.ts";
+import { ProviderLLMRuntime } from "../_shared/llm-runtime.ts";
+import { applyToolPolicy, buildFrameworkPrompt, resolveCompanyType, resolveFramework } from "../_shared/framework.ts";
+import { deriveDataAsOf, persistRunProvenance, type ToolExecutionRecord } from "../_shared/provenance.ts";
+import { SourceRegistry } from "../_shared/source-registry.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const OPENAI_API_KEY    = Deno.env.get("OPENAI_API_KEY")!;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const OPENAI_API_KEY    = Deno.env.get("OPENAI_API_KEY") ?? "";
 const RESEND_API_KEY    = Deno.env.get("RESEND_API_KEY") ?? "";
 const EMAIL_FROM        = Deno.env.get("EMAIL_FROM") ?? "Wealbee <no-reply@wealbee.com>";
 
@@ -24,15 +28,7 @@ const CORS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const MODEL_MAP: Record<string, { provider: "openai" | "anthropic"; apiModel: string }> = {
-  "gpt-4o-mini":   { provider: "openai",    apiModel: "gpt-4o-mini"       },
-  "gpt-4o":        { provider: "openai",    apiModel: "gpt-4o"            },
-  "claude-sonnet": { provider: "anthropic", apiModel: "claude-sonnet-4-6" },
-  "claude-opus":   { provider: "anthropic", apiModel: "claude-opus-4-7"   },
-  "gemini-pro":    { provider: "openai",    apiModel: "gpt-4.1-mini"      },
-  "gemini-flash":  { provider: "openai",    apiModel: "gpt-4.1-mini"      },
-};
-const DEFAULT_MODEL = { provider: "openai" as const, apiModel: "gpt-4.1-mini" };
+const LLM_RUNTIME = new ProviderLLMRuntime();
 
 const faUrl = (sym: string) => `https://fireant.vn/ma-chung-khoan/${sym}`;
 
@@ -90,17 +86,6 @@ function calcNextRunAt(cfg: ScheduleConfig, startFromToday = false): string | nu
 
 // ── DB helpers (shared với run-agent) ────────────────────────────────────────
 
-class SourceRegistry {
-  private list: Array<{ label: string; url: string }> = [];
-  add(label: string, url: string): string {
-    const i = this.list.findIndex(s => s.url === url);
-    if (i !== -1) return `[ref:${i + 1}]`;
-    this.list.push({ label, url });
-    return `[ref:${this.list.length}]`;
-  }
-  toArray() { return this.list.map((s, i) => ({ index: i + 1, ...s })); }
-}
-
 // Tool "financials" (BCTC) — dùng chung module financialReport() (Năm + 5 Quý gần
 // nhất), thay cho query financials_annual cũ (đông cứng, khác số với tầng mới).
 async function buildFinancialsContext(symbol: string, registry: SourceRegistry, depth: "full" | "brief" = "full"): Promise<string> {
@@ -131,15 +116,6 @@ async function buildInsiderContext(symbol: string, registry: SourceRegistry): Pr
   }
   return lines.length > 1 ? lines.join("\n") : "";
 }
-
-const GROUNDING_RULES = `
-
-## QUY TẮC BẮT BUỘC
-- Chỉ dùng Markdown thuần, KHÔNG dùng HTML
-- Chỉ viết thông tin CÓ TRONG DỮ LIỆU — nếu không có thì bỏ qua
-- Mọi số liệu phải có [ref:N] liền sau
-- Cuối output PHẢI có: *"Thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019"*
-- KHÔNG khuyến nghị mua/bán`;
 
 // ── Gửi email ─────────────────────────────────────────────────────────────────
 
@@ -184,19 +160,25 @@ async function sendEmail(to: string, agentName: string, title: string, content: 
 async function runAgent(agent: Record<string, unknown>): Promise<void> {
   const agentId  = agent.id as string;
   const userId   = agent.user_id as string;
-  const tools    = (agent.tools as string[]) ?? [];
-  const syms     = (agent.target_symbols as string[]) ?? [];
+  const syms = (agent.target_symbols as string[]) ?? [];
+  const framework = await resolveFramework(sb, {
+    frameworkId: agent.framework_id as string | undefined,
+    taskType: agent.template_id as string | undefined,
+    companyType: await resolveCompanyType(sb, syms),
+  });
+  const tools = applyToolPolicy((agent.tools as string[]) ?? [], framework);
   const model    = (agent.model as string) ?? "gpt-4o-mini";
 
   console.log(`[scheduler] Running agent ${agentId} "${agent.name}"`);
 
   // Tạo run record
   const { data: run } = await sb.from("agent_runs")
-    .insert({ agent_id: agentId, user_id: userId, status: "running" })
+    .insert({ agent_id: agentId, user_id: userId, status: "running", framework_version_id: framework.versionId, framework_version: framework.label })
     .select("id").single();
   if (!run) { console.error("Cannot create run record"); return; }
 
   const startedAt = Date.now();
+  const collectionStartedAt = new Date().toISOString();
   const registry = new SourceRegistry();
 
   try {
@@ -274,7 +256,7 @@ async function runAgent(agent: Record<string, unknown>): Promise<void> {
       ? `\n\nDANH MỤC CỦA NGƯỜI DÙNG: ${syms.join(", ")}
 Dữ liệu đã được phân loại sẵn: "Tin ảnh hưởng nhiều cổ phiếu trong danh mục" = bài ảnh hưởng 2+ mã; "Tin riêng - [MÃ]" = bài chỉ ảnh hưởng mã đó. Hãy dùng đúng phân loại này khi viết output.`
       : "";
-    const systemPrompt = basePrompt + portfolioNote + GROUNDING_RULES + `
+    const systemPrompt = buildFrameworkPrompt(framework, basePrompt + portfolioNote) + `
 
 ═══════════════════════════════════════
 NGUỒN DỮ LIỆU XÁC NHẬN
@@ -288,35 +270,16 @@ ${priceCtx}${newsCtx}${financialsCtx}${insiderCtx}${kbCtx}
       : `Thực hiện nhiệm vụ CHỈ dựa trên NGUỒN DỮ LIỆU. Mọi số liệu phải có [ref:N]. Trả lời tiếng Việt.`;
 
     // Gọi LLM
-    let { provider, apiModel } = MODEL_MAP[model] ?? DEFAULT_MODEL;
-    if (provider === "anthropic" && !ANTHROPIC_API_KEY) { provider = "openai"; apiModel = "gpt-4o-mini"; }
-
-    let fullOutput = "";
-    let tokens = 0;
-
-    if (provider === "anthropic" && ANTHROPIC_API_KEY) {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: apiModel, max_tokens: 2000, temperature: 0, system: systemPrompt, messages: [{ role: "user", content: userMessage }] }),
-      });
-      if (res.ok) {
-        const j = await res.json();
-        fullOutput = j.content?.[0]?.text ?? "";
-        tokens = (j.usage?.input_tokens ?? 0) + (j.usage?.output_tokens ?? 0);
-      }
-    } else {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: apiModel, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userMessage }], max_tokens: 2000, temperature: 0 }),
-      });
-      if (res.ok) {
-        const j = await res.json();
-        fullOutput = j.choices?.[0]?.message?.content ?? "";
-        tokens = j.usage?.total_tokens ?? 0;
-      }
-    }
+    const modelConfig = getModelConfig(model);
+    if (!isProviderAvailable(modelConfig.provider)) throw new Error(`${modelConfig.provider} chưa được cấu hình API key`);
+    const llmResult = await LLM_RUNTIME.complete({
+      model: modelConfig,
+      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userMessage }],
+      maxTokens: 2000,
+      temperature: 0,
+    });
+    let fullOutput = llmResult.content;
+    const tokens = llmResult.usage.inputTokens + llmResult.usage.outputTokens;
 
     const durationMs = Date.now() - startedAt;
 
@@ -329,10 +292,27 @@ ${priceCtx}${newsCtx}${financialsCtx}${insiderCtx}${kbCtx}
     }
     const summary = fullOutput.replace(/\*\*/g,"").replace(/^#+\s*/gm,"").split("\n").filter(l=>l.trim()).slice(1,4).join(" ").substring(0,200) || title;
 
+    // Persist structured provenance before marking the run completed.
+    const finishedAt = new Date().toISOString();
+    const records: ToolExecutionRecord[] = [];
+    const addRecord = (toolId: string, args: Record<string, unknown>, output: string) => {
+      if (output) records.push({ callKey: `scheduler-${records.length + 1}-${toolId}`, toolId, arguments: args, output, startedAt: collectionStartedAt, finishedAt, status: "completed" });
+    };
+    if (tools.some(t => ["price_feed","price","index","movers"].includes(t))) addRecord("price_feed", { symbols: syms }, priceCtx);
+    if (tools.some(t => ["news_feed","news","macro"].includes(t))) addRecord("news_feed", { symbols: syms }, newsCtx);
+    addRecord("financials", { symbols: syms }, financialsCtx);
+    addRecord("insider_trades", { symbols: syms }, insiderCtx);
+    if (kbCtx) addRecord("kb_search", { document_ids: kbDocIds }, kbCtx);
+    fullOutput = `${fullOutput.trim()}\n\n*Dữ liệu chốt đến: ${deriveDataAsOf(records).slice(0,10)}*`;
+    const provenance = await persistRunProvenance(sb, run.id, records, registry.toArray(), fullOutput);
+    if (framework.outputContract.unlinked_claim_policy === "block" && provenance.unlinked > 0)
+      throw new Error(`Grounding contract blocked output: ${provenance.unlinked} claim chưa liên kết evidence`);
+
     // Persist run + brief
     await sb.from("agent_runs").update({
       status: "completed", output: fullOutput, tokens_used: tokens,
-      duration_ms: durationMs, finished_at: new Date().toISOString(),
+      duration_ms: durationMs, finished_at: finishedAt,
+      data_as_of: provenance.asOf, provenance_summary: provenance,
     }).eq("id", run.id);
 
     const refs = registry.toArray().filter(r => fullOutput.includes(`[ref:${r.index}]`));
@@ -341,6 +321,7 @@ ${priceCtx}${newsCtx}${financialsCtx}${insiderCtx}${kbCtx}
       type: "daily_digest", title, summary, content: fullOutput,
       tickers: syms, is_read: false,
       refs, sources: refs.map(r => ({ type: "exchange", title: r.label, url: r.url })),
+      as_of: provenance.asOf, provenance_summary: provenance,
     });
 
     await sb.from("agents").update({ last_run_at: new Date().toISOString(), run_count: ((agent.run_count as number) ?? 0) + 1 }).eq("id", agentId);

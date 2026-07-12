@@ -7,164 +7,46 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
+import { SourceRegistry } from "../_shared/source-registry.ts";
+import { CORS } from "../_shared/cors.ts";
+import { buildFinancialsContext, buildInsiderContext } from "../_shared/context-builders.ts";
+import { applyToolPolicy, buildFrameworkPrompt, resolveCompanyType, resolveFramework, type FrameworkArtifact } from "../_shared/framework.ts";
+import { getModelConfig, isProviderAvailable } from "../_shared/llm-adapter.ts";
+import { ProviderLLMRuntime } from "../_shared/llm-runtime.ts";
+import { deriveDataAsOf } from "../_shared/provenance.ts";
 
 const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const OPENAI_API_KEY  = Deno.env.get("OPENAI_API_KEY")!;
+const LLM_RUNTIME = new ProviderLLMRuntime();
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-// ── Helpers (mirrors run-agent) ───────────────────────────────────────────────
-
-const faUrl = (sym: string) => `https://fireant.vn/ma-chung-khoan/${sym}`;
-
-class SourceRegistry {
-  private list: Array<{ label: string; url: string }> = [];
-  add(label: string, url: string): string {
-    const existing = this.list.findIndex(s => s.url === url);
-    if (existing !== -1) return `[ref:${existing + 1}]`;
-    this.list.push({ label, url });
-    return `[ref:${this.list.length}]`;
-  }
-  toArray() { return this.list.map((s, i) => ({ index: i + 1, ...s })); }
+interface DryRunResult {
+  output: string; tokensUsed: number; tokensIn: number; tokensOut: number; cachedIn: number; asOf: string;
+  refs: Array<{ index: number; label: string; url: string }>;
 }
 
-// ── Build financials context (identical to run-agent's buildFinancialsContext) ─
-
-async function buildFinancialsContext(symbol: string, registry: SourceRegistry): Promise<string> {
-  const sym = symbol.toUpperCase();
-  const lines: string[] = [`\n## Dữ liệu tài chính: ${sym}`];
-
-  // Báo cáo tài chính: IS/BS/CF + chỉ số RIÊNG theo loại hình (Năm + 5 Quý gần nhất)
-  try {
-    const { data: tk } = await sb.from("tickers").select("company_type").eq("symbol", sym).single();
-    const ctype = tk?.company_type ?? "normal";
-    const report = await financialReport(sb, sym, ctype);
-    if (report.trim()) {
-      const ref = registry.add("BCTC", faUrl(sym));
-      lines.push(`\n### Báo cáo tài chính (${TYPE_LABEL[ctype] ?? ctype}) ${ref}`);
-      lines.push(report);
-    } else {
-      lines.push(`\n*Không có số liệu tài chính chi tiết cho ${sym} trong hệ thống. Không được tự ước tính các chỉ số tài chính.*`);
-    }
-  } catch { /* ignore */ }
-
-  // Latest news about this symbol
-  try {
-    const since = new Date(Date.now() - 48 * 3600000).toISOString();
-    const { data: newsRows } = await sb
-      .from("market_news")
-      .select("title,article_url,published_at,source,content_summary,impact_score,label")
-      .contains("affected_symbols", [sym])
-      .gte("published_at", since)
-      .not("label", "is", null)
-      .neq("label", "trash")
-      .order("impact_score", { ascending: false, nullsFirst: false })
-      .limit(5);
-
-    if (newsRows?.length) {
-      lines.push(`\n### Tin tức gần đây (48h)`);
-      for (const n of newsRows) {
-        const ref = n.article_url ? ` ${registry.add(n.source ?? "Tin tức", n.article_url)}` : "";
-        lines.push(`- **${n.title}**${ref} (${n.label}) — ${n.published_at?.substring(0, 10)}`);
-        const summary = n.content_summary;
-        const summaryText = Array.isArray(summary) ? summary[0] : (typeof summary === "string" ? summary.split("\n")[0] : "");
-        if (summaryText) lines.push(`  ${summaryText}`);
-      }
-    }
-  } catch { /* ignore */ }
-
-  return lines.length > 1 ? lines.join("\n") : `\nKhông có dữ liệu tài chính cho ${sym} trong DB.`;
+async function completeDryRun(modelId: string, system: string, user: string) {
+  const model = getModelConfig(modelId);
+  if (!isProviderAvailable(model.provider)) throw new Error(`${model.provider} chưa được cấu hình API key`);
+  const result = await LLM_RUNTIME.complete({
+    model,
+    messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    maxTokens: 8000,
+    temperature: 0,
+  });
+  const now = new Date().toISOString();
+  const asOf = deriveDataAsOf([{ callKey: "dry-context", toolId: "prefetched_context", arguments: {}, output: system, startedAt: now, finishedAt: now, status: "completed" }]);
+  return {
+    output: `${result.content.trim()}\n\n*Dữ liệu chốt đến: ${asOf.slice(0,10)}*`,
+    asOf,
+    tokensUsed: result.usage.inputTokens + result.usage.outputTokens,
+    tokensIn: result.usage.inputTokens,
+    tokensOut: result.usage.outputTokens,
+    cachedIn: result.usage.cachedInputTokens,
+  };
 }
-
-// ── Build insider context (tool: insider_trades) — cổ tức + giao dịch nội bộ ──
-
-async function buildInsiderContext(symbol: string, registry: SourceRegistry): Promise<string> {
-  const sym = symbol.toUpperCase();
-  const lines: string[] = [`\n## Cổ tức & Giao dịch nội bộ: ${sym}`];
-
-  const report = await insiderReport(sb, sym);
-  if (report.trim()) {
-    const ref = registry.add("Nội bộ", faUrl(sym));
-    lines.push(`${ref}`);
-    lines.push(report);
-  } else {
-    lines.push(`\n*Không có dữ liệu cổ tức/giao dịch nội bộ cho ${sym}.*`);
-  }
-
-  return lines.length > 1 ? lines.join("\n") : "";
-}
-
-// ── Anti-hallucination grounding rules (identical to run-agent) ───────────────
-
-// Used for deep_research — includes strict Markdown format constraint
-const GROUNDING_RULES = `
-
-## ══ QUY TẮC BẮT BUỘC TUYỆT ĐỐI ══
-
-**ĐỊNH DẠNG OUTPUT — BẮT BUỘC**
-- Chỉ dùng **Markdown thuần** (##, ###, -, **, *italic*)
-- TUYỆT ĐỐI KHÔNG dùng HTML tags
-
-**CHỈ VIẾT NHỮNG GÌ CÓ TRONG DỮ LIỆU — QUY TẮC CỐT LÕI**
-- Chỉ được đề cập đến thông tin, số liệu XUẤT HIỆN TRỰC TIẾP trong phần "NGUỒN DỮ LIỆU" bên dưới
-- Nếu một chủ đề KHÔNG có trong dữ liệu → **bỏ qua hoàn toàn**, không nhắc đến
-- KHÔNG dùng kiến thức nền, KHÔNG ước tính, KHÔNG nội suy từ training data
-
-**TRÍCH DẪN NGUỒN — BẮT BUỘC VỚI MỌI SỐ LIỆU**
-- Mỗi con số, phần trăm, giá trị cụ thể PHẢI có token [ref:N] liền sau
-- Token [ref:N] đã có sẵn trong NGUỒN DỮ LIỆU — chỉ được dùng những ref đó
-
-**TUÂN THỦ PHÁP LÝ**
-- KHÔNG khuyến nghị mua/bán bất kỳ cổ phiếu nào
-- Cuối output PHẢI có: *"Thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019"*`;
-
-// Used for daily_digest — no format constraint so user's prompt controls the structure
-const GROUNDING_RULES_DATA_ONLY = `
-
-## ══ QUY TẮC BẮT BUỘC ══
-
-**CHỈ VIẾT NHỮNG GÌ CÓ TRONG DỮ LIỆU — QUY TẮC CỐT LÕI**
-- Chỉ được đề cập đến thông tin, số liệu XUẤT HIỆN TRỰC TIẾP trong NGUỒN DỮ LIỆU bên dưới
-- Nếu một chủ đề KHÔNG có trong dữ liệu → bỏ qua hoàn toàn, không nhắc đến
-- KHÔNG dùng kiến thức nền, KHÔNG ước tính, KHÔNG nội suy từ training data
-
-**TRÍCH DẪN NGUỒN — BẮT BUỘC VỚI MỌI SỐ LIỆU**
-- Mỗi con số, phần trăm, giá trị cụ thể PHẢI có token [ref:N] liền sau
-
-**ĐỊNH DẠNG MÀU SẮC — KHI NGƯỜI DÙNG YÊU CẦU TÔ MÀU**
-- Dùng HTML inline: \`<span style="color:red">con số</span>\` cho màu đỏ
-- Dùng \`<span style="color:green">con số</span>\` cho màu xanh, tương tự với các màu khác
-- CHỈ wrap phần text cần tô màu, không wrap cả câu
-
-**TUÂN THỦ PHÁP LÝ**
-- KHÔNG khuyến nghị mua/bán bất kỳ cổ phiếu nào`;
-
-// ── Model map ─────────────────────────────────────────────────────────────────
-
-function resolveModel(_model?: string): string {
-  // Chuẩn hóa toàn hệ thống: mọi lựa chọn model đều chạy gpt-4.1-mini
-  // (ổn định output; Beeny trừ theo token thật).
-  return "gpt-4.1-mini";
-}
-
-const DEFAULT_DAILY_DIGEST_PROMPT = `Bạn là trợ lý phân tích chứng khoán Wealbee. Nhiệm vụ: tạo bản tin thị trường hàng ngày.
-
-Cấu trúc bản tin:
-1. **Danh mục hôm nay** — mã nào có tin tức, mã nào không có tin gì
-2. **Tin tức theo mã** — với từng mã có tin, tạo section riêng, liệt kê các tin kèm nguồn và ngày đăng
-3. Disclaimer pháp lý
-
-Nguyên tắc:
-- Chỉ viết dữ liệu có trong NGUỒN DỮ LIỆU, KHÔNG bịa số liệu
-- Mỗi số liệu phải có [ref:N] liền sau`;
 
 // ── Daily digest dry-run (with real news from DB) ─────────────────────────────
 
@@ -172,7 +54,8 @@ async function runDailyDigestDry(
   systemPrompt: string,
   watchSymbols: string[],
   model: string,
-): Promise<{ output: string; tokensUsed: number; refs: Array<{ index: number; label: string; url: string }> }> {
+  framework: FrameworkArtifact,
+): Promise<DryRunResult> {
   const registry = new SourceRegistry();
   const syms = watchSymbols.map(s => s.toUpperCase());
 
@@ -235,7 +118,7 @@ async function runDailyDigestDry(
   lines.push(`Có tin: ${hasNews.size > 0 ? [...hasNews].join(", ") : "(không có)"}`);
   lines.push(`Không có tin: ${noNews.length > 0 ? noNews.join(", ") : "(tất cả đều có tin)"}`);
 
-  const groundedSystemPrompt = (systemPrompt.trim() || DEFAULT_DAILY_DIGEST_PROMPT) + GROUNDING_RULES_DATA_ONLY + `
+  const groundedSystemPrompt = buildFrameworkPrompt(framework, systemPrompt.trim() || "Bạn là trợ lý phân tích chứng khoán Việt Nam.") + `
 
 ═══════════════════════════════════════
 NGUỒN DỮ LIỆU XÁC NHẬN — CHỈ DÙNG CÁC SỐ LIỆU NÀY
@@ -248,56 +131,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
 
   const userMessage = `Tạo bản tin hàng ngày theo đúng yêu cầu đã cấu hình. Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`;
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      max_tokens: 8000,
-      stream: true,
-      stream_options: { include_usage: true },
-      messages: [
-        { role: "system", content: groundedSystemPrompt },
-        { role: "user", content: userMessage },
-      ],
-    }),
-  });
-
-  if (!res.ok) throw new Error(`GPT API error: ${await res.text()}`);
-
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let accumulated = "";
-  let tokensUsed = 0;
-  let tokensIn = 0, tokensOut = 0, cachedIn = 0;
-  let leftover = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = leftover + decoder.decode(value, { stream: true });
-    const rawLines = chunk.split("\n");
-    leftover = rawLines.pop() ?? "";
-    for (const line of rawLines) {
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (payload === "[DONE]") continue;
-      try {
-        const parsed = JSON.parse(payload);
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) accumulated += delta;
-        if (parsed.usage?.total_tokens) {
-          tokensUsed = parsed.usage.total_tokens;
-          tokensIn = parsed.usage.prompt_tokens ?? 0;
-          tokensOut = parsed.usage.completion_tokens ?? 0;
-          cachedIn = parsed.usage.prompt_tokens_details?.cached_tokens ?? 0;
-        }
-      } catch { /* skip */ }
-    }
-  }
-
-  return { output: accumulated, tokensUsed, tokensIn, tokensOut, cachedIn, refs: registry.toArray() };
+  return { ...await completeDryRun(model, groundedSystemPrompt, userMessage), refs: registry.toArray() };
 }
 
 // ── Deep research dry-run (with real DB data) ─────────────────────────────────
@@ -307,7 +141,8 @@ async function runDeepResearchDry(
   targetSymbol: string,
   model: string,
   tools?: string[],
-): Promise<{ output: string; tokensUsed: number; refs: Array<{ index: number; label: string; url: string }> }> {
+  framework?: FrameworkArtifact,
+): Promise<DryRunResult> {
   const sym = targetSymbol.toUpperCase();
 
   // Strip __TARGET_SYMBOL__ header from prompt (same as run-agent)
@@ -321,11 +156,12 @@ async function runDeepResearchDry(
   // phản ánh đúng những gì "Chạy ngay" sẽ làm (trước đây gọi vô điều kiện, không gate).
   const registry = new SourceRegistry();
   const enabledTools = tools ?? [];
-  const financialsCtx = enabledTools.includes("financials") ? await buildFinancialsContext(sym, registry) : "";
-  const insiderCtx = enabledTools.includes("insider_trades") ? await buildInsiderContext(sym, registry) : "";
+  const financialsCtx = enabledTools.includes("financials") ? await buildFinancialsContext(sb, sym, registry, "full", true) : "";
+  const insiderCtx = enabledTools.includes("insider_trades") ? await buildInsiderContext(sb, sym, registry) : "";
 
   // Build grounded system prompt (same pattern as run-agent)
-  const groundedSystemPrompt = cleanPrompt + GROUNDING_RULES + `
+  if (!framework) throw new Error("Framework required");
+  const groundedSystemPrompt = buildFrameworkPrompt(framework, cleanPrompt || "Bạn là trợ lý phân tích chứng khoán Việt Nam.") + `
 
 ═══════════════════════════════════════
 NGUỒN DỮ LIỆU XÁC NHẬN — CHỈ DÙNG CÁC SỐ LIỆU NÀY
@@ -338,56 +174,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG ĐƯỢC DÙNG BẤT KỲ SỐ LIỆU NÀO 
 
   const userMessage = `Phân tích cổ phiếu **${sym}** CHỈ dựa trên NGUỒN DỮ LIỆU XÁC NHẬN ở trên. Với chỉ tiêu nào KHÔNG có trong dữ liệu → bỏ qua hoàn toàn. Mọi số liệu phải có [ref:N] liền sau. Trả lời tiếng Việt.`;
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      max_tokens: 8000,
-      stream: true,
-      stream_options: { include_usage: true },
-      messages: [
-        { role: "system", content: groundedSystemPrompt },
-        { role: "user", content: userMessage },
-      ],
-    }),
-  });
-
-  if (!res.ok) throw new Error(`GPT API error: ${await res.text()}`);
-
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let accumulated = "";
-  let tokensUsed = 0;
-  let tokensIn = 0, tokensOut = 0, cachedIn = 0;
-  let leftover = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = leftover + decoder.decode(value, { stream: true });
-    const lines = chunk.split("\n");
-    leftover = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (payload === "[DONE]") continue;
-      try {
-        const parsed = JSON.parse(payload);
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) accumulated += delta;
-        if (parsed.usage?.total_tokens) {
-          tokensUsed = parsed.usage.total_tokens;
-          tokensIn = parsed.usage.prompt_tokens ?? 0;
-          tokensOut = parsed.usage.completion_tokens ?? 0;
-          cachedIn = parsed.usage.prompt_tokens_details?.cached_tokens ?? 0;
-        }
-      } catch { /* skip */ }
-    }
-  }
-
-  return { output: accumulated, tokensUsed, tokensIn, tokensOut, cachedIn, refs: registry.toArray() };
+  return { ...await completeDryRun(model, groundedSystemPrompt, userMessage), refs: registry.toArray() };
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -422,12 +209,29 @@ Deno.serve(async (req) => {
     tools,
   } = body;
 
+  let pinnedFrameworkId: string | undefined;
+  if (agentId) {
+    const { data: frameworkAgent } = await sb.from("agents").select("framework_id").eq("id", agentId).eq("user_id", user.id).maybeSingle();
+    pinnedFrameworkId = frameworkAgent?.framework_id ?? undefined;
+  }
+  let framework: FrameworkArtifact;
+  try {
+    framework = await resolveFramework(sb, {
+      frameworkId: pinnedFrameworkId,
+      taskType: templateId === "daily_digest" ? "daily_digest" : (templateId || "deep_research"),
+      companyType: await resolveCompanyType(sb, bodySymbols ?? []),
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String(error), code: "framework_unavailable" }), { status: 503, headers: { ...CORS, "Content-Type": "application/json" } });
+  }
+
   const saveSession = async (
     status: "success" | "error",
     output: string | null,
     tokensUsed: number,
     runTimeS: number,
     error?: string,
+    asOf?: string,
   ) => {
     try {
       await sb.from("agent_test_sessions").insert({
@@ -446,12 +250,16 @@ Deno.serve(async (req) => {
           watchSymbols: bodySymbols ?? null,
           templateId,
           agentName: agentName ?? null,
+          frameworkVersion: framework.label,
         },
+        framework_version_id: framework.versionId,
+        data_as_of: asOf ?? null,
+        provenance_summary: { framework_version: framework.label, as_of: asOf ?? null, mode: "dry_run" },
       });
     } catch { /* fire-and-forget: don't fail the response if save fails */ }
   };
 
-  const gptModel = resolveModel(model);
+  const selectedModel = model ?? "gpt-4o-mini";
 
   // ── Deep research ─────────────────────────────────────────────────────────
   if (templateId !== "daily_digest") {
@@ -470,10 +278,10 @@ Deno.serve(async (req) => {
     const prompt = systemPrompt ?? "Bạn là chuyên gia phân tích chứng khoán Việt Nam. Phân tích mã __TARGET_SYMBOL__.";
     const t0 = Date.now();
     try {
-      const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDeepResearchDry(prompt, targetSymbol, gptModel, tools);
-      await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
+      const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs, asOf } = await runDeepResearchDry(prompt, targetSymbol, selectedModel, applyToolPolicy(tools ?? [], framework), framework);
+      await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000, undefined, asOf);
       const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử deep_research", cachedIn);
-      return new Response(JSON.stringify({ output, tokensUsed, targetSymbol, refs, ...charge }), {
+      return new Response(JSON.stringify({ output, tokensUsed, targetSymbol, refs, as_of: asOf, framework_version: framework.label, ...charge }), {
         headers: { ...CORS, "Content-Type": "application/json" },
       });
     } catch (err) {
@@ -491,10 +299,10 @@ Deno.serve(async (req) => {
 
   const t0 = Date.now();
   try {
-    const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, gptModel);
-    await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000);
+    const { output, tokensUsed, tokensIn, tokensOut, cachedIn, refs, asOf } = await runDailyDigestDry(systemPrompt ?? "", watchSymbols, selectedModel, framework);
+    await saveSession("success", output, tokensUsed, (Date.now() - t0) / 1000, undefined, asOf);
     const charge = await deduct(sb, user.id, tokensIn, tokensOut, "chạy thử daily_digest", cachedIn);
-    return new Response(JSON.stringify({ output, tokensUsed, refs, ...charge }), {
+    return new Response(JSON.stringify({ output, tokensUsed, refs, as_of: asOf, framework_version: framework.label, ...charge }), {
       headers: { ...CORS, "Content-Type": "application/json" },
     });
   } catch (err) {

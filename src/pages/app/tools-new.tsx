@@ -2,10 +2,11 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import {
   TrendingUp, FileText, Calculator, Newspaper, Globe,
-  Activity, GitBranch, Search, Check, ChevronRight, Users,
+  Activity, GitBranch, Search, Check, ChevronRight, Users, ClipboardList,
 } from "lucide-react";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { useIsMobile } from "../../components/ui/use-mobile";
+import { PUBLIC_TOOL_METADATA } from "../../../supabase/functions/_shared/tool-catalog";
 
 export type Category = "Tất cả" | "Thị trường" | "Tài chính" | "Định giá" | "Kỹ thuật" | "Tin tức" | "Vĩ mô";
 
@@ -28,7 +29,7 @@ export interface Tool {
 // KHÔNG tách nhiều card cho cùng 1 tool backend (vd "Giá cổ phiếu", "Chỉ số", "Top tăng/giảm" trước đây
 // là 3 card riêng dù cùng dùng price_feed) — thay vào đó gộp thành 1 card, phần "breakdown" cho biết
 // bên trong tool đó thực sự gồm những gì.
-export const tools: Tool[] = [
+const toolPresentation: Tool[] = [
   {
     id: "price-feed",
     name: "Giá & Chỉ số",
@@ -68,6 +69,20 @@ export const tools: Tool[] = [
     breakdown: [
       { title: "Lịch sử cổ tức", desc: "Chi trả cổ tức tiền mặt/cổ phiếu và tỷ suất theo giá hiện tại." },
       { title: "Giao dịch nội bộ", desc: "Mua/bán của ban lãnh đạo, người nội bộ và cổ đông lớn (MUA/BÁN)." },
+    ],
+  },
+  {
+    id: "analyst-reports",
+    name: "Báo cáo phân tích CTCK",
+    oneliner: "Khuyến nghị & giá mục tiêu của các công ty chứng khoán cho từng mã (kèm link PDF gốc)",
+    longDescription: "Tổng hợp báo cáo phân tích của các CTCK (SSI, VNDirect, Rồng Việt, Vietcap…) cho từng cổ phiếu: khuyến nghị (MUA/Khả quan/Nắm giữ…), giá mục tiêu, ngày phát hành và mức đồng thuận, kèm link PDF gốc để đối chiếu. Đây là quan điểm bên thứ ba (môi giới), không phải khuyến nghị của Wealbee.",
+    category: "Tài chính",
+    icon: ClipboardList,
+    backendToolId: "analyst_reports",
+    breakdown: [
+      { title: "Khuyến nghị", desc: "MUA/Khả quan/Nắm giữ/Bán theo từng CTCK." },
+      { title: "Giá mục tiêu", desc: "Target price kèm ngày phát hành và tên CTCK." },
+      { title: "Đồng thuận + nguồn", desc: "Số báo cáo tích cực/tiêu cực + giá mục tiêu trung bình, link PDF gốc." },
     ],
   },
   {
@@ -154,6 +169,15 @@ export const tools: Tool[] = [
     available: false,
   },
 ];
+
+const registryMetadata = new Map(PUBLIC_TOOL_METADATA.map(tool => [tool.id, tool]));
+export const tools: Tool[] = toolPresentation.map(tool => {
+  if (!tool.backendToolId) return tool;
+  const metadata = registryMetadata.get(tool.backendToolId);
+  return metadata
+    ? { ...tool, name: metadata.label, longDescription: metadata.description, available: tool.available !== false }
+    : { ...tool, available: false };
+});
 
 export const catStyle: Record<Exclude<Category, "Tất cả">, { bg: string; text: string }> = {
   "Thị trường": { bg: "rgba(52,199,89,0.12)", text: "#1a7a3a" },
@@ -382,4 +406,3 @@ export function ToolLibrary({ isDark = false }: { isDark?: boolean }) {
     </div>
   );
 }
-

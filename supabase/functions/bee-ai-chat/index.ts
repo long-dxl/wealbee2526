@@ -16,23 +16,28 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
 import { valueChainReport } from "../_shared/value-chain.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
+import { CORS_CHAT as CORS } from "../_shared/cors.ts";
+import { getModelConfig, isProviderAvailable } from "../_shared/llm-adapter.ts";
+import { ProviderLLMRuntime, type LLMMessage } from "../_shared/llm-runtime.ts";
+import { AgentEngine } from "../_shared/agent-engine.ts";
+import { registryFromOpenAIDefinitions } from "../_shared/tool-registry.ts";
+import { TOOL_DEFINITIONS } from "../_shared/tool-catalog.ts";
+import { buildFrameworkPrompt, resolveFramework } from "../_shared/framework.ts";
+import { deriveDataAsOf, extractClaims, type ToolExecutionRecord } from "../_shared/provenance.ts";
 
 // Model chính toàn hệ thống: gpt-4.1-mini (ổn định, output đúng giọng như bản cũ).
-const CHAT_MODEL = "gpt-4.1-mini";
+const CHAT_MODEL = "gpt-4o-mini";
 
 const SUPABASE_URL         = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const OPENAI_API_KEY       = Deno.env.get("OPENAI_API_KEY") ?? "";
-const ANTHROPIC_API_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const BRAVE_SEARCH_KEY     = Deno.env.get("BRAVE_SEARCH_API_KEY") ?? "";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const LLM_RUNTIME = new ProviderLLMRuntime();
+const AGENT_ENGINE = new AgentEngine(LLM_RUNTIME);
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+// CORS imported from _shared/cors.ts as CORS_CHAT
 
 // ─── SSE ─────────────────────────────────────────────────────────────────────
 
@@ -43,124 +48,9 @@ function sse(data: Record<string, unknown>): Uint8Array {
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
-const TOOL_DEFS = [
-  {
-    type: "function",
-    function: {
-      name: "get_market_data",
-      description: "Lấy dữ liệu thị trường thực: chỉ số VN-Index/HNX, giá đóng cửa VN30, top tăng/giảm hôm nay. Dùng khi người dùng hỏi về thị trường, chỉ số, hoặc giá cổ phiếu VN30.",
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_news",
-      description: "Lấy tin tức tài chính từ database. Trả về tiêu đề, tóm tắt, ngày đăng, nguồn, mã CP liên quan. Dùng khi hỏi về tin tức thị trường, sự kiện, hoặc tin về mã cụ thể.",
-      parameters: {
-        type: "object",
-        properties: {
-          symbols: {
-            type: "array",
-            items: { type: "string" },
-            description: "Mã CP cần lọc tin (để trống = tin thị trường chung)",
-          },
-          days: {
-            type: "number",
-            description: "Số ngày gần đây cần lấy (mặc định 3, tối đa 30)",
-          },
-          source: {
-            type: "string",
-            description: "Nguồn báo: 'cafef', 'vietstock', hoặc bỏ trống để lấy tất cả",
-          },
-        },
-        required: [],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_financials",
-      description: "Lấy BCTC chi tiết của một mã CP để phân tích sâu như Analyst: 3 bảng IS/BS/CF + chỉ số tài chính RIÊNG theo loại hình (thường: ROE/biên LN/vòng quay; ngân hàng: NIM/CIR/NPL/CASA/LDR; chứng khoán: dư nợ margin/VCSH; bảo hiểm: combined ratio), theo cả Năm (5 năm) và Quý (5 quý gần nhất, có YoY). Nguồn HSX/HNX.",
-      parameters: {
-        type: "object",
-        properties: {
-          symbol: {
-            type: "string",
-            description: "Mã CP, ví dụ 'VCB', 'HPG', 'FPT'",
-          },
-        },
-        required: ["symbol"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_insider_activity",
-      description: "Lấy lịch sử cổ tức và giao dịch mua/bán của lãnh đạo/nội bộ (insider) của một mã CP. Dùng khi hỏi về cổ tức, hoặc lãnh đạo/cổ đông nội bộ mua/bán cổ phiếu.",
-      parameters: {
-        type: "object",
-        properties: {
-          symbol: { type: "string", description: "Mã CP, ví dụ 'VCB', 'HPG', 'FPT'" },
-        },
-        required: ["symbol"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_value_chain",
-      description: "Lấy chuỗi giá trị & yếu tố tác động của một mã CP: nguyên liệu ĐẦU VÀO (vd thép: quặng sắt/than cốc; hàng không/cảng: dầu/nhiên liệu), sản phẩm ĐẦU RA (vd thép HRC, urea, heo hơi), giá cước & yếu tố vĩ mô. Dùng khi hỏi về chuỗi cung ứng, biên lợi nhuận chịu tác động bởi giá hàng hóa, hoặc 'yếu tố nào ảnh hưởng đến {MÃ}'.",
-      parameters: {
-        type: "object",
-        properties: { symbol: { type: "string", description: "Mã CP, ví dụ 'HPG', 'GAS', 'GMD'" } },
-        required: ["symbol"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_portfolio",
-      description: "Lấy danh mục đầu tư của người dùng: tất cả holdings, giá vốn, giá hiện tại, P&L. Dùng khi hỏi về danh mục, hiệu quả đầu tư cá nhân.",
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "search_knowledge_base",
-      description: "Tìm kiếm ngữ nghĩa trong Knowledge Base (tài liệu người dùng đã upload: phương pháp đầu tư, báo cáo, ghi chú). Dùng khi câu hỏi liên quan đến kiến thức riêng của người dùng.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "Câu hỏi hoặc từ khóa tìm kiếm" },
-        },
-        required: ["query"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "web_search",
-      description: "Tìm kiếm thông tin mới nhất trên internet về thị trường chứng khoán Việt Nam, chính sách, báo cáo phân tích, tin tức kinh tế. Dùng khi database không đủ thông tin hoặc cần tin rất mới.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Từ khóa tìm kiếm (tiếng Việt hoặc tiếng Anh)",
-          },
-        },
-        required: ["query"],
-      },
-    },
-  },
-];
+const CHAT_TOOL_IDS = ["get_market_data", "get_news", "get_financials", "get_insider_activity", "get_value_chain", "get_portfolio", "search_knowledge_base", "web_search"];
+const TOOL_DEFS = CHAT_TOOL_IDS.map(id => TOOL_DEFINITIONS[id]);
+const CHAT_TOOL_REGISTRY = registryFromOpenAIDefinitions(Object.fromEntries(CHAT_TOOL_IDS.map(id => [id, TOOL_DEFINITIONS[id]])));
 
 // ─── Tool executors ───────────────────────────────────────────────────────────
 
@@ -492,6 +382,10 @@ async function executeTool(name: string, args: Record<string, any>, userId: stri
   }
 }
 
+for (const id of CHAT_TOOL_IDS) {
+  CHAT_TOOL_REGISTRY.setHandler(id, (args, context) => executeTool(id, args, context.userId));
+}
+
 function toolLabel(name: string, args: Record<string, any>): { loading: string; done: string } {
   switch (name) {
     case "get_market_data":
@@ -519,41 +413,6 @@ function toolLabel(name: string, args: Record<string, any>): { loading: string; 
 }
 
 // ─── System prompt ────────────────────────────────────────────────────────────
-
-const SYSTEM_PROMPT = `Bạn là BeeAI — trợ lý phân tích thị trường chứng khoán Việt Nam của Wealbee.
-
-## CÁCH HOẠT ĐỘNG — BẮT BUỘC GỌI TOOL TRƯỚC KHI TRẢ LỜI
-
-**Chiến lược gọi tool theo loại câu hỏi:**
-- "Hôm nay có gì?", "thị trường?", "tin tức?" → gọi **CẢ HAI**: get_market_data VÀ get_news
-- "VCB/HPG/FPT thế nào?" → gọi get_news(symbols=["VCB"]) VÀ get_financials("VCB")
-- "Cổ tức/giao dịch nội bộ của VCB?" → gọi get_insider_activity("VCB") (KHÔNG cần gọi get_financials nếu câu hỏi chỉ về cổ tức/nội bộ)
-- "Danh mục tôi?" → gọi get_portfolio VÀ get_market_data
-- "Tìm tài liệu..." → gọi search_knowledge_base
-- Cần tin mới nhất ngoài DB → gọi web_search
-
-KHÔNG trả lời từ kiến thức training. KHÔNG bịa số liệu.
-
-**Khi data stale (có cảnh báo ⚠️ trong kết quả tool):**
-Thông báo rõ cho người dùng: "Pipeline cập nhật giá đang bị dừng, dữ liệu giá/chỉ số mới nhất là ngày X. Tôi có thể cung cấp tin tức hôm nay từ market_news."
-
-## QUY TẮC LINK — BẮT BUỘC
-Với tin tức: COPY NGUYÊN VĂN markdown link từ tool vào câu trả lời.
-- Tool trả về dạng [Bao CafeF - 18/06/2026](https://cafef.vn/...) thi giu nguyen, KHONG thay bang "(Nguon: CafeF)"
-- TUYET DOI KHONG viet "(Nguon: X)" dang text thuan khi tool da co link markdown
-
-Voi so lieu gia/BCTC: kem ngay va nguon dang text: "phien 01/06/2026 - Nguon: HOSE"
-
-## PHÁP LÝ
-TUYỆT ĐỐI không khuyến nghị mua/bán cụ thể. Không đưa target price.
-Kết thúc mọi câu trả lời: *Thông tin tham khảo · không phải tư vấn đầu tư theo Luật Chứng khoán 2019*
-
-## ĐỊNH DẠNG
-- Tiếng Việt, ngắn gọn, dùng bullet points
-- **In đậm** số liệu quan trọng
-- Emoji: 📈 📉 💰 📊 📅 📰`;
-
-// ─── Main handler ─────────────────────────────────────────────────────────────
 
 interface ContextCardPayload { id?: string; type: string; label: string; badge?: string; summary?: string; }
 
@@ -649,9 +508,13 @@ Deno.serve(async (req) => {
   await sb.from("chat_messages")
     .insert({ session_id: sessionId, user_id: user.id, role: "user", content: message });
 
+  let framework;
+  try { framework = await resolveFramework(sb, { taskType: "chat", companyType: "default" }); }
+  catch (error) { return new Response(JSON.stringify({ error: String(error), code: "framework_unavailable" }), { status: 503, headers: CORS }); }
+
   // Build full system prompt
   const contextHint = await buildContextHint(context_cards ?? []);
-  const fullSystem  = SYSTEM_PROMPT + contextHint;
+  const fullSystem = buildFrameworkPrompt(framework, "Bạn là BeeAI, trợ lý phân tích chứng khoán Việt Nam của Wealbee.") + contextHint;
 
   // Initial messages
   const chatMessages: any[] = [
@@ -659,9 +522,9 @@ Deno.serve(async (req) => {
     { role: "user", content: message },
   ];
 
-  // Chuẩn hóa toàn hệ thống về gpt-4.1-mini (tắt nhánh Anthropic; giữ code để bật lại khi cần)
-  const useAnthropic = false && ANTHROPIC_API_KEY.length > 10;
-  const finalModel   = useAnthropic ? "claude-sonnet-4-6" : CHAT_MODEL;
+  const modelConfig = getModelConfig(CHAT_MODEL);
+  if (!isProviderAvailable(modelConfig.provider)) return new Response(JSON.stringify({ error: `${modelConfig.provider} chưa được cấu hình API key` }), { status: 503, headers: CORS });
+  const finalModel = modelConfig.apiModel;
 
   const stream = new ReadableStream({
     async start(ctrl) {
@@ -670,6 +533,8 @@ Deno.serve(async (req) => {
       let inputTok  = 0;
       let outputTok = 0;
       let cachedTok = 0;
+      const toolRecords: ToolExecutionRecord[] = [];
+      const toolStarts = new Map<string, string>();
 
       try {
         // ── Framework step 1: Observe ─────────────────────────────────────
@@ -679,204 +544,48 @@ Deno.serve(async (req) => {
           label: `Ngữ cảnh: ${history?.length ?? 0} tin nhắn cũ${context_cards?.length ? `, ${context_cards.length} card` : ""}` }));
 
         // ── Tool-call loop (always OpenAI for tool calls) ──────────────────
-        const loopMessages: any[] = [
+        const loopMessages: LLMMessage[] = [
           { role: "system", content: fullSystem },
           ...chatMessages,
         ];
-        const MAX_ITERS = 6;
-
-        for (let iter = 0; iter < MAX_ITERS; iter++) {
-          // ── Framework step 2: Reason (chỉ emit ở vòng đầu) ──────────────
-          if (iter === 0) {
-            ctrl.enqueue(sse({ type: "step", name: "_reason", status: "loading", label: "Phân tích câu hỏi & lên kế hoạch gọi tool..." }));
+        ctrl.enqueue(sse({ type: "step", name: "_reason", status: "loading", label: "Phân tích câu hỏi & lên kế hoạch gọi tool..." }));
+        let reasonDone = false;
+        for await (const event of AGENT_ENGINE.run({
+          model: modelConfig, messages: loopMessages, tools: TOOL_DEFS as any, maxTokens: 4000, temperature: 0,
+          registry: CHAT_TOOL_REGISTRY, maxToolIterations: 6,
+          toolContext: { userId: user.id, enabledToolIds: new Set(CHAT_TOOL_IDS) },
+        })) {
+          if (event.type === "usage") {
+            totalToks += event.usage.inputTokens + event.usage.outputTokens;
+            inputTok += event.usage.inputTokens; outputTok += event.usage.outputTokens; cachedTok += event.usage.cachedInputTokens;
+          } else if (event.type === "tool_start") {
+            toolStarts.set(event.call.id, new Date().toISOString());
+            const labels = toolLabel(event.call.name, event.call.arguments);
+            if (!reasonDone) { ctrl.enqueue(sse({ type: "step", name: "_reason", status: "done", label: `Kế hoạch: ${labels.done}` })); reasonDone = true; }
+            ctrl.enqueue(sse({ type: "step", name: event.call.name, status: "loading", label: labels.loading }));
+          } else if (event.type === "tool_end") {
+            toolRecords.push({ callKey: `chat-${event.call.id}`, toolId: event.call.name, arguments: event.call.arguments,
+              output: event.content, startedAt: toolStarts.get(event.call.id) ?? new Date().toISOString(),
+              finishedAt: new Date().toISOString(), status: event.content.startsWith("Lỗi thực thi tool") ? "error" : "completed" });
+            ctrl.enqueue(sse({ type: "step", name: event.call.name, status: "done", label: toolLabel(event.call.name, event.call.arguments).done }));
+          } else if (event.type === "text") {
+            if (!reasonDone) { ctrl.enqueue(sse({ type: "step", name: "_reason", status: "done", label: "Đã hoàn tất kế hoạch phân tích" })); reasonDone = true; }
+            fullText = event.text; ctrl.enqueue(sse({ type: "chunk", text: fullText }));
           }
-
-          const callBody: any = {
-            model: CHAT_MODEL,
-            messages: loopMessages,
-            tools: TOOL_DEFS,
-            tool_choice: "auto",
-            temperature: 0,
-            max_tokens: 4000,
-          };
-
-          const callRes = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify(callBody),
-          });
-          if (!callRes.ok) throw new Error(`OpenAI tool-call error ${callRes.status}: ${await callRes.text()}`);
-
-          const callJson = await callRes.json();
-          totalToks += callJson.usage?.total_tokens ?? 0;
-          inputTok  += callJson.usage?.prompt_tokens ?? 0;
-          outputTok += callJson.usage?.completion_tokens ?? 0;
-          cachedTok += callJson.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-          const assistantMsg = callJson.choices?.[0]?.message;
-
-          if (!assistantMsg?.tool_calls?.length) {
-            // LLM decided no tools needed — mark reason done then emit answer
-            if (iter === 0) {
-              ctrl.enqueue(sse({ type: "step", name: "_reason", status: "done", label: "Có thể trả lời trực tiếp, không cần gọi tool" }));
-            }
-            if (assistantMsg?.content) {
-              fullText = assistantMsg.content;
-              ctrl.enqueue(sse({ type: "chunk", text: fullText }));
-            }
-            break;
-          }
-
-          // Mark Reason done with actual tool names the LLM chose
-          if (iter === 0) {
-            const chosenTools = (assistantMsg.tool_calls as any[])
-              .map((tc: any) => toolLabel(tc.function.name, (() => { try { return JSON.parse(tc.function.arguments ?? "{}"); } catch { return {}; } })()).done)
-              .join(" + ");
-            ctrl.enqueue(sse({ type: "step", name: "_reason", status: "done", label: `Kế hoạch: ${chosenTools}` }));
-          }
-
-          // Execute all tool calls in parallel
-          loopMessages.push(assistantMsg);
-
-          const toolResults = await Promise.all(
-            (assistantMsg.tool_calls as any[]).map(async (tc) => {
-              let args: Record<string, any> = {};
-              try { args = JSON.parse(tc.function.arguments ?? "{}"); } catch { /* ignore */ }
-
-              const labels = toolLabel(tc.function.name, args);
-              ctrl.enqueue(sse({ type: "step", name: tc.function.name, status: "loading", label: labels.loading }));
-
-              let content: string;
-              try { content = await executeTool(tc.function.name, args, user.id); }
-              catch (e) { content = `Lỗi thực thi ${tc.function.name}: ${String(e)}`; }
-
-              ctrl.enqueue(sse({ type: "step", name: tc.function.name, status: "done", label: labels.done }));
-              return { role: "tool", tool_call_id: tc.id, content };
-            })
-          );
-          loopMessages.push(...toolResults);
         }
-
-        // ── If fullText empty, do a proper streaming final answer ────────────
-        if (!fullText) {
-          ctrl.enqueue(sse({ type: "step", name: "_synthesis", status: "loading", label: "Đang tổng hợp phân tích..." }));
-
-          if (useAnthropic && ANTHROPIC_API_KEY) {
-            // Anthropic streaming — build messages from loopMessages
-            const anthropicMsgs = loopMessages
-              .filter(m => m.role !== "system")
-              .filter(m => m.role !== "tool") // Anthropic doesn't support tool role in basic flow
-              .map(m => ({ role: m.role as "user" | "assistant", content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }));
-
-            // Inject tool results as assistant context
-            const toolResultSummary = loopMessages
-              .filter(m => m.role === "tool")
-              .map(m => m.content)
-              .join("\n\n---\n\n");
-
-            if (toolResultSummary) {
-              anthropicMsgs.push({
-                role: "user",
-                content: `[Kết quả từ tools:\n${toolResultSummary.slice(0, 8000)}]\n\nDựa trên dữ liệu trên, ${message}`,
-              });
-            }
-
-            const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: {
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-              },
-              body: JSON.stringify({
-                model: "claude-sonnet-4-6",
-                max_tokens: 4000,
-                temperature: 0,
-                system: fullSystem,
-                messages: anthropicMsgs,
-                stream: true,
-              }),
-            });
-            if (!aiRes.ok) throw new Error(`Anthropic ${aiRes.status}: ${await aiRes.text()}`);
-
-            const reader = aiRes.body!.getReader();
-            const dec = new TextDecoder();
-            let buf = "";
-            while (true) {
-              const { done, value } = await reader.read();
-              if (value) buf += dec.decode(value, { stream: !done });
-              const lines2 = buf.split("\n");
-              buf = done ? "" : (lines2.pop() ?? "");
-              for (const line of lines2) {
-                if (!line.startsWith("data: ")) continue;
-                try {
-                  const p = JSON.parse(line.slice(6).trim());
-                  if (p.type === "content_block_delta" && p.delta?.type === "text_delta") {
-                    const chunk = p.delta.text ?? "";
-                    if (chunk) { fullText += chunk; ctrl.enqueue(sse({ type: "chunk", text: chunk })); }
-                  }
-                  if (p.type === "message_delta" && p.usage) {
-                    outputTok = p.usage.output_tokens ?? 0;
-                  }
-                  if (p.type === "message_start" && p.message?.usage) {
-                    inputTok = p.message.usage.input_tokens ?? 0;
-                  }
-                } catch { /* skip */ }
-              }
-              if (done) break;
-            }
-            totalToks += inputTok + outputTok;
-
-          } else {
-            // OpenAI streaming final answer
-            const streamRes = await fetch("https://api.openai.com/v1/chat/completions", {
-              method: "POST",
-              headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model: CHAT_MODEL,
-                messages: loopMessages,
-                temperature: 0,
-                max_tokens: 4000,
-                stream: true,
-                stream_options: { include_usage: true },
-                tool_choice: "none", // final answer only, no more tool calls
-              }),
-            });
-            if (!streamRes.ok) throw new Error(`OpenAI streaming ${streamRes.status}: ${await streamRes.text()}`);
-
-            const reader = streamRes.body!.getReader();
-            const dec = new TextDecoder();
-            let buf = "";
-            while (true) {
-              const { done, value } = await reader.read();
-              if (value) buf += dec.decode(value, { stream: !done });
-              const lines2 = buf.split("\n");
-              buf = done ? "" : (lines2.pop() ?? "");
-              for (const line of lines2) {
-                if (!line.startsWith("data: ")) continue;
-                const raw = line.slice(6).trim();
-                if (raw === "[DONE]") continue;
-                try {
-                  const p = JSON.parse(raw);
-                  const chunk = p.choices?.[0]?.delta?.content ?? "";
-                  if (chunk) { fullText += chunk; ctrl.enqueue(sse({ type: "chunk", text: chunk })); }
-                  if (p.usage?.total_tokens) {
-                    totalToks += p.usage.total_tokens;
-                    inputTok  += p.usage.prompt_tokens ?? 0;
-                    outputTok += p.usage.completion_tokens ?? 0;
-                    cachedTok += p.usage.prompt_tokens_details?.cached_tokens ?? 0;
-                  }
-                } catch { /* skip */ }
-              }
-              if (done) break;
-            }
-          }
-          ctrl.enqueue(sse({ type: "step", name: "_synthesis", status: "done", label: "Phân tích hoàn tất" }));
-        }
-
+        const chatAsOf = deriveDataAsOf(toolRecords);
+        fullText = `${fullText.trim()}\n\n*Dữ liệu chốt đến: ${chatAsOf.slice(0,10)}*`;
+        ctrl.enqueue(sse({ type: "reset_output", output: fullText }));
+        const chatClaims = extractClaims(fullText, new Set());
+        const chatProvenance = {
+          framework_version: framework.label, as_of: chatAsOf, tool_calls: toolRecords.length,
+          claims: chatClaims.length, unlinked: chatClaims.filter(claim => claim.validation_status !== "grounded").length,
+        };
         // ── Save assistant message ─────────────────────────────────────────
         const { data: assistantMsg } = await sb
           .from("chat_messages")
-          .insert({ session_id: sessionId, user_id: user.id, role: "assistant", content: fullText, tokens: totalToks || null })
+          .insert({ session_id: sessionId, user_id: user.id, role: "assistant", content: fullText, tokens: totalToks || null,
+            framework_version_id: framework.versionId, as_of: chatAsOf, provenance_summary: chatProvenance })
           .select("id")
           .single();
 
@@ -897,6 +606,9 @@ Deno.serve(async (req) => {
           message_id: assistantMsg?.id,
           tokens: totalToks,
           model: finalModel,
+          framework_version: framework.label,
+          as_of: chatAsOf,
+          provenance: chatProvenance,
           credits_used: charge.credits_used,
           balance: charge.balance,
         }));

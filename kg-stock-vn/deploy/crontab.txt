@@ -45,3 +45,7 @@ CRON_TZ=Asia/Ho_Chi_Minh
 
 # Lưu ý: agent theo lịch của NGƯỜI DÙNG do scheduler_local.py (systemd wealbee-scheduler)
 #        tự chạy — KHÔNG đặt ở cron này.
+
+# ── VN macro NỀN LỊCH SỬ (World Bank API, free): thứ Hai 07:45 → bảng vn_macro_history ──
+# GDP/CPI/FDI/vãng lai/quy mô GDP/lãi suất/thất nghiệp ~7 năm. Số NĂM đổi chậm → tuần/lần đủ.
+45 7 * * 1  cd __APP__/toolcrawldata && __VENV__/bin/python seed_worldbank_macro.py >> /var/log/wealbee/macro.log 2>&1

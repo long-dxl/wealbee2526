@@ -8,84 +8,33 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { financialReport, insiderReport, TYPE_LABEL } from "../_shared/financial-report.ts";
-import { valueChainReport, valueChainFrame } from "../_shared/value-chain.ts";
-import { macroContext } from "../_shared/macro.ts";
 import { hasCredits, deduct } from "../_shared/credits.ts";
 import { zaloSend } from "../_shared/zalo.ts";
-import { buildPriceContext, buildNewsContext, faUrl } from "../_shared/market-context.ts";
+import { faUrl } from "../_shared/market-context.ts";
+import { SourceRegistry } from "../_shared/source-registry.ts";
+import { CORS } from "../_shared/cors.ts";
+import { getModelConfig, costVndForModel, isProviderAvailable } from "../_shared/llm-adapter.ts";
+import { ProviderLLMRuntime, type LLMMessage } from "../_shared/llm-runtime.ts";
+import { AgentEngine } from "../_shared/agent-engine.ts";
+import { registryFromOpenAIDefinitions } from "../_shared/tool-registry.ts";
+import { TOOL_DEFINITIONS } from "../_shared/tool-catalog.ts";
+import { registerRunAgentTools } from "../_shared/run-agent-tools.ts";
+import { applyToolPolicy, buildFrameworkPrompt, resolveCompanyType, resolveFramework } from "../_shared/framework.ts";
+import { deriveDataAsOf, persistRunProvenance, type ToolExecutionRecord } from "../_shared/provenance.ts";
 
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_API_KEY    = Deno.env.get("OPENAI_API_KEY")!;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const RESEND_API_KEY    = Deno.env.get("RESEND_API_KEY") ?? "";
 const EMAIL_FROM        = Deno.env.get("EMAIL_FROM") ?? "Wealbee <no-reply@wealbee.com>";
 const APP_URL           = Deno.env.get("APP_URL") ?? "https://wealbee.com";
 
-// Studio model ID → { provider, apiModel }
-// Chuẩn hóa toàn hệ thống: mọi lựa chọn model đều chạy gpt-4.1-mini
-// (ổn định output; Beeny trừ theo token thật — xem _shared/credits.ts).
-const MODEL_MAP: Record<string, { provider: "openai" | "anthropic"; apiModel: string }> = {
-  "gpt-4o-mini":   { provider: "openai", apiModel: "gpt-4.1-mini" },
-  "gpt-4o":        { provider: "openai", apiModel: "gpt-4.1-mini" },
-  "claude-sonnet": { provider: "openai", apiModel: "gpt-4.1-mini" },
-  "claude-opus":   { provider: "openai", apiModel: "gpt-4.1-mini" },
-  "gemini-pro":    { provider: "openai", apiModel: "gpt-4.1-mini" },
-  "gemini-flash":  { provider: "openai", apiModel: "gpt-4.1-mini" },
-};
-const DEFAULT_MODEL = { provider: "openai" as const, apiModel: "gpt-4.1-mini" };
+// Model config: xem _shared/llm-adapter.ts (MODEL_CONFIG + getModelConfig)
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-// ─── Build financials context for a specific symbol ──────────────────────────
-
-async function buildFinancialsContext(symbol: string, registry?: SourceRegistry, depth: "full" | "brief" = "full"): Promise<string> {
-  const sym  = symbol.toUpperCase();
-  const lines: string[] = [`\n## Dữ liệu tài chính: ${sym}`];
-
-  // Báo cáo tài chính: IS/BS/CF + chỉ số RIÊNG theo loại hình (Năm + 5 Quý gần nhất,
-  // hoặc rút gọn 2 kỳ cho template không cần phân tích BCTC sâu — xem financial-report.ts)
-  try {
-    const { data: tk } = await sb.from("tickers").select("company_type").eq("symbol", sym).single();
-    const ctype = tk?.company_type ?? "normal";
-    const report = await financialReport(sb, sym, ctype, depth);
-    if (report.trim()) {
-      const ref = registry ? ` ${registry.add("BCTC", faUrl(sym))}` : "";
-      lines.push(`\n### Báo cáo tài chính (${TYPE_LABEL[ctype] ?? ctype})${ref}`);
-      lines.push(report);
-    } else {
-      lines.push(`\n*Không có số liệu tài chính chi tiết cho ${sym} trong hệ thống. Không được tự ước tính các chỉ số tài chính.*`);
-    }
-  } catch { /* ignore */ }
-
-  return lines.length > 1 ? lines.join("\n") : "";
-}
-
-// ─── Build insider context for a specific symbol (tool: insider_trades) ──────
-
-async function buildInsiderContext(symbol: string, registry?: SourceRegistry): Promise<string> {
-  const sym = symbol.toUpperCase();
-  const lines: string[] = [`\n## Cổ tức & Giao dịch nội bộ: ${sym}`];
-
-  const report = await insiderReport(sb, sym);
-  if (report.trim()) {
-    const ref = registry ? ` ${registry.add("Nội bộ", faUrl(sym))}` : "";
-    lines.push(`${ref}`);
-    lines.push(report);
-  } else {
-    lines.push(`\n*Không có dữ liệu cổ tức/giao dịch nội bộ cho ${sym}.*`);
-  }
-
-  return lines.length > 1 ? lines.join("\n") : "";
-}
-
 // Price/news context: dùng bản chung ở _shared/market-context.ts
+// SourceRegistry: xem _shared/source-registry.ts
 
 // ─── Source type ─────────────────────────────────────────────────────────────
 
@@ -95,23 +44,6 @@ interface Source {
   url: string | null;
   date?: string;
   source?: string;
-}
-
-// ─── Source registry — numbered references ────────────────────────────────────
-// Instead of embedding long URLs in context (LLM may corrupt them),
-// use [ref:N] tokens and resolve to real URLs in the SSE sources event.
-
-class SourceRegistry {
-  private list: Array<{ label: string; url: string }> = [];
-
-  add(label: string, url: string): string {
-    const existing = this.list.findIndex(s => s.url === url);
-    if (existing !== -1) return `[ref:${existing + 1}]`;
-    this.list.push({ label, url });
-    return `[ref:${this.list.length}]`;
-  }
-
-  toArray() { return this.list.map((s, i) => ({ index: i + 1, ...s })); }
 }
 
 // ─── Build sources for a symbol (deep research) ──────────────────────────────
@@ -439,200 +371,28 @@ function extractTickers(text: string): string[] {
 
 // ─── Tool definitions & execution (true function-calling) ────────────────────
 
-const OPENAI_TOOL_DEFS: Record<string, object> = {
-  price_feed: {
-    type: "function",
-    function: {
-      name: "price_feed",
-      description: "Lấy giá đóng cửa mới nhất của các cổ phiếu VN30 và chỉ số VNINDEX, HNX",
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
-  news_feed: {
-    type: "function",
-    function: {
-      name: "news_feed",
-      description: "Lấy tin tức tài chính 48h gần nhất. Dùng symbols để lọc theo mã cổ phiếu cụ thể.",
-      parameters: {
-        type: "object",
-        properties: {
-          symbols: {
-            type: "array",
-            items: { type: "string" },
-            description: "Danh sách mã cổ phiếu cần lọc tin (ví dụ: ['VCB','HPG']). Để trống để lấy tin thị trường chung.",
-          },
-        },
-        required: [],
-      },
-    },
-  },
-  financials: {
-    type: "function",
-    function: {
-      name: "financials",
-      description: "Lấy báo cáo tài chính IS/BS/CF/chỉ số (Năm + 5 Quý gần nhất) của một mã cổ phiếu",
-      parameters: {
-        type: "object",
-        properties: {
-          symbol: { type: "string", description: "Mã cổ phiếu cần tra cứu, ví dụ: 'VCB'" },
-        },
-        required: ["symbol"],
-      },
-    },
-  },
-  insider_trades: {
-    type: "function",
-    function: {
-      name: "insider_trades",
-      description: "Lấy lịch sử cổ tức và giao dịch mua/bán của lãnh đạo/nội bộ của một mã cổ phiếu",
-      parameters: {
-        type: "object",
-        properties: {
-          symbol: { type: "string", description: "Mã cổ phiếu cần tra cứu, ví dụ: 'VCB'" },
-        },
-        required: ["symbol"],
-      },
-    },
-  },
-  value_chain: {
-    type: "function",
-    function: {
-      name: "value_chain",
-      description: "Chuỗi giá trị & yếu tố tác động của một mã: nguyên liệu ĐẦU VÀO (vd quặng sắt/than cốc với thép; dầu/nhiên liệu với hàng không/cảng), sản phẩm ĐẦU RA (thép HRC, urea, heo hơi), giá cước & yếu tố vĩ mô. Dùng khi phân tích biên LN chịu tác động bởi giá hàng hóa hoặc 'yếu tố nào ảnh hưởng đến mã'.",
-      parameters: {
-        type: "object",
-        properties: { symbol: { type: "string", description: "Mã cổ phiếu, ví dụ 'HPG', 'GAS', 'GMD'" } },
-        required: ["symbol"],
-      },
-    },
-  },
-  portfolio_read: {
-    type: "function",
-    function: {
-      name: "portfolio_read",
-      description: "Lấy danh mục đầu tư hiện tại của người dùng: holdings, giá vốn, P&L",
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
-  macro: {
-    type: "function",
-    function: {
-      name: "macro",
-      description: "Bối cảnh VĨ MÔ hôm nay: tỷ giá USD/VND, DXY, lợi suất Mỹ 10Y, giá dầu/vàng, S&P500, VIX (+%YTD/YoY), VN-Index/HNX, và top tin vĩ mô nổi bật. Dùng để đặt nền bối cảnh khi phân tích thị trường/ngành/mã.",
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
-  kb_search: {
-    type: "function",
-    function: {
-      name: "kb_search",
-      description: "Tìm kiếm thông tin trong Knowledge Base đã cấu hình của người dùng",
-      parameters: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "Câu hỏi hoặc từ khóa cần tìm trong Knowledge Base" },
-        },
-        required: ["query"],
-      },
-    },
-  },
-};
+const TOOL_REGISTRY = registryFromOpenAIDefinitions(TOOL_DEFINITIONS);
+const LLM_RUNTIME = new ProviderLLMRuntime();
+const AGENT_ENGINE = new AgentEngine(LLM_RUNTIME);
 
 function getAgentToolDefs(enabled: string[], hasKb: boolean): object[] {
-  const defs: object[] = [];
-  for (const name of ["price_feed", "news_feed", "financials", "insider_trades", "value_chain", "macro", "portfolio_read"]) {
-    if (enabled.includes(name) && OPENAI_TOOL_DEFS[name]) defs.push(OPENAI_TOOL_DEFS[name]);
-  }
-  if (hasKb) defs.push(OPENAI_TOOL_DEFS.kb_search);
-  return defs;
+  const allowed = enabled.filter(name => name !== "kb_search");
+  if (hasKb) allowed.push("kb_search");
+  return TOOL_REGISTRY.definitions(allowed);
 }
 
-// Anthropic tool format (input_schema instead of parameters)
-function toAnthropicToolDef(t: any) {
-  const fn = t.function;
-  return { name: fn.name, description: fn.description, input_schema: fn.parameters };
-}
-
+registerRunAgentTools(TOOL_REGISTRY, {
+  sb, openaiApiKey: OPENAI_API_KEY, buildSymbolSources, buildInsiderSource, buildPortfolioContext,
+});
 async function executeToolCall(
-  name: string,
-  args: Record<string, any>,
-  registry: SourceRegistry,
-  sources: Source[],
-  userId: string,
-  kbDocIds: string[],
-  newsFilter?: string[],
-  financialsDepth: "full" | "brief" = "full",
+  name: string, args: Record<string, any>, registry: SourceRegistry, sources: Source[],
+  userId: string, kbDocIds: string[], newsFilter?: string[], financialsDepth: "full" | "brief" = "full",
 ): Promise<string> {
-  if (name === "price_feed") {
-    const syms: string[] = Array.isArray(args.symbols) ? args.symbols.map(String) : [];
-    return (await buildPriceContext(sb, registry, syms)) || "Không có dữ liệu giá trong hệ thống";
-  }
-  if (name === "news_feed") {
-    const syms: string[] = Array.isArray(args.symbols) ? args.symbols.map(String) : [];
-    const ctx = await buildNewsContext(sb, registry, syms.length ? syms : undefined, newsFilter, sources);
-    return ctx || "Không có tin tức trong 48h gần nhất";
-  }
-  if (name === "financials") {
-    const sym = String(args.symbol ?? "").toUpperCase();
-    if (!sym) return "Lỗi: thiếu tham số symbol";
-    const ctx = await buildFinancialsContext(sym, registry, financialsDepth);
-    await buildSymbolSources(sym, sources);
-    return ctx || `Không có dữ liệu tài chính cho ${sym} trong hệ thống`;
-  }
-  if (name === "insider_trades") {
-    const sym = String(args.symbol ?? "").toUpperCase();
-    if (!sym) return "Lỗi: thiếu tham số symbol";
-    const ctx = await buildInsiderContext(sym, registry);
-    await buildInsiderSource(sym, sources);
-    return ctx || `Không có dữ liệu cổ tức/giao dịch nội bộ cho ${sym} trong hệ thống`;
-  }
-  if (name === "value_chain") {
-    const sym = String(args.symbol ?? "").toUpperCase();
-    if (!sym) return "Lỗi: thiếu tham số symbol";
-    let sectorName: string | undefined;
-    try {
-      const { data } = await sb.from("stocks").select("sector_name").eq("symbol", sym).single();
-      sectorName = data?.sector_name ?? undefined;
-    } catch { /* skip */ }
-    const ctx = await valueChainReport(sb, sym, sectorName, registry);
-    return ctx || `Ngành của ${sym} chưa gắn sơ đồ chuỗi giá trị hàng hóa.`;
-  }
-  if (name === "portfolio_read") {
-    return (await buildPortfolioContext(userId)) || "Chưa có danh mục đầu tư";
-  }
-  if (name === "macro") {
-    return (await macroContext(sb, registry)) || "Chưa có dữ liệu vĩ mô";
-  }
-  if (name === "kb_search") {
-    if (!kbDocIds.length) return "Knowledge Base chưa được cấu hình cho agent này";
-    const query = String(args.query ?? "");
-    try {
-      const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
-      });
-      const embedJson = await embedRes.json();
-      const embedding = embedJson.data?.[0]?.embedding;
-      if (!embedding) return "Lỗi tạo embedding";
-      const { data: chunks } = await sb.rpc("match_knowledge_chunks_by_docs", {
-        query_embedding: embedding, match_user_id: userId,
-        doc_ids: kbDocIds, match_count: 6, match_threshold: 0.35,
-      });
-      if (chunks?.length) {
-        return "## Kết quả từ Knowledge Base\n(Dùng làm ngữ cảnh, không trích dẫn [ref:N])\n"
-          + (chunks as any[]).map(c => `---\n${c.content}`).join("\n");
-      }
-      // Fallback: first chunks of each doc
-      const { data: fallback } = await sb.from("knowledge_chunks")
-        .select("content").in("document_id", kbDocIds).eq("user_id", userId)
-        .order("chunk_index", { ascending: true }).limit(kbDocIds.length * 2);
-      return fallback?.length
-        ? "## Kết quả từ Knowledge Base\n" + (fallback as any[]).map(c => `---\n${c.content}`).join("\n")
-        : "Không tìm thấy nội dung liên quan trong Knowledge Base";
-    } catch (e) { return `Lỗi KB search: ${String(e)}`; }
-  }
-  return `Tool không được hỗ trợ: ${name}`;
+  return TOOL_REGISTRY.execute(name, args, {
+    userId,
+    enabledToolIds: new Set([name]),
+    state: { registry, sources, kbDocIds, newsFilter, financialsDepth },
+  });
 }
 
 // ─── Bộ lọc cơ học thay validator LLM (0 token) ───────────────────────────────
@@ -686,39 +446,49 @@ async function prefetchToolContext(
   toolNames: string[], syms: string[], registry: SourceRegistry, sources: Source[],
   userId: string, kbDocIds: string[], newsFilter?: string[], kbQuery?: string,
   financialsDepth: "full" | "brief" = "full",
-): Promise<string> {
+): Promise<{ context: string; records: ToolExecutionRecord[] }> {
   const want = new Set(toolNames);
   const jobs: Promise<string>[] = [];
-  const add = (title: string, p: Promise<string>) =>
-    jobs.push(p.then(r => `### ${title}\n${r}`).catch(e => `### ${title}\n(lỗi: ${String(e).slice(0, 80)})`));
+  const records: ToolExecutionRecord[] = [];
+  let callSequence = 0;
+  const add = (title: string, toolId: string, args: Record<string, unknown>, p: Promise<string>) => {
+    const callKey = `prefetch-${++callSequence}-${toolId}`;
+    const startedAt = new Date().toISOString();
+    jobs.push(p.then(output => {
+      records.push({ callKey, toolId, arguments: args, output, startedAt, finishedAt: new Date().toISOString(), status: "completed" });
+      return `### ${title}\n${output}`;
+    }).catch(error => {
+      const output = `(lỗi: ${String(error).slice(0, 80)})`;
+      records.push({ callKey, toolId, arguments: args, output, startedAt, finishedAt: new Date().toISOString(), status: "error", error: String(error) });
+      return `### ${title}\n${output}`;
+    }));
+  };
 
   if (want.has("price_feed"))
-    add("GIÁ & CHỈ SỐ THỊ TRƯỜNG", executeToolCall("price_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
+    add("GIÁ & CHỈ SỐ THỊ TRƯỜNG", "price_feed", { symbols: syms }, executeToolCall("price_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
   if (want.has("news_feed"))
-    add("TIN TỨC (48H)", executeToolCall("news_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
+    add("TIN TỨC (48H)", "news_feed", { symbols: syms }, executeToolCall("news_feed", { symbols: syms }, registry, sources, userId, kbDocIds, newsFilter));
   if (want.has("portfolio_read"))
-    add("DANH MỤC ĐẦU TƯ", executeToolCall("portfolio_read", {}, registry, sources, userId, kbDocIds, newsFilter));
+    add("DANH MỤC ĐẦU TƯ", "portfolio_read", {}, executeToolCall("portfolio_read", {}, registry, sources, userId, kbDocIds, newsFilter));
   if (want.has("macro"))
-    add("BỐI CẢNH VĨ MÔ", executeToolCall("macro", {}, registry, sources, userId, kbDocIds, newsFilter));
+    add("BỐI CẢNH VĨ MÔ", "macro", {}, executeToolCall("macro", {}, registry, sources, userId, kbDocIds, newsFilter));
   for (const sym of syms) {
     if (want.has("financials"))
-      add(`BÁO CÁO TÀI CHÍNH ${sym}`, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter, financialsDepth));
+      add(`BÁO CÁO TÀI CHÍNH ${sym}`, "financials", { symbol: sym }, executeToolCall("financials", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter, financialsDepth));
     if (want.has("insider_trades"))
-      add(`CỔ TỨC & GIAO DỊCH NỘI BỘ ${sym}`, executeToolCall("insider_trades", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
+      add(`CỔ TỨC & GIAO DỊCH NỘI BỘ ${sym}`, "insider_trades", { symbol: sym }, executeToolCall("insider_trades", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
+    if (want.has("analyst_reports"))
+      add(`BÁO CÁO PHÂN TÍCH CTCK ${sym}`, "analyst_reports", { symbol: sym }, executeToolCall("analyst_reports", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
     if (want.has("value_chain")) {
       // Bật tool "Giá hàng hóa" → báo cáo ĐẦY ĐỦ (khung + GIÁ realtime Yahoo)
-      add(`CHUỖI GIÁ TRỊ ${sym}`, executeToolCall("value_chain", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
-    } else {
-      // KHUNG TƯ DUY luôn áp dụng (cấu trúc nhân-quả, không network) — kể cả khi không bật tool giá.
-      const frame = valueChainFrame(sym);
-      if (frame) add(`KHUNG CHUỖI GIÁ TRỊ ${sym}`, Promise.resolve(frame));
+      add(`CHUỖI GIÁ TRỊ ${sym}`, "value_chain", { symbol: sym }, executeToolCall("value_chain", { symbol: sym }, registry, sources, userId, kbDocIds, newsFilter));
     }
   }
   if (want.has("kb_search") && kbQuery)
-    add("KNOWLEDGE BASE", executeToolCall("kb_search", { query: kbQuery }, registry, sources, userId, kbDocIds, newsFilter));
+    add("KNOWLEDGE BASE", "kb_search", { query: kbQuery }, executeToolCall("kb_search", { query: kbQuery }, registry, sources, userId, kbDocIds, newsFilter));
 
   const results = await Promise.all(jobs);
-  return results.join("\n\n");
+  return { context: results.join("\n\n"), records };
 }
 
 function toolStepLabel(name: string, args: Record<string, any>): string {
@@ -732,6 +502,7 @@ function toolStepLabel(name: string, args: Record<string, any>): string {
     case "value_chain":    return `Chuỗi cung ứng & yếu tố tác động: ${args.symbol ?? ""}`;
     case "portfolio_read": return "Danh mục đầu tư";
     case "macro":          return "Bối cảnh vĩ mô (tỷ giá, lãi suất, dầu, VN-Index)";
+    case "analyst_reports": return `Báo cáo phân tích CTCK: ${args.symbol ?? ""}`;
     case "kb_search":      return `Knowledge Base: "${String(args.query ?? "").slice(0, 40)}"`;
     default: return name;
   }
@@ -840,7 +611,7 @@ Deno.serve(async (req: Request) => {
   // Fetch agent + template
   const { data: agent, error: agentErr } = await sb
     .from("agents")
-    .select("id, user_id, template_id, name, description, system_prompt, tools, run_count, model, email_notify, zalo_notify, kb_document_ids, target_symbols, news_sources")
+    .select("id, user_id, template_id, framework_id, name, description, system_prompt, tools, run_count, model, email_notify, zalo_notify, kb_document_ids, target_symbols, news_sources")
     .eq("id", agent_id)
     .eq("user_id", user.id)
     .single();
@@ -857,10 +628,24 @@ Deno.serve(async (req: Request) => {
     .eq("id", agent.template_id)
     .single();
 
+  let framework;
+  try {
+    const frameworkSymbols = target_symbols.length ? target_symbols : ((agent.target_symbols ?? []) as string[]);
+    framework = await resolveFramework(sb, {
+      frameworkId: agent.framework_id,
+      taskType: agent.template_id || "default",
+      companyType: await resolveCompanyType(sb, frameworkSymbols),
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String(error), code: "framework_unavailable" }), {
+      status: 503, headers: { ...CORS, "Content-Type": "application/json" },
+    });
+  }
+
   // Create run record
   const { data: run, error: runErr } = await sb
     .from("agent_runs")
-    .insert({ agent_id, user_id: user.id, status: "running" })
+    .insert({ agent_id, user_id: user.id, status: "running", framework_version_id: framework.versionId, framework_version: framework.label })
     .select("id")
     .single();
 
@@ -881,7 +666,7 @@ Deno.serve(async (req: Request) => {
       const startedAt = Date.now();
 
       try {
-        const enabledTools: string[] = agent.tools ?? [];
+        const enabledTools = applyToolPolicy(agent.tools ?? [], framework);
 
         const SYM_PREFIX  = "__TARGET_SYMBOL__: ";
         const rawPrompt   = agent.system_prompt ?? "";
@@ -909,17 +694,6 @@ Deno.serve(async (req: Request) => {
         const kbDocIds: string[] = agent.kb_document_ids ?? [];
         const toolDefs = getAgentToolDefs(enabledTools, kbDocIds.length > 0);
 
-        // For portfolio_health template: add portfolio_read automatically if not already
-        if (agent.template_id === "portfolio_health" && !enabledTools.includes("portfolio_read")) {
-          toolDefs.push(OPENAI_TOOL_DEFS.portfolio_read);
-        }
-
-        // daily_digest: đảm bảo luôn có news_feed + price_feed
-        if (agent.template_id === "daily_digest") {
-          if (!enabledTools.includes("news_feed")) toolDefs.push(OPENAI_TOOL_DEFS.news_feed);
-          if (!enabledTools.includes("price_feed")) toolDefs.push(OPENAI_TOOL_DEFS.price_feed);
-        }
-
         // ── TỐI ƯU CHI PHÍ (giữ nguyên output) ──────────────────────────────────
         // Thay tool-loop (LLM gọi tool từng vòng, mỗi vòng gửi lại TOÀN BỘ ngữ cảnh →
         // độn token 80-130k) bằng: NẠP SẴN đúng bộ tool đang bật (song song, 1 lượt)
@@ -933,85 +707,31 @@ Deno.serve(async (req: Request) => {
         const BRIEF_FINANCIALS_TEMPLATES = new Set(["insider_buy", "volume_spike"]);
         const financialsDepth: "full" | "brief" = BRIEF_FINANCIALS_TEMPLATES.has(agent.template_id) ? "brief" : "full";
         let prefetchedContext = "";
+        let toolExecutionRecords: ToolExecutionRecord[] = [];
         if (fetchToolNames.length > 0) {
           emit({ type: "step", step: "prefetch", status: "loading", label: "Đang lấy dữ liệu (giá, tin tức, tài chính)..." });
-          prefetchedContext = await prefetchToolContext(
+          const prefetched = await prefetchToolContext(
             fetchToolNames, syms, registry, sources, user.id, kbDocIds,
             (agent as any).news_sources ?? undefined,
             syms.length ? syms.join(" ") : cleanPrompt.slice(0, 200),
             financialsDepth,
           );
+          prefetchedContext = prefetched.context;
+          toolExecutionRecords = prefetched.records;
           emit({ type: "step", step: "prefetch", status: "done", label: "Đã lấy đủ dữ liệu" });
         }
         const hasData = prefetchedContext.length > 0;
         toolDefs.length = 0;  // đã nạp sẵn → LLM gọi đúng 1 lần
 
         // ── Build system prompt (no pre-fetched data — data comes from tools) ─
-
-        const DEFAULT_DAILY_DIGEST_PROMPT = `Bạn là trợ lý phân tích chứng khoán Wealbee. Nhiệm vụ: tạo bản tin thị trường hàng ngày.
-
-Cấu trúc bản tin:
-1. **Tổng quan thị trường** — VN-Index, HNX, top tăng/giảm trong phiên gần nhất
-2. **Tin tức nổi bật** — các tin có tác động cao nhất trong 24-48h, kèm nguồn và ngày đăng
-3. **Danh mục đáng chú ý** — nếu có tin liên quan mã trong danh sách theo dõi
-4. Disclaimer pháp lý
-
-Nguyên tắc:
-- Chỉ viết dữ liệu có trong kết quả tool, KHÔNG bịa số liệu
-- Mỗi số liệu phải có [ref:N] liền sau
-- Tin tức phải có tên nguồn và ngày đăng rõ ràng`;
-
         const basePrompt = cleanPrompt.trim()
-          || (agent.template_id === "daily_digest" ? DEFAULT_DAILY_DIGEST_PROMPT : "")
           || template?.system_prompt
           || "Bạn là trợ lý phân tích chứng khoán Việt Nam.";
         console.log(`[run-agent] prompt source: ${cleanPrompt.trim() ? "custom" : template?.system_prompt ? "template" : "fallback"}, tools: [${enabledTools.join(",")}]`);
 
         const isDailyDigest = agent.template_id === "daily_digest";
 
-        const GROUNDING_RULES_FORMAT = isDailyDigest
-          ? `**ĐỊNH DẠNG MÀU SẮC — KHI NGƯỜI DÙNG YÊU CẦU TÔ MÀU**
-- Dùng HTML inline: \`<span style="color:red">con số</span>\` cho màu đỏ
-- Dùng \`<span style="color:green">con số</span>\` cho màu xanh, tương tự với các màu khác
-- CHỈ wrap phần text cần tô màu, không wrap cả câu
-`
-          : `**ĐỊNH DẠNG OUTPUT — BẮT BUỘC**
-- Chỉ dùng **Markdown thuần** (##, ###, -, **, *italic*)
-- TUYỆT ĐỐI KHÔNG dùng HTML tags (<div>, <span>, <a>, <ul>, <li>, <br>, <style>, v.v.)
-- Nếu muốn link: dùng [label](url) — KHÔNG dùng <a href="...">
-`;
-
-        const GROUNDING_RULES = `
-
-## ══ QUY TẮC BẮT BUỘC TUYỆT ĐỐI ══
-${GROUNDING_RULES_FORMAT}
-**NGUỒN DỮ LIỆU**
-${hasData
-  ? `- Toàn bộ dữ liệu (giá, tin tức, tài chính...) đã được cung cấp SẴN ở mục NGUỒN DỮ LIỆU bên dưới
-- CHỈ dùng dữ liệu đó — KHÔNG dùng kiến thức nền hay số liệu từ training data`
-  : `- Chưa có dữ liệu — hãy thông báo người dùng bật tool trong Agent Studio để lấy dữ liệu thực tế`}
-
-**CHỈ VIẾT NHỮNG GÌ CÓ TRONG DỮ LIỆU**
-- Chỉ được đề cập thông tin, số liệu XUẤT HIỆN TRỰC TIẾP trong dữ liệu cung cấp
-- Nếu chủ đề KHÔNG có trong dữ liệu → bỏ qua hoàn toàn, không nhắc đến
-- KHÔNG ước tính, KHÔNG nội suy từ training data
-
-**BẢNG DỮ LIỆU — GIỮ ĐÚNG ĐỊNH DẠNG NGUỒN**
-- KHÔNG transpose/pivot/reformat bảng từ nguồn dữ liệu
-- Ô "—" trong bảng = không có data — KHÔNG điền số vào ô đó
-
-**TRÍCH DẪN NGUỒN — BẮT BUỘC VỚI MỌI SỐ LIỆU**
-- Mỗi con số, phần trăm, giá trị cụ thể PHẢI có token [ref:N] liền sau
-- Token [ref:N] có sẵn trong kết quả tool — chỉ dùng những ref đó, KHÔNG tự bịa thêm
-
-**THỜI GIAN — CHÍNH XÁC**
-- Mỗi dòng giá có "phiên YYYY-MM-DD" — PHẢI dùng đúng ngày đó
-- Nếu dữ liệu giá ghi "Chưa có dữ liệu trong DB" → bỏ qua mục giá hoàn toàn
-
-**TUÂN THỦ PHÁP LÝ**
-- KHÔNG khuyến nghị mua/bán bất kỳ cổ phiếu nào
-- Cuối output PHẢI có: *"Thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019"*`;
-
+        const frameworkPrompt = buildFrameworkPrompt(framework, basePrompt);
         // Nạp sẵn toàn bộ dữ liệu tool vào system prompt (gọi-1-lần, không tool-loop)
         const dataBlock = hasData
           ? `
@@ -1026,7 +746,7 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
 ═══════════════════════════════════════`
           : "";
 
-        const systemPrompt = basePrompt + GROUNDING_RULES + dataBlock;
+        const systemPrompt = frameworkPrompt + dataBlock;
 
         const symList = syms.length > 0 ? syms.join(", ") : null;
 
@@ -1039,144 +759,52 @@ HẾT NGUỒN DỮ LIỆU — KHÔNG DÙNG BẤT KỲ SỐ LIỆU NÀO NGOÀI PH
 
         // ── Model selection ───────────────────────────────────────────────────
 
-        let { provider, apiModel } = MODEL_MAP[agent.model ?? ""] ?? DEFAULT_MODEL;
-        if (provider === "anthropic" && !ANTHROPIC_API_KEY) {
-          console.warn(`[run-agent] ANTHROPIC_API_KEY not set, falling back to gpt-4o-mini`);
-          provider = "openai";
-          apiModel  = "gpt-4.1-mini";
-          emit({ type: "step", step: "gpt", status: "loading", label: `⚠ ${agent.model} chưa có API key → dùng GPT-4o mini` });
-        } else {
-          emit({ type: "step", step: "gpt", status: "loading", label: `Đang phân tích...` });
-        }
+        const modelCfg = getModelConfig(agent.model);
+        const { provider, apiModel } = modelCfg;
+        if (!isProviderAvailable(provider)) throw new Error(`${provider} chưa được cấu hình API key`);
+        emit({ type: "step", step: "gpt", status: "loading", label: `Đang phân tích bằng ${apiModel}...` });
 
         // ── True tool-call loop ───────────────────────────────────────────────
         // LLM decides WHEN and WHICH tools to call. No pre-fetching.
 
-        const messages: any[] = [
+        const messages: LLMMessage[] = [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
         ];
+        const callableToolIds = new Set(
+          toolDefs.map((definition: any) => definition?.function?.name).filter(Boolean),
+        );
 
         let fullOutput = "";
         let tokens = 0;
         let tokensIn = 0, tokensOut = 0, cachedIn = 0;
-        const MAX_TOOL_ITERS = 8; // max tool-call rounds before forcing final answer
-
-        for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
-          // ── OpenAI tool-calling (non-streaming for intermediate, streaming for final) ──
-          if (provider === "openai" || (provider === "anthropic" && toolDefs.length > 0)) {
-            const useOpenAI = provider === "openai" || !ANTHROPIC_API_KEY;
-            const callModel = useOpenAI ? apiModel : "gpt-4.1-mini"; // use OpenAI for tool loop even if final is Anthropic
-
-            const callBody: Record<string, any> = {
-              model: callModel,
-              messages,
-              temperature: 0,
-              max_tokens: 8000,
-            };
-            if (toolDefs.length > 0) {
-              callBody.tools = toolDefs;
-              callBody.tool_choice = "auto";
-            }
-
-            const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-              method: "POST",
-              headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify(callBody),
+        const engineToolStarts = new Map<string, string>();
+        for await (const event of AGENT_ENGINE.run({
+          model: modelCfg, messages, tools: toolDefs as any, maxTokens: 8000, temperature: 0,
+          registry: TOOL_REGISTRY, maxToolIterations: 8,
+          toolContext: {
+            userId: user.id, enabledToolIds: callableToolIds,
+            state: { registry, sources, kbDocIds, newsFilter: (agent as any).news_sources ?? undefined, financialsDepth: "full" },
+          },
+        })) {
+          if (event.type === "usage") {
+            tokensIn += event.usage.inputTokens; tokensOut += event.usage.outputTokens;
+            cachedIn += event.usage.cachedInputTokens; tokens += event.usage.inputTokens + event.usage.outputTokens;
+          } else if (event.type === "tool_start") {
+            engineToolStarts.set(event.call.id, new Date().toISOString());
+            const label = toolStepLabel(event.call.name, event.call.arguments as any);
+            emit({ type: "step", step: event.call.name, status: "loading", label: `Đang lấy: ${label}...` });
+          } else if (event.type === "tool_end") {
+            toolExecutionRecords.push({
+              callKey: `engine-${event.call.id}`, toolId: event.call.name,
+              arguments: event.call.arguments, output: event.content,
+              startedAt: engineToolStarts.get(event.call.id) ?? new Date().toISOString(),
+              finishedAt: new Date().toISOString(), status: event.content.startsWith("Lỗi thực thi tool") ? "error" : "completed",
+              error: event.content.startsWith("Lỗi thực thi tool") ? event.content : undefined,
             });
-            if (!aiRes.ok) throw new Error(`OpenAI ${aiRes.status}: ${await aiRes.text()}`);
-
-            const json = await aiRes.json();
-            tokens += json.usage?.total_tokens ?? 0;
-            tokensIn  += json.usage?.prompt_tokens ?? 0;
-            tokensOut += json.usage?.completion_tokens ?? 0;
-            cachedIn  += json.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-            const assistantMsg = json.choices?.[0]?.message;
-
-            if (!assistantMsg?.tool_calls?.length) {
-              // No tool calls → this is the final answer
-              fullOutput = assistantMsg?.content ?? "";
-              emit({ type: "chunk", text: fullOutput });
-              break;
-            }
-
-            // Has tool calls → execute all in parallel
-            messages.push(assistantMsg);
-
-            const toolResults = await Promise.all(
-              (assistantMsg.tool_calls as any[]).map(async (tc) => {
-                const name: string = tc.function.name;
-                let args: Record<string, any> = {};
-                try { args = JSON.parse(tc.function.arguments ?? "{}"); } catch { /* ignore */ }
-
-                const label = toolStepLabel(name, args);
-                emit({ type: "step", step: name, status: "loading", label: `Đang lấy: ${label}...` });
-
-                let content: string;
-                try {
-                  content = await executeToolCall(
-                    name, args, registry, sources, user.id, kbDocIds,
-                    (agent as any).news_sources ?? undefined,
-                  );
-                } catch (e) {
-                  content = `Lỗi thực thi tool ${name}: ${String(e)}`;
-                }
-
-                emit({ type: "step", step: name, status: "done", label });
-                return { role: "tool", tool_call_id: tc.id, content };
-              })
-            );
-
-            messages.push(...toolResults);
-
-          } else {
-            // ── Anthropic streaming (no tools or Anthropic-native final answer) ──
-            const anthropicMessages = messages
-              .filter(m => m.role !== "system")
-              .map(m => ({ role: m.role, content: m.content ?? "" }));
-
-            const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: {
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-              },
-              body: JSON.stringify({
-                model: apiModel,
-                max_tokens: 8000,
-                temperature: 0,
-                system: systemPrompt,
-                messages: anthropicMessages,
-                stream: true,
-              }),
-            });
-            if (!aiRes.ok) throw new Error(`Anthropic ${aiRes.status}: ${await aiRes.text()}`);
-
-            const reader = aiRes.body!.getReader();
-            const dec = new TextDecoder();
-            let buf = "";
-            while (true) {
-              const { done, value } = await reader.read();
-              if (value) buf += dec.decode(value, { stream: !done });
-              const lines = buf.split("\n");
-              buf = done ? "" : (lines.pop() ?? "");
-              for (const line of lines) {
-                if (!line.startsWith("data: ")) continue;
-                try {
-                  const parsed = JSON.parse(line.slice(6).trim());
-                  if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
-                    const chunk = parsed.delta.text ?? "";
-                    if (chunk) { fullOutput += chunk; emit({ type: "chunk", text: chunk }); }
-                  }
-                  if (parsed.type === "message_delta" && parsed.usage) {
-                    tokens = (parsed.usage.input_tokens ?? 0) + (parsed.usage.output_tokens ?? 0);
-                  }
-                } catch { /* ignore */ }
-              }
-              if (done) break;
-            }
-            break; // Anthropic streaming always produces final answer
+            emit({ type: "step", step: event.call.name, status: "done", label: toolStepLabel(event.call.name, event.call.arguments as any) });
+          } else if (event.type === "text") {
+            fullOutput = event.text; emit({ type: "chunk", text: fullOutput });
           }
         }
 
@@ -1258,24 +886,18 @@ QUY TẮC:
 
             const valUser = `NGUỒN DỮ LIỆU:\n${sourceData}\n\nOUTPUT CẦN KIỂM TRA:\n${protectedOutput}`;
 
-            const valRes = await fetch("https://api.openai.com/v1/chat/completions", {
-              method: "POST",
-              headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model: "gpt-4.1-mini",
+            try {
+              const valResult = await LLM_RUNTIME.complete({
+                model: getModelConfig("gpt-4o-mini"),
                 messages: [{ role: "system", content: valSystem }, { role: "user", content: valUser }],
                 temperature: 0,
-                max_tokens: 8000,
-              }),
-            });
-
-            if (valRes.ok) {
-              const valJson = await valRes.json();
-              tokens    += valJson.usage?.total_tokens ?? 0;
-              tokensIn  += valJson.usage?.prompt_tokens ?? 0;
-              tokensOut += valJson.usage?.completion_tokens ?? 0;
-              cachedIn  += valJson.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-              let validated = valJson.choices?.[0]?.message?.content?.trim() ?? "";
+                maxTokens: 8000,
+              });
+              tokens += valResult.usage.inputTokens + valResult.usage.outputTokens;
+              tokensIn += valResult.usage.inputTokens;
+              tokensOut += valResult.usage.outputTokens;
+              cachedIn += valResult.usage.cachedInputTokens;
+              let validated = valResult.content.trim();
               // Restore [ref:N] tokens from placeholders
               for (const [ph, ref] of Object.entries(refPlaceholders)) {
                 validated = validated.replaceAll(ph, ref);
@@ -1285,6 +907,8 @@ QUY TẮC:
                 fullOutput = validated;
                 emit({ type: "reset_output", output: fullOutput });
               }
+            } catch (validationError) {
+              console.warn("[run-agent] validation skipped:", validationError);
             }
             emit({ type: "step", step: "validate", status: "done", label: "Đã xác minh nguồn dữ liệu" });
           }
@@ -1324,13 +948,23 @@ QUY TẮC:
 
         emit({ type: "step", step: "save", status: "loading", label: "Đang lưu vào Inbox..." });
 
+        const allRefs = registry.toArray();
+        const declaredAsOf = deriveDataAsOf(toolExecutionRecords).slice(0, 10);
+        fullOutput = `${fullOutput.trim()}\n\n*Dữ liệu chốt đến: ${declaredAsOf}*`;
+        emit({ type: "reset_output", output: fullOutput });
+        const provenance = await persistRunProvenance(sb, run.id, toolExecutionRecords, allRefs, fullOutput);
+        if (framework.outputContract.unlinked_claim_policy === "block" && provenance.unlinked > 0) {
+          throw new Error(`Grounding contract blocked output: ${provenance.unlinked} claim chưa liên kết evidence`);
+        }
+
         await sb.from("agent_runs").update({
           status: "completed", output: fullOutput, tokens_used: tokens,
           duration_ms: durationMs, finished_at: new Date().toISOString(),
+          data_as_of: provenance.asOf, provenance_summary: provenance,
         }).eq("id", run.id);
 
         // Use pre-validation refs (scanned before validation pass may have stripped them)
-        const regArray = registry.toArray().filter(r => preValidationRefs.has(r.index));
+        const regArray = allRefs.filter(r => preValidationRefs.has(r.index));
 
         // Keep sources that are either cited via [ref:N] OR are news articles (always show)
         const usedUrls = new Set(regArray.map(r => r.url));
@@ -1360,6 +994,8 @@ QUY TẮC:
           impact_score: impact, tickers, is_read: false,
           sources: uniqueSourcesPersist,
           refs: regArray,
+          as_of: provenance.asOf,
+          provenance_summary: provenance,
         }).select("id").single();
 
         if (briefErr) {
@@ -1418,11 +1054,13 @@ QUY TẮC:
         if (uniqueSourcesPersist.length > 0) {
           emit({ type: "sources", sources: uniqueSourcesPersist });
         }
+        emit({ type: "provenance", framework_version: framework.label, as_of: provenance.asOf, summary: provenance });
 
-        // Trừ credit theo token thật (1 credit = 40đ giá trị API)
-        const charge = await deduct(sb, user.id, tokensIn, tokensOut, `run-agent:${agent.name ?? ""}`.slice(0, 80), cachedIn);
+        // Trừ credit theo phí thật của model đã chọn (không cố định gpt-4.1-mini nữa)
+        const runCostVnd = costVndForModel(modelCfg, tokensIn, tokensOut, cachedIn);
+        const charge = await deduct(sb, user.id, tokensIn, tokensOut, `run-agent:${agent.name ?? ""}`.slice(0, 80), cachedIn, runCostVnd);
 
-        emit({ type: "done", title, brief_id: brief?.id, run_id: run.id, tokens, duration_ms: durationMs, credits_used: charge.credits_used, balance: charge.balance });
+        emit({ type: "done", title, brief_id: brief?.id, run_id: run.id, tokens, duration_ms: durationMs, framework_version: framework.label, as_of: provenance.asOf, credits_used: charge.credits_used, balance: charge.balance });
 
       } catch (err) {
         const durationMs = Date.now() - startedAt;
