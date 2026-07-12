@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useSearchParams } from "react-router";
 import {
   Sparkles, Clock, ChevronRight, BookOpen,
@@ -35,6 +35,7 @@ interface Brief {
   refs: Array<{ index: number; label: string; url: string }>;
   time: string;
   date: string;
+  dayLabel: string;
   symbol?: string;
   read: boolean;
 }
@@ -53,6 +54,39 @@ function parseBriefContent(content: string): BriefOutput | null {
   } catch {
     return null;
   }
+}
+
+// ── Làm sạch text hiển thị trong list ────────────────────────────────────────
+// Content agent sinh ra đôi khi lộ markdown thô: title = "```markdown",
+// summary = "| Chỉ tiêu (tỷ đồng) | 2021 |..." — phải dọn trước khi hiển thị.
+function stripMdArtifacts(s: string): string {
+  return s
+    .replace(/```[a-zA-Z]*/g, " ")   // code fence ```markdown
+    .replace(/^#{1,6}\s*/gm, "")      // heading #
+    .replace(/\*\*/g, "")             // bold **
+    .replace(/\|/g, " ")              // bảng markdown |cột|cột|
+    .replace(/[-–—]{3,}/g, " ")       // divider ---
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// Title sạch; nếu title gốc là rác markdown → lấy câu đầu của summary,
+// cuối cùng fallback theo tên agent để không bao giờ hiện chuỗi vô nghĩa.
+function displayTitle(rawTitle: string, rawSummary: string, agentName: string): string {
+  const t = stripMdArtifacts(rawTitle);
+  if (t.length >= 4 && t.toLowerCase() !== "markdown" && t !== "Untitled") return t;
+  const s = stripMdArtifacts(rawSummary).split(/(?<=[.!?])\s|\n/)[0]?.trim() ?? "";
+  if (s.length >= 4) return s;
+  return `Báo cáo từ ${agentName}`;
+}
+
+// Nhãn ngày để nhóm list (Hôm nay / Hôm qua / Thứ X, d/m)
+function dayLabelOf(d: Date): string {
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000);
+  if (diff === 0) return "Hôm nay";
+  if (diff === 1) return "Hôm qua";
+  return d.toLocaleDateString("vi-VN", { weekday: "long", day: "numeric", month: "numeric" });
 }
 
 // ── HTML export ──────────────────────────────────────────────────────────────
@@ -263,18 +297,25 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
         const parsedBrief = parseBriefContent(rawContent);
         const createdAt = new Date(row.created_at);
         const agentInfo = row.agents as { name?: string } | null;
+        const agentName = agentInfo?.name ?? "Agent đã xoá";
+        const cleanTitle = displayTitle(row.title ?? "", row.summary ?? "", agentName);
+        let cleanSummary = stripMdArtifacts(row.summary ?? "");
+        // Title fallback từ summary → tránh hiện trùng 2 dòng giống hệt nhau
+        if (cleanSummary && cleanTitle.startsWith(cleanSummary.slice(0, Math.min(40, cleanSummary.length)))) cleanSummary = "";
+        if (cleanSummary.startsWith(cleanTitle)) cleanSummary = cleanSummary.slice(cleanTitle.length).replace(/^[\s·.,:-]+/, "");
         return {
           id: row.id,
-          agentName: agentInfo?.name ?? "Agent đã xoá",
+          agentName,
           agentDeleted: !agentInfo,
           briefType: row.type ?? "system",
-          title: row.title ?? "Untitled",
-          summary: row.summary ?? "",
+          title: cleanTitle,
+          summary: cleanSummary,
           rawContent,
           parsedBrief,
           refs: Array.isArray(row.refs) ? row.refs : [],
           time: createdAt.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
           date: createdAt.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" }),
+          dayLabel: dayLabelOf(createdAt),
           symbol: row.tickers?.[0],
           read: row.is_read ?? false,
         };
@@ -601,9 +642,23 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
             summary: brief.summary,
           };
 
+          // Mobile: giờ không kèm ngày dễ hiểu nhầm (23:45 vs 07:35 là 2 ngày khác nhau)
+          // → chèn header nhóm ngày kiểu app mail
+          const showDayHeader = isMobile && (idx === 0 || filtered[idx - 1].dayLabel !== brief.dayLabel);
+
           return (
+            <Fragment key={brief.id}>
+            {showDayHeader && (
+              <div style={{
+                padding: idx === 0 ? "12px 16px 6px" : "16px 16px 6px",
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase",
+                color: fgSubtle, background: isDark ? "rgba(255,255,255,0.02)" : "rgba(8,73,172,0.02)",
+                borderBottom: `1px solid ${divider}`,
+              }}>
+                {brief.dayLabel}
+              </div>
+            )}
             <div
-              key={brief.id}
               {...makeDragHandlers(dragCard)}
               onClick={() => { setCtxMenu(null); selectMode ? toggleSelected(brief.id) : open(brief); }}
               onContextMenu={(e) => {
@@ -652,7 +707,49 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
               )}
 
               {/* Content */}
-              <div style={{ flex: 1, padding: "16px", minWidth: 0 }}>
+              <div style={{ flex: 1, padding: isMobile ? "13px 0 13px 14px" : "16px", minWidth: 0 }}>
+                {isMobile ? (
+                  /* ── Row mobile kiểu app mail: người gửi + giờ / tiêu đề 2 dòng / preview 1 dòng ── */
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      {!brief.read && (
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: brand, flexShrink: 0 }} />
+                      )}
+                      <span style={{
+                        flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: brief.read ? 600 : 700, color: brand,
+                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                      }}>
+                        {brief.agentName}
+                      </span>
+                      {brief.symbol && (
+                        <span
+                          onClick={(e) => { e.stopPropagation(); onSelectTicker?.(brief.symbol!); }}
+                          style={{
+                            fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, flexShrink: 0,
+                            background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
+                            color: brand, cursor: onSelectTicker ? "pointer" : "default",
+                          }}
+                        >
+                          {brief.symbol}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 11.5, color: fgSubtle, flexShrink: 0 }}>{brief.time}</span>
+                    </div>
+                    <div style={{
+                      fontSize: 15, fontWeight: brief.read ? 500 : 700, color: fg, lineHeight: 1.4,
+                      letterSpacing: brief.read ? 0 : "-0.01em",
+                      overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const,
+                    }}>
+                      {brief.title}
+                    </div>
+                    {brief.summary && (
+                      <div style={{ fontSize: 13, color: fgSubtle, lineHeight: 1.5, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {brief.summary}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
                     <span style={{
@@ -660,7 +757,6 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                       fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
                       background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)",
                       color: brand,
-                      // Tên agent dài ("Phân tích lãnh đạo mua cổ phiếu") gãy 3 dòng ở 375px → 1 dòng ellipsis
                       whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190, minWidth: 0,
                     }}>
                       <BookOpen size={10} strokeWidth={2} style={{ flexShrink: 0 }} />
@@ -694,11 +790,13 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                 <div style={{ fontSize: 13, color: fgSubtle, lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {brief.summary}
                 </div>
+                  </>
+                )}
               </div>
 
-              {/* Drag hint + Chevron */}
-              <div style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: 16 }}>
-                <div className="drag-hint" style={{
+              {/* Drag hint + Chevron — hint hover-only, ẩn trên mobile (tap làm hint kẹt hiển thị) */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: isMobile ? 10 : 16 }}>
+                {!isMobile && <div className="drag-hint" style={{
                   display: "flex", alignItems: "center", gap: 3,
                   background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)",
                   borderRadius: 6, padding: "3px 7px",
@@ -706,10 +804,11 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                 }}>
                   <GripVertical size={10} color={brand} strokeWidth={2} />
                   <span style={{ fontSize: 10, fontWeight: 700, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>Kéo vào AI</span>
-                </div>
+                </div>}
                 <ChevronRight size={16} color={fgSubtle} strokeWidth={1.5} />
               </div>
             </div>
+            </Fragment>
           );
         })}
       </div>
