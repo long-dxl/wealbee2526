@@ -1,8 +1,49 @@
-import React, { useRef } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { ArrowRight, Play, Sparkles } from "lucide-react";
 import { motion, useMotionValue, useSpring, useTransform } from "motion/react";
 import { DashboardMock } from "./dashboard-mock";
 import { Button } from "./primitives";
+
+/* Mobile: DashboardMock có grid cột cứng 164px|1fr|232px (~780px) — render nguyên
+   kích thước rồi scale vừa bề ngang viewport, thay vì để overflow-hidden xén mất
+   cột Action Hub bên phải. */
+const MOCK_NATURAL_W = 780;
+const MOCK_NATURAL_H = 440 + 38; // DashboardMock (440) + thanh browser chrome
+
+function MobileScaledMock() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.45);
+
+  useEffect(() => {
+    const update = () => { if (ref.current) setScale(ref.current.offsetWidth / MOCK_NATURAL_W); };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  return (
+    <div ref={ref} className="w-full" style={{ height: MOCK_NATURAL_H * scale }}>
+      <div style={{ width: MOCK_NATURAL_W, transform: `scale(${scale})`, transformOrigin: "top left" }}>
+        <div
+          className="overflow-hidden rounded-[16px]"
+          style={{ border: "1px solid var(--wb-mock-line)", boxShadow: "0 30px 70px rgba(8,73,172,0.35)" }}
+        >
+          <div className="flex items-center gap-2 px-4 py-2.5" style={{ background: "var(--wb-mock-chrome)", borderBottom: "1px solid var(--wb-mock-divider)" }}>
+            <div className="flex gap-1.5">
+              <span className="size-2.5 rounded-full" style={{ background: "#FF5F57" }} />
+              <span className="size-2.5 rounded-full" style={{ background: "#FEBC2E" }} />
+              <span className="size-2.5 rounded-full" style={{ background: "#28C840" }} />
+            </div>
+            <div className="ml-3 flex-1 rounded-md px-3 py-1" style={{ background: "var(--wb-mock-inset)", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "var(--wb-mock-faint)" }}>
+              wealbee.com
+            </div>
+          </div>
+          <DashboardMock />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* 3D showcase - tilts toward the mouse, floats, glows */
 function Showcase3D() {
@@ -96,7 +137,7 @@ function Showcase3D() {
 
 export function Hero({ onOpenDemo }: { onOpenDemo: () => void }) {
   return (
-    <section id="top" className="relative overflow-hidden pt-28 pb-32 lg:pt-36">
+    <section id="top" className="relative overflow-hidden pt-24 pb-16 md:pt-28 md:pb-32 lg:pt-36">
       {/* glow mesh */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute left-1/2 top-[2%] size-[760px] -translate-x-1/2 rounded-full opacity-60 blur-[130px]" style={{ background: "radial-gradient(circle, var(--wb-primary), transparent 65%)" }} />
@@ -159,11 +200,9 @@ export function Hero({ onOpenDemo }: { onOpenDemo: () => void }) {
         <Showcase3D />
       </div>
 
-      {/* mobile fallback (no 3D) */}
-      <div className="relative mx-auto mt-14 max-w-[480px] px-5 md:hidden">
-        <div className="overflow-hidden rounded-[14px]" style={{ border: "1px solid var(--wb-mock-line)", boxShadow: "0 30px 70px rgba(8,73,172,0.35)" }}>
-          <DashboardMock />
-        </div>
+      {/* mobile fallback (no 3D) — scale nguyên mock desktop cho vừa màn hình */}
+      <div className="relative mx-auto mt-10 max-w-[480px] px-5 md:hidden">
+        <MobileScaledMock />
       </div>
     </section>
   );

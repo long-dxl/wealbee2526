@@ -51,7 +51,7 @@ function SatCard({
 /* ─── Features ─── */
 export function Features() {
   return (
-    <section id="features" className="py-24" style={{ background: "var(--wb-elev)" }}>
+    <section id="features" className="py-14 md:py-24" style={{ background: "var(--wb-elev)" }}>
       <div className="mx-auto max-w-[1200px] px-5">
         <Reveal className="mx-auto max-w-[760px] text-center">
           <h2 className="mt-4" style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: "clamp(26px,3.4vw,38px)", lineHeight: 1.2, color: "var(--wb-text)" }}>
@@ -189,7 +189,7 @@ const TEMPLATES = [
 
 export function TemplateAgents() {
   return (
-    <section className="py-24">
+    <section className="py-14 md:py-24">
       <div className="mx-auto max-w-[1200px] px-5">
         <Reveal className="mx-auto max-w-[760px] text-center">
           <h2 className="mt-4" style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: "clamp(26px,3.4vw,38px)", lineHeight: 1.2, color: "var(--wb-text)" }}>

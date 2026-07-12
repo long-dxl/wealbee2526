@@ -31,7 +31,7 @@ export function Personas() {
   const [active, setActive] = useState(0);
   const p = PERSONAS[active];
   return (
-    <section id="personas" className="py-24">
+    <section id="personas" className="py-14 md:py-24">
       <div className="mx-auto max-w-[1000px] px-5">
         <Reveal className="text-center">
           <h2 className="mt-4" style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: "clamp(26px,3.4vw,38px)", lineHeight: 1.2, color: "var(--wb-text)" }}>
@@ -90,7 +90,7 @@ const ROWS = [
 
 export function Comparison() {
   return (
-    <section className="py-24" style={{ background: "var(--wb-elev)" }}>
+    <section className="py-14 md:py-24" style={{ background: "var(--wb-elev)" }}>
       <div className="mx-auto max-w-[920px] px-5">
         <Reveal className="text-center">
           <h2 className="mt-4" style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: "clamp(26px,3.4vw,38px)", lineHeight: 1.2, color: "var(--wb-text)" }}>

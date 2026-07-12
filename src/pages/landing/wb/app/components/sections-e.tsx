@@ -5,10 +5,10 @@ import { WealbeeLogo } from "./wealbee-logo";
 /* ───────────────────────────── Final CTA ───────────────────────────── */
 export function FinalCTA({ onOpenDemo }: { onOpenDemo: () => void }) {
   return (
-    <section className="px-5 py-24">
+    <section className="px-5 py-14 md:py-24">
       <Reveal>
         <div
-          className="relative mx-auto max-w-[1100px] overflow-hidden rounded-[24px] px-6 py-20 text-center"
+          className="relative mx-auto max-w-[1100px] overflow-hidden rounded-[24px] px-6 py-12 md:py-20 text-center"
           style={{ background: "linear-gradient(135deg, var(--wb-deep), var(--wb-primary) 55%, var(--wb-bright))" }}
         >
           <div className="pointer-events-none absolute inset-0">

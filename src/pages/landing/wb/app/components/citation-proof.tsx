@@ -22,7 +22,7 @@ export function CitationProof() {
   const [open, setOpen] = useState(true);
 
   return (
-    <section className="py-24">
+    <section className="py-14 md:py-24">
       <div className="mx-auto max-w-[1200px] px-5">
         <Reveal className="mx-auto max-w-[800px] text-center">
           <Eyebrow>Citation Engine</Eyebrow>

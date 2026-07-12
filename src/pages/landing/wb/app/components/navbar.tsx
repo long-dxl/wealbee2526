@@ -96,6 +96,16 @@ export function Navbar({ theme, onToggleTheme, onOpenDemo }: { theme: "dark" | "
                 {l.label}
               </a>
             ))}
+            {/* Đăng nhập bị ẩn khỏi thanh nav ở <640px (hidden sm:block) — phải có trong menu
+                mobile, nếu không user điện thoại không có đường đăng nhập từ landing */}
+            <Link
+              to="/login"
+              onClick={() => setOpen(false)}
+              className="rounded-md px-3 py-2.5"
+              style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: 15, color: "var(--wb-text)", textDecoration: "none" }}
+            >
+              Đăng nhập
+            </Link>
             <Button
               type="button"
               onClick={() => { setOpen(false); onOpenDemo(); }}

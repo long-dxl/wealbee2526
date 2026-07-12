@@ -12,7 +12,7 @@ const STATS = [
 
 export function TrustStrip() {
   return (
-    <section className="py-20" style={{ borderTop: "1px solid var(--wb-border)", borderBottom: "1px solid var(--wb-border)", background: "var(--wb-elev)" }}>
+    <section className="py-12 md:py-20" style={{ borderTop: "1px solid var(--wb-border)", borderBottom: "1px solid var(--wb-border)", background: "var(--wb-elev)" }}>
       <div className="mx-auto flex max-w-[1200px] flex-col items-start gap-16 px-5 lg:flex-row lg:gap-20">
 
         {/* Left - heading + description (matches reference left column) */}
@@ -90,7 +90,7 @@ const PAINS = [
 
 export function Problem() {
   return (
-    <section className="py-24">
+    <section className="py-14 md:py-24">
       <div className="mx-auto max-w-[1200px] px-5">
         <Reveal className="mx-auto max-w-[760px] text-center">
           <h2 className="mt-4" style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: "clamp(26px,3.4vw,38px)", lineHeight: 1.2, color: "var(--wb-text)" }}>
@@ -136,7 +136,7 @@ export function Problem() {
 /* ───────────────────────────── How it works ───────────────────────────── */
 export function HowItWorks() {
   return (
-    <section id="how" className="pt-24 pb-8" style={{ background: "var(--wb-elev)" }}>
+    <section id="how" className="pt-14 pb-6 md:pt-24 md:pb-8" style={{ background: "var(--wb-elev)" }}>
       <div className="mx-auto max-w-[1200px] px-5">
         <Reveal className="mx-auto max-w-[760px] text-center">
           <h2 className="mt-4" style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: "clamp(26px,3.4vw,38px)", lineHeight: 1.2, color: "var(--wb-text)" }}>

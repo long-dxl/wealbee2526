@@ -75,7 +75,7 @@ export function Pricing({ onOpenDemo }: { onOpenDemo: () => void }) {
   const [billing, setBilling] = useState<BillingPeriod>("monthly");
 
   return (
-    <section id="pricing" className="py-24">
+    <section id="pricing" className="py-14 md:py-24">
       <div className="mx-auto max-w-[1100px] px-5">
         <Reveal className="text-center">
           <h2 className="mt-4" style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 700, fontSize: "clamp(28px,3.6vw,42px)", lineHeight: 1.15, color: "var(--wb-text)" }}>
@@ -233,7 +233,7 @@ const QUOTES = [
 
 export function Testimonials() {
   return (
-    <section className="py-24" style={{ background: "var(--wb-elev)" }}>
+    <section className="py-14 md:py-24" style={{ background: "var(--wb-elev)" }}>
       <div className="mx-auto max-w-[1100px] px-5">
         <Reveal className="text-center">
           <h2 className="mt-4" style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: "clamp(26px,3.4vw,38px)", lineHeight: 1.2, color: "var(--wb-text)" }}>
@@ -297,7 +297,7 @@ const FAQS = [
 export function FAQ() {
   const [open, setOpen] = useState<number | null>(0);
   return (
-    <section id="faq" className="py-24">
+    <section id="faq" className="py-14 md:py-24">
       <div className="mx-auto max-w-[800px] px-5">
         <Reveal className="text-center">
           <h2 className="mt-4" style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: "clamp(26px,3.4vw,38px)", lineHeight: 1.2, color: "var(--wb-text)" }}>
