@@ -515,6 +515,8 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
   const isMobile = useIsMobile();
   // Nút "Hỏi AI" chỉ hiện trên mobile — desktop vẫn dùng drag như cũ
   const askAI = isMobile ? onAskAI : undefined;
+  // Mobile: gộp 2 card Tăng/Giảm mạnh thành 1 card 2 tab
+  const [moverTab, setMoverTab] = useState<"gain" | "loss">("gain");
   const cardBg      = isDark ? "#131824" : "#fff";
   const cardShadow  = isDark ? "0 1px 3px rgba(0,0,0,0.40)" : "0 1px 3px rgba(8,73,172,0.08), 0 1px 2px rgba(0,0,0,0.04)";
   const fg          = isDark ? "rgba(240,242,255,0.90)" : "#1A1A2E";
@@ -871,19 +873,26 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
 
       <div style={{ overflow: "hidden", maxHeight: marketExpanded ? 2000 : 0, opacity: marketExpanded ? 1 : 0, transition: "max-height 350ms ease, opacity 200ms ease" }}>
 
-        {/* Index Cards — mobile: 2 cột (4 card thành 2×2) */}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+        {/* Index Cards — mobile: dải cuộn ngang snap (pattern app CK VN); desktop: grid 4 cột */}
+        <div style={isMobile
+          ? { display: "flex", overflowX: "auto", gap: 12, marginBottom: 16, scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", paddingBottom: 4 }
+          : { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
           {moversLoading && marketIndices.length === 0 ? (
-            [0, 1, 2, 3].map(i => <div key={i} style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, height: 130, opacity: 0.5 }} />)
+            [0, 1, 2, 3].map(i => <div key={i} style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, height: 130, opacity: 0.5, ...(isMobile ? { flex: "0 0 168px" } : {}) }} />)
           ) : (
-            marketIndices.map(idx => <IndexCard key={idx.name} idx={idx} isDark={isDark}
-              onClick={
-                idx.code === "VN30" ? () => { setVn30Active(a => !a); setHnxActive(false); setSelectedSector(null); }
-                : idx.code === "HNX" ? () => { setHnxActive(a => !a); setVn30Active(false); setSelectedSector(null); }
-                : undefined
-              }
-              active={(idx.code === "VN30" && vn30Active) || (idx.code === "HNX" && hnxActive)}
-              onExpand={idx.code ? () => setDetailIndex({ code: idx.code as "VNINDEX" | "HNX" | "VN30" | "UPCOM", name: idx.name }) : undefined} />)
+            marketIndices.map(idx => {
+              const card = <IndexCard key={idx.name} idx={idx} isDark={isDark}
+                onClick={
+                  idx.code === "VN30" ? () => { setVn30Active(a => !a); setHnxActive(false); setSelectedSector(null); }
+                  : idx.code === "HNX" ? () => { setHnxActive(a => !a); setVn30Active(false); setSelectedSector(null); }
+                  : undefined
+                }
+                active={(idx.code === "VN30" && vn30Active) || (idx.code === "HNX" && hnxActive)}
+                onExpand={idx.code ? () => setDetailIndex({ code: idx.code as "VNINDEX" | "HNX" | "VN30" | "UPCOM", name: idx.name }) : undefined} />;
+              return isMobile
+                ? <div key={idx.name} style={{ flex: "0 0 168px", scrollSnapAlign: "start", display: "flex" }}>{card}</div>
+                : card;
+            })
           )}
         </div>
 
@@ -896,8 +905,52 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
           />
         )}
 
-        {/* Top Movers — mobile: xếp dọc */}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 16 }}>
+        {/* Top Movers — mobile: 1 card gộp 2 tab Tăng/Giảm; desktop: 2 card cạnh nhau */}
+        {isMobile && (() => {
+          const rows = moverTab === "gain" ? displayGainers : displayLosers;
+          const tabCard: ContextCard = moverTab === "gain"
+            ? { id: "top-gainers", type: "mover", label: "Tăng mạnh hôm nay", badge: `${displayGainers.length} mã`, summary: displayGainers.map(s => `${s.symbol} +${s.pct.toFixed(2)}%`).join(" · ") }
+            : { id: "top-losers", type: "mover", label: "Giảm mạnh hôm nay", badge: `${displayLosers.length} mã`, summary: displayLosers.map(s => `${s.symbol} ${s.pct.toFixed(2)}%`).join(" · ") };
+          return (
+            <div style={{ background: cardBg, borderRadius: 14, padding: 16, boxShadow: cardShadow, marginBottom: 16, position: "relative" }}>
+              <AskAiButton card={tabCard} onAsk={askAI} />
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <div style={{ display: "flex", background: isDark ? "rgba(255,255,255,0.06)" : "rgba(26,26,46,0.05)", borderRadius: 10, padding: 3, gap: 2 }}>
+                  {([["gain", "Tăng mạnh"], ["loss", "Giảm mạnh"]] as const).map(([id, label]) => (
+                    <button key={id} onClick={() => setMoverTab(id)} style={{
+                      display: "flex", alignItems: "center", gap: 5,
+                      padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer",
+                      background: moverTab === id ? cardBg : "transparent",
+                      boxShadow: moverTab === id ? (isDark ? "0 1px 4px rgba(0,0,0,0.4)" : "0 1px 4px rgba(8,73,172,0.14)") : "none",
+                      fontFamily: "'Montserrat', system-ui, sans-serif",
+                      fontSize: 12.5, fontWeight: moverTab === id ? 700 : 500,
+                      color: moverTab === id ? (id === "gain" ? "#34C759" : "#FF3B30") : fgSubtle,
+                      WebkitTapHighlightColor: "transparent",
+                    }}>
+                      {id === "gain" ? <TrendingUp size={13} strokeWidth={2} /> : <TrendingDown size={13} strokeWidth={2} />}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {scopeLabel && <span style={{ fontSize: 10, fontWeight: 700, color: brand, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)", padding: "2px 7px", borderRadius: 10 }}>{scopeLabel}</span>}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, minHeight: 185 }}>
+                {moversLoading && rows.length === 0
+                  ? Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
+                  : rows.map(s => (
+                    <div key={s.symbol} onClick={() => onSelectTicker?.(s.symbol)}
+                      style={{ display: "flex", alignItems: "center", padding: "9px 8px", borderRadius: 8, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
+                      <span style={{ width: 52, fontWeight: 700, fontSize: 15, color: fg }}>{s.symbol}</span>
+                      <span style={{ flex: 1, fontSize: 13.5, color: fgSubtle, fontVariantNumeric: "tabular-nums" }}>{s.price.toLocaleString("vi-VN")}</span>
+                      <span style={{ marginRight: 8 }}><MoverPctBadge value={s.pct} isCeil={moverTab === "gain" ? s.isCeil : undefined} isFloor={moverTab === "loss" ? s.isFloor : undefined} /></span>
+                      <span style={{ fontSize: 12, color: fgSubtle, width: 42, textAlign: "right" }}>{s.vol}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          );
+        })()}
+        <div style={{ display: isMobile ? "none" : "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           {/* TĂNG MẠNH */}
           {(() => {
             const gainCard: ContextCard = { id: "top-gainers", type: "mover", label: "Tăng mạnh hôm nay", badge: `${displayGainers.length} mã`, summary: displayGainers.map(s => `${s.symbol} +${s.pct.toFixed(2)}%`).join(" · ") };

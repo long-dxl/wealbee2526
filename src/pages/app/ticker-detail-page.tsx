@@ -10,7 +10,7 @@ import { useParams, useNavigate, useOutletContext } from "react-router";
 import {
   ArrowLeft, ExternalLink, BarChart2, BookOpen,
   RefreshCw, AlertCircle, Info, Users, Coins, Newspaper, Scale, TrendingUp,
-  Building2,
+  Building2, Sparkles,
 } from "lucide-react";
 import { VN30_PROFILES } from "../../data/vn30-profiles";
 import {
@@ -62,6 +62,22 @@ const VNI_C = "#5D7FFF";
 const HNX_C = "#8B5CF6";
 const FONT  = "'Montserrat', system-ui, sans-serif";
 
+// PostgREST giới hạn CỨNG 1000 dòng/request bất kể client gọi .limit() cao hơn —
+// .order(asc).limit(2000) trên bảng có >1000 dòng sẽ ÂM THẦM chỉ trả về 1000 dòng
+// CŨ NHẤT, làm mất hết dữ liệu gần đây (đã bắt được thực tế: VNINDEX có 1443 dòng
+// từ 2020, query kiểu này chỉ lấy tới 9/2024, khiến chart % so với VN-Index bị "kẹt"
+// ở 0% suốt các khung 1M/3M/YTD/5Y). Phải tự phân trang bằng .range() để lấy đủ.
+async function fetchAllRows<T = any>(table: string, build: (q: any) => any): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; from < 5000; from += 1000) {
+    const { data } = await build(supabase.from(table as any)).range(from, from + 999);
+    if (!data?.length) break;
+    rows.push(...data);
+    if (data.length < 1000) break;
+  }
+  return rows;
+}
+
 const SECTOR_PALETTE: Record<string, string> = {
   "Ngân hàng":      "#1D6AFF",
   "Thép":           "#D4700A",
@@ -78,8 +94,8 @@ const SECTOR_PALETTE: Record<string, string> = {
 };
 function sc(sector: string) { return SECTOR_PALETTE[sector] ?? "#4B5563"; }
 
-const PERIOD_DAYS: Record<string, number> = { "5D": 5, "1M": 30, "3M": 90, "YTD": 365, "5Y": 1825 };
-const PERIODS = ["5D", "1M", "3M", "YTD", "5Y"] as const;
+const PERIOD_DAYS: Record<string, number> = { "7D": 7, "1M": 30, "3M": 90, "YTD": 365, "5Y": 1825 };
+const PERIODS = ["7D", "1M", "3M", "YTD", "5Y"] as const;
 type Period = typeof PERIODS[number];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -695,10 +711,12 @@ export function TickerDetailPage() {
   // ── Outlet context (optional — page can also be rendered standalone) ────────
   let addContextCard: AppOutletContext["addContextCard"] | undefined;
   let removeContextCard: AppOutletContext["removeContextCard"] | undefined;
+  let openActionHub: AppOutletContext["openActionHub"] | undefined;
   try {
     const ctx = useOutletContext<AppOutletContext>();
     addContextCard = ctx.addContextCard;
     removeContextCard = ctx.removeContextCard;
+    openActionHub = ctx.openActionHub;
   } catch { /* standalone render, no outlet */ }
 
   const contextCardId = `ticker-${sym}`;
@@ -724,26 +742,26 @@ export function TickerDetailPage() {
     try {
       const [
         { data: tickerData },
-        { data: priceData },
+        priceData,
         { data: stmtData },
         { data: divData },
         { data: annData },
         { data: insiderData },
         { data: newsData },
-        { data: vniData },
-        { data: hnxData },
+        vniData,
+        hnxData,
         { data: stockData },
         { data: ratioData },
       ] = await Promise.all([
         supabase.from("tickers").select("symbol,name,exchange,sector,in_vn30,company_type,founded_year,listing_date").eq("symbol", s).single(),
-        supabase.from("prices_daily").select("date,open,high,low,close,volume").eq("symbol", s).order("date", { ascending: true }).limit(2000),
+        fetchAllRows("prices_daily", q => q.select("date,open,high,low,close,volume").eq("symbol", s).order("date", { ascending: true })),
         supabase.from("financial_statements").select("statement,period,item_code,value").eq("symbol", s).eq("period_type", "FY").limit(2000),
         supabase.from("dividends").select("id,ex_date,payment_date,dividend_type,amount").eq("symbol", s).order("ex_date", { ascending: false }).limit(10),
         supabase.from("dividend_announcements").select("id,dividend_type,amount,announced_date").eq("symbol", s).order("announced_date", { ascending: false }).limit(5),
         supabase.from("insider_transactions").select("id,trade_date,reg_start_date,reg_end_date,insider_name,trade_type,volume").eq("symbol", s).order("trade_date", { ascending: false }).limit(10),
         supabase.from("market_news").select("title,published_at,impact_score,label,article_url").contains("affected_symbols", [s]).neq("label", "trash").not("label", "is", null).order("published_at", { ascending: false }).limit(10),
-        supabase.from("market_indices").select("date,close").eq("index_code", "VNINDEX").order("date", { ascending: true }).limit(2000),
-        supabase.from("market_indices").select("date,close").eq("index_code", "HNX").order("date", { ascending: true }).limit(2000),
+        fetchAllRows("market_indices", q => q.select("date,close").eq("index_code", "VNINDEX").order("date", { ascending: true })),
+        fetchAllRows("market_indices", q => q.select("date,close").eq("index_code", "HNX").order("date", { ascending: true })),
         supabase.from("stocks").select("symbol,name,sector_name,company_context").eq("symbol", s).single(),
         supabase.from("financial_ratios").select("period,period_type,ratio_code,value").eq("symbol", s).limit(2000),
       ]);
@@ -776,20 +794,22 @@ export function TickerDetailPage() {
     setLoading(false);
   };
 
-  // ── Filter prices by period ────────────────────────────────────────────────
+  // ── Period → mốc ngày bắt đầu (dùng để ZOOM chart, không còn cắt bỏ data cũ
+  //    hơn — chart vẫn giữ nguyên toàn bộ lịch sử, user kéo/pan sang trái vẫn
+  //    thấy được các ngày ngoài khung đã chọn) ──────────────────────────────
 
+  const periodCutoff = useMemo(() => {
+    if (period === "YTD") return `${new Date().getFullYear()}-01-01`;   // từ đầu năm, không phải 365 ngày
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - PERIOD_DAYS[period]);
+    return cutoff.toISOString().slice(0, 10);
+  }, [period]);
+
+  // Vẫn giữ filteredPrices cho phần tính "% trong kỳ" ở header (badge phía trên chart)
   const filteredPrices = useMemo(() => {
     if (!prices.length) return [];
-    let cutStr: string;
-    if (period === "YTD") {
-      cutStr = `${new Date().getFullYear()}-01-01`;   // từ đầu năm, không phải 365 ngày
-    } else {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - PERIOD_DAYS[period]);
-      cutStr = cutoff.toISOString().slice(0, 10);
-    }
-    return prices.filter(p => p.date >= cutStr);
-  }, [prices, period]);
+    return prices.filter(p => p.date >= periodCutoff);
+  }, [prices, periodCutoff]);
 
   // ── Build chart data with % change vs VN-Index ────────────────────────────
 
@@ -907,23 +927,44 @@ export function TickerDetailPage() {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.3px", color: tk.TEXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ticker.name}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, background: sc(ticker.sector ?? ""), color: "#fff", padding: "2px 8px", borderRadius: 4 }}>{ticker.sector}</span>
-                  <span style={{ fontSize: 11, color: tk.MUTED }}>{ticker.exchange} · {ticker.symbol}</span>
+                  {/* Chip ngành ẩn trên mobile — tên ngành dài làm vỡ header 375px, đã có ở card Thông tin DN */}
+                  {!isMobile && <span style={{ fontSize: 10, fontWeight: 700, background: sc(ticker.sector ?? ""), color: "#fff", padding: "2px 8px", borderRadius: 4, whiteSpace: "nowrap" }}>{ticker.sector}</span>}
+                  <span style={{ fontSize: 11, color: tk.MUTED, whiteSpace: "nowrap" }}>{ticker.exchange} · {ticker.symbol}</span>
                   {ticker.in_vn30 && <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(8,73,172,0.12)", color: "#0849AC", padding: "2px 6px", borderRadius: 4 }}>VN30</span>}
                 </div>
               </div>
             </div>
           </div>
 
-          <div style={{ textAlign: "right", flexShrink: 0 }}>
-            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.8px", color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-              {latest ? latest.close.toLocaleString("vi-VN") : "—"}
-              <span style={{ fontSize: 13, color: tk.MUTED, marginLeft: 5 }}>đ</span>
-            </div>
-            {chgPct != null && (
-              <div style={{ fontSize: 13, fontWeight: 700, color: isUp ? GREEN : RED }}>
-                {isUp ? "+" : ""}{chgAbs?.toLocaleString("vi-VN")} ({isUp ? "+" : ""}{chgPct.toFixed(2)}%)
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 14, flexShrink: 0 }}>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.8px", color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                {latest ? latest.close.toLocaleString("vi-VN") : "—"}
+                <span style={{ fontSize: 13, color: tk.MUTED, marginLeft: 5 }}>đ</span>
               </div>
+              {chgPct != null && (
+                <div style={{ fontSize: 13, fontWeight: 700, color: isUp ? GREEN : RED }}>
+                  {isUp ? "+" : ""}{chgAbs?.toLocaleString("vi-VN")} ({isUp ? "+" : ""}{chgPct.toFixed(2)}%)
+                </div>
+              )}
+            </div>
+            {/* Mobile: hỏi AI về mã này — card đã auto-add khi load, chỉ cần mở overlay */}
+            {isMobile && openActionHub && (
+              <button
+                onClick={() => {
+                  addContextCard?.({ id: `ticker-${sym}`, type: "ticker", label: sym, badge: ticker?.name ?? sym });
+                  openActionHub!();
+                }}
+                title={`Hỏi AI về ${sym}`}
+                style={{
+                  width: 38, height: 38, borderRadius: "50%", border: "none", cursor: "pointer",
+                  background: "rgba(8,73,172,0.10)", color: "#0849AC",
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                  WebkitTapHighlightColor: "transparent",
+                }}
+              >
+                <Sparkles size={17} strokeWidth={1.8} />
+              </button>
             )}
           </div>
         </div>
@@ -1117,7 +1158,8 @@ export function TickerDetailPage() {
                   </div>
 
                   <PriceChartLW
-                    ohlc={filteredPrices}
+                    ohlc={prices}
+                    periodCutoff={periodCutoff}
                     vniPrices={vniPrices}
                     hnxPrices={hnxPrices}
                     sym={sym}

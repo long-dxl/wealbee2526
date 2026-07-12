@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, ArrowUpRight, RefreshCw, X, GripVertical, Link2, AlertCircle, CheckCircle2, Sparkles } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowUpRight, RefreshCw, X, GripVertical, Link2, AlertCircle, CheckCircle2, Sparkles, EllipsisVertical } from "lucide-react";
+import { Drawer, DrawerContent, DrawerTitle } from "../../components/ui/drawer";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -387,6 +388,8 @@ export function Portfolio({
   const [saveError,        setSaveError]        = useState<string | null>(null);
   const [showModal,        setShowModal]        = useState(false);
   const [editingHolding,   setEditingHolding]   = useState<Holding | null>(null);
+  // Mobile: sheet hành động cho từng mã (thay 3 nút Sửa/Xóa/Xem nhỏ của bảng desktop)
+  const [actionSheetFor,   setActionSheetFor]   = useState<Holding | null>(null);
   const [form, setForm] = useState({ symbol: "", quantity: "", avgPrice: "", purchaseDate: "" });
   const [allTickers,            setAllTickers]            = useState<TickerOption[]>([]);
   const [symbolSuggestions,     setSymbolSuggestions]     = useState<TickerOption[]>([]);
@@ -814,8 +817,44 @@ export function Portfolio({
             </div>
           )}
 
+          {/* Positions — mobile: card-row 2 tầng; desktop: bảng grid */}
+          {dnsePositions.length > 0 && isMobile && (
+            <div>
+              {dnsePositions.map((pos, i) => {
+                const pnlColor = (pos.pnl ?? 0) >= 0 ? GREEN : RED;
+                return (
+                  <div
+                    key={pos.symbol}
+                    onClick={() => onSelectTicker?.(pos.symbol)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10, minHeight: 56,
+                      padding: "10px 4px", cursor: "pointer",
+                      borderBottom: i < dnsePositions.length - 1 ? "0.5px solid " + divider : "none",
+                      WebkitTapHighlightColor: "transparent",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: brand }}>{pos.symbol}</div>
+                      <div style={{ fontSize: 12.5, color: fgSubtle, marginTop: 2 }}>
+                        {pos.quantity.toLocaleString("vi-VN")} CP × TB {pos.averagePrice.toLocaleString("vi-VN")}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: fg, fontVariantNumeric: "tabular-nums" }}>
+                        {pos.marketPrice != null ? pos.marketPrice.toLocaleString("vi-VN") : "—"}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: pnlColor, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
+                        {pos.pnl != null ? `${pos.pnl >= 0 ? "+" : ""}${pos.pnl.toLocaleString("vi-VN")}` : "—"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Positions table — bọc overflowX cho màn hẹp (tổng cột cứng 522px) */}
-          {dnsePositions.length > 0 && (
+          {dnsePositions.length > 0 && !isMobile && (
             <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             <div style={{ minWidth: 546 }}>
               <div style={{ display: "grid", gridTemplateColumns: "72px 80px 90px 90px 100px 90px", padding: "8px 12px", background: isDark ? "#0f1220" : "#F5F5F7", borderRadius: "8px 8px 0 0" }}>
@@ -1074,7 +1113,66 @@ export function Portfolio({
         </div>
       </div>
 
-      {/* Holdings table — bọc overflowX cho màn hẹp (tổng cột cứng 602px + tên) */}
+      {/* Holdings — mobile: card-row 2 tầng (pattern app CK: Mã+Giá / SL×TB+P&L); desktop: bảng như cũ */}
+      {isMobile ? (
+        <div style={{ background: cardBg, borderRadius: 14, boxShadow: cardShadow, overflow: "hidden", marginBottom: 16 }}>
+          {holdings.map((h: Holding, i: number) => {
+            const pnl = h.avgPrice ? (h.currentPrice - h.avgPrice) * h.quantity : null;
+            const pnlPct = h.avgPrice ? ((h.currentPrice - h.avgPrice) / h.avgPrice) * 100 : null;
+            const isUp = pnl !== null && pnl >= 0;
+            return (
+              <div
+                key={h.symbol}
+                onClick={() => onSelectTicker?.(h.symbol)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "12px 6px 12px 16px", minHeight: 60, cursor: "pointer",
+                  borderBottom: i < holdings.length - 1 ? "0.5px solid " + divider : "none",
+                  WebkitTapHighlightColor: "transparent",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: fg, flexShrink: 0 }}>{h.symbol}</span>
+                    <span style={{ fontSize: 12, color: fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: fgSubtle, marginTop: 3 }}>
+                    {h.quantity.toLocaleString("vi-VN")} CP{h.avgPrice ? ` × TB ${h.avgPrice.toLocaleString("vi-VN")}` : ""}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: fg, fontVariantNumeric: "tabular-nums" }}>
+                    {h.currentPrice.toLocaleString("vi-VN")}
+                  </div>
+                  {pnl !== null ? (
+                    <div style={{ fontSize: 13, fontWeight: 700, color: isUp ? GREEN : RED, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
+                      {isUp ? "+" : ""}{pnl.toLocaleString("vi-VN")} ({isUp ? "+" : ""}{pnlPct!.toFixed(1)}%)
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11.5, color: fgSubtle, fontStyle: "italic", marginTop: 2 }}>Chưa có giá mua</div>
+                  )}
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setActionSheetFor(h); }}
+                  title="Thao tác"
+                  style={{
+                    width: 40, height: 40, flexShrink: 0, border: "none", background: "transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    cursor: "pointer", color: fgSubtle, WebkitTapHighlightColor: "transparent",
+                  }}
+                >
+                  <EllipsisVertical size={17} strokeWidth={1.6} />
+                </button>
+              </div>
+            );
+          })}
+          {holdings.length === 0 && !portfolioLoading && (
+            <div style={{ padding: "24px 16px", textAlign: "center", fontSize: 13, color: fgSubtle }}>
+              Chưa có mã nào — bấm "Thêm cổ phiếu" để bắt đầu
+            </div>
+          )}
+        </div>
+      ) : (
       <div style={{ background: cardBg, borderRadius: 14, boxShadow: cardShadow, overflow: "hidden", marginBottom: 16 }}>
       <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       <div style={{ minWidth: 700 }}>
@@ -1173,6 +1271,7 @@ export function Portfolio({
       </div>
       </div>
       </div>
+      )}
 
       {/* Footer actions */}
       <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
@@ -1188,6 +1287,55 @@ export function Portfolio({
           <Plus size={16} strokeWidth={1.5} /> Thêm mã
         </button>
       </div>
+
+      {/* Mobile: action sheet cho từng mã */}
+      <Drawer open={actionSheetFor != null} onOpenChange={(o) => { if (!o) setActionSheetFor(null); }}>
+        <DrawerContent style={{ background: isDark ? "#141a29" : "#fff", fontFamily: FONT }}>
+          <DrawerTitle style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)" }}>
+            Thao tác với mã
+          </DrawerTitle>
+          {actionSheetFor && (() => {
+            const h = actionSheetFor;
+            const pnlPct = h.avgPrice ? ((h.currentPrice - h.avgPrice) / h.avgPrice) * 100 : null;
+            const sheetCard: ContextCard = {
+              id: `holding-${h.symbol}`,
+              type: "ticker",
+              label: h.symbol,
+              badge: pnlPct !== null ? (pnlPct >= 0 ? `+${pnlPct.toFixed(1)}%` : `${pnlPct.toFixed(1)}%`) : undefined,
+              summary: `${h.name} · SL: ${h.quantity.toLocaleString("vi-VN")} · Giá HT: ${h.currentPrice.toLocaleString("vi-VN")}`,
+            };
+            const actions: { icon: React.ElementType; label: string; danger?: boolean; run: () => void }[] = [
+              { icon: Sparkles,     label: `Hỏi AI về ${h.symbol}`, run: () => onAddContextCard?.(sheetCard) },
+              { icon: ArrowUpRight, label: "Xem chi tiết mã",        run: () => onSelectTicker?.(h.symbol) },
+              { icon: Pencil,       label: "Sửa",                    run: () => openEdit(h) },
+              { icon: Trash2,       label: "Xóa khỏi danh mục",      danger: true, run: () => { if (h.id) deleteHolding(h.id); } },
+            ];
+            return (
+              <div style={{ padding: "8px 16px calc(20px + env(safe-area-inset-bottom))" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "6px 4px 12px" }}>
+                  <span style={{ fontSize: 17, fontWeight: 700, color: fg }}>{h.symbol}</span>
+                  <span style={{ fontSize: 13, color: fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</span>
+                </div>
+                {actions.map(a => (
+                  <button
+                    key={a.label}
+                    onClick={() => { setActionSheetFor(null); a.run(); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12, width: "100%",
+                      minHeight: 50, padding: "0 4px", border: "none", background: "transparent",
+                      cursor: "pointer", fontFamily: FONT, borderRadius: 10, textAlign: "left",
+                      WebkitTapHighlightColor: "transparent",
+                    }}
+                  >
+                    <a.icon size={19} strokeWidth={1.7} color={a.danger ? RED : brand} />
+                    <span style={{ fontSize: 15, fontWeight: 500, color: a.danger ? RED : fg }}>{a.label}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+        </DrawerContent>
+      </Drawer>
 
       {/* Modal */}
       {showModal && (

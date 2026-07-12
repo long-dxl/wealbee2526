@@ -9,6 +9,7 @@ import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { RichContent } from "../../components/MdContent";
+import { useIsMobile } from "../../components/ui/use-mobile";
 
 function makeDragHandlers(card: ContextCard) {
   return {
@@ -218,6 +219,7 @@ ${body}
 // ── Main component ───────────────────────────────────────────────────────────
 
 export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; onSelectTicker?: (sym: string) => void }) {
+  const isMobile = useIsMobile();
   const fg       = isDark ? "rgba(240,242,255,0.92)" : "#1A1A2E";
   const fgMuted  = isDark ? "rgba(240,242,255,0.85)" : "rgba(26,26,46,0.65)";
   const fgSubtle = isDark ? "rgba(240,242,255,0.35)" : "#3D3D52";
@@ -393,7 +395,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
           background: isDark ? "#131824" : "#fff",
           borderBottom: `0.5px solid ${divider}`,
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "0 24px", height: 52,
+          padding: isMobile ? "0 12px" : "0 24px", height: 52,
         }}>
           <button
             onClick={() => setSelected(null)}
@@ -414,7 +416,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                 cursor: "pointer", fontFamily: "'Montserrat', system-ui, sans-serif",
               }}
             >
-              <Download size={13} strokeWidth={1.5} /> Tải về HTML
+              <Download size={isMobile ? 16 : 13} strokeWidth={1.5} />{!isMobile && " Tải về HTML"}
             </button>
 
             {/* Send email */}
@@ -433,17 +435,17 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
               }}
             >
               {emailSent
-                ? <><Check size={13} strokeWidth={2} /> Đã gửi!</>
+                ? <><Check size={isMobile ? 16 : 13} strokeWidth={2} />{!isMobile && " Đã gửi!"}</>
                 : sendingEmail
-                ? "Đang gửi..."
-                : <><Mail size={13} strokeWidth={1.5} /> Gửi về mail</>
+                ? (isMobile ? "…" : "Đang gửi...")
+                : <><Mail size={isMobile ? 16 : 13} strokeWidth={1.5} />{!isMobile && " Gửi về mail"}</>
               }
             </button>
           </div>
         </div>
 
         {/* Detail content */}
-        <div style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px 80px" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: isMobile ? "16px 16px 80px" : "32px 24px 80px" }}>
           {/* Meta */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <span style={{
@@ -652,15 +654,17 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
               {/* Content */}
               <div style={{ flex: 1, padding: "16px", minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
                     <span style={{
                       display: "inline-flex", alignItems: "center", gap: 4,
                       fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
                       background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.07)",
                       color: brand,
+                      // Tên agent dài ("Phân tích lãnh đạo mua cổ phiếu") gãy 3 dòng ở 375px → 1 dòng ellipsis
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190, minWidth: 0,
                     }}>
-                      <BookOpen size={10} strokeWidth={2} />
-                      {brief.agentName}
+                      <BookOpen size={10} strokeWidth={2} style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{brief.agentName}</span>
                     </span>
                     {brief.symbol && (
                       <span

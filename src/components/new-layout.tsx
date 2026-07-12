@@ -149,7 +149,10 @@ function NewLayoutInner() {
   const addContextCard = (card: ContextCard) => {
     setHubContextCards(prev => {
       if (prev.find(c => c.id === card.id)) return prev;
-      if (!actionHubOpen) setActionHubOpen(true);
+      // Desktop: mở side panel khi thả card. Mobile KHÔNG auto-mở — overlay
+      // full-screen sẽ che mất trang (VD trang mã auto-add card khi load);
+      // nút ✨ Hỏi AI tự gọi openActionHub khi user chủ động bấm.
+      if (!actionHubOpen && !isMobile) setActionHubOpen(true);
       return [...prev, card];
     });
   };
@@ -160,7 +163,7 @@ function NewLayoutInner() {
 
   const clearContextCards = () => setHubContextCards([]);
 
-  const outletContext = { onNavigate: handleNavigate, addContextCard, removeContextCard, isDark, theme, openCreateAgentModal: () => setCreateAgentOpen(true) };
+  const outletContext = { onNavigate: handleNavigate, addContextCard, removeContextCard, isDark, theme, openCreateAgentModal: () => setCreateAgentOpen(true), openActionHub: () => setActionHubOpen(true) };
 
   return (
     <>

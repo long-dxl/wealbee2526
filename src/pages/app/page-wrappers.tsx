@@ -26,6 +26,9 @@ export interface AppOutletContext {
   isDark: boolean;
   theme: Theme;
   openCreateAgentModal: () => void;
+  // Mobile: addContextCard không auto-mở hub (overlay full-screen che trang) —
+  // nút ✨ Hỏi AI gọi hàm này để mở chủ động sau khi thêm card.
+  openActionHub: () => void;
 }
 
 function useApp() {
@@ -35,14 +38,14 @@ function useApp() {
 // ─── Route wrappers ────────────────────────────────────────────────────────────
 
 export function DashboardRoute() {
-  const { onNavigate, addContextCard, isDark } = useApp();
+  const { onNavigate, addContextCard, openActionHub, isDark } = useApp();
   const navigate = useNavigate();
   return (
     <Dashboard
       onNavigate={onNavigate}
       onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)}
       isDark={isDark}
-      onAskAI={addContextCard}
+      onAskAI={(card) => { addContextCard(card); openActionHub(); }}
     />
   );
 }
@@ -98,13 +101,13 @@ export function KnowledgeBaseRoute() {
 }
 
 export function PortfolioRoute() {
-  const { onNavigate, addContextCard, isDark } = useApp();
+  const { onNavigate, addContextCard, openActionHub, isDark } = useApp();
   const navigate = useNavigate();
   return (
     <Portfolio
       onNavigate={onNavigate}
       onSelectTicker={(sym) => navigate(`/app/ticker/${sym}`)}
-      onAddContextCard={addContextCard}
+      onAddContextCard={(card) => { addContextCard(card); openActionHub(); }}
       isDark={isDark}
     />
   );

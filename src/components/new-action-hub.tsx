@@ -602,8 +602,8 @@ export function ActionHub({
           </button>
           )}
 
-          {/* Reset độ rộng — luôn hiện; mờ đi khi đang ở mặc định */}
-          <button
+          {/* Reset độ rộng — desktop only (mobile là overlay full-screen, không resize) */}
+          {!isMobileVariant && <button
             onClick={() => onWidthChange(DEFAULT_WIDTH)}
             disabled={isAtDefault}
             title={`Reset độ rộng về ${DEFAULT_WIDTH}px`}
@@ -617,10 +617,11 @@ export function ActionHub({
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = t.bgAccent; }}
           >
             <RotateCcw size={13} strokeWidth={1.5} />
-          </button>
+          </button>}
 
-          <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: t.fgSubtle, padding: 4, borderRadius: 6, display: "flex", alignItems: "center" }} title="Đóng">
-            <PanelRightClose size={18} strokeWidth={1.5} />
+          <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: t.fgSubtle, padding: isMobileVariant ? 8 : 4, borderRadius: 6, display: "flex", alignItems: "center" }} title="Đóng">
+            {/* Mobile: icon panel desktop (⎘) khó hiểu — dùng ✕ chuẩn overlay */}
+            {isMobileVariant ? <X size={20} strokeWidth={1.8} /> : <PanelRightClose size={18} strokeWidth={1.5} />}
           </button>
         </div>
 

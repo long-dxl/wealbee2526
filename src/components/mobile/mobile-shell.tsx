@@ -91,7 +91,8 @@ export function MobileShell({
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: bottomPad, background: theme.bg }}>
         <Outlet context={outletContext} />
         <p style={{
-          margin: 0, padding: "16px 16px 8px", fontSize: 11, lineHeight: 1.5,
+          // paddingRight 72 để không bị FAB ✨ (fixed góc phải) đè lên khi cuộn hết trang
+          margin: 0, padding: "16px 72px 8px 16px", fontSize: 11, lineHeight: 1.5,
           color: theme.fgDisabled, textAlign: "center", fontFamily: FONT,
         }}>
           Wealbee cung cấp thông tin phân tích · không phải tư vấn đầu tư theo Luật Chứng khoán 2019, NĐ 155/2020/NĐ-CP
