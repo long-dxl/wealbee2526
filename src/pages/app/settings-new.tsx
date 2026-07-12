@@ -116,6 +116,8 @@ export function Settings() {
   interface UsageLog { created_at: string; beeny: number; label: string }
   const [usageChart,   setUsageChart]   = useState<UsageRow[]>([]);
   const [usageLog,     setUsageLog]     = useState<UsageLog[]>([]);
+  // Lịch sử: mặc định chỉ hiện ngày gần nhất, "Xem thêm" mở rộng các ngày trước
+  const [showAllHistory, setShowAllHistory] = useState(false);
   const [totalBeeny,   setTotalBeeny]   = useState(0);
   const [balance,      setBalance]      = useState<number | null>(null);
   const [plan,         setPlan]         = useState("free");
@@ -908,12 +910,19 @@ export function Settings() {
                       </div>
                     </div>
 
-                    {/* Log gần nhất */}
-                    {usageLog.length > 0 && (
+                    {/* Log gần nhất — mặc định chỉ ngày mới nhất, "Xem thêm" mở các ngày trước */}
+                    {usageLog.length > 0 && (() => {
+                      const dayOf = (iso: string) => { const d = new Date(iso); return `${d.getDate()}/${d.getMonth() + 1}`; };
+                      const latestDay = dayOf(usageLog[0].created_at);
+                      const visibleLog = showAllHistory ? usageLog : usageLog.filter(r => dayOf(r.created_at) === latestDay);
+                      const hiddenCount = usageLog.length - visibleLog.length;
+                      return (
                       <div>
-                        <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 600, color: labelColor, fontFamily: FONT }}>Lịch sử sử dụng</p>
+                        <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 600, color: labelColor, fontFamily: FONT }}>
+                          Lịch sử sử dụng{!showAllHistory && <span style={{ fontWeight: 400, color: subtleColor }}> · hôm {latestDay}</span>}
+                        </p>
                         <div style={{ display: "flex", flexDirection: "column", gap: 1, borderRadius: 10, overflow: "hidden", border: "0.5px solid " + borderColor }}>
-                          {usageLog.map((row, i) => {
+                          {visibleLog.map((row, i) => {
                             const dt = new Date(row.created_at);
                             const dateStr = `${dt.getDate()}/${dt.getMonth() + 1}`;
                             const timeStr = `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
@@ -950,8 +959,39 @@ export function Settings() {
                             );
                           })}
                         </div>
+                        {hiddenCount > 0 && (
+                          <button
+                            onClick={() => setShowAllHistory(true)}
+                            style={{
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                              width: "100%", minHeight: 40, marginTop: 8,
+                              border: "0.5px solid " + borderColor, borderRadius: 10,
+                              background: "transparent", cursor: "pointer",
+                              fontSize: 13, fontWeight: 600, color: theme.brand, fontFamily: FONT,
+                              WebkitTapHighlightColor: "transparent",
+                            }}
+                          >
+                            Xem thêm {hiddenCount} hoạt động trước đó <ChevronRight size={14} strokeWidth={2} style={{ transform: "rotate(90deg)" }} />
+                          </button>
+                        )}
+                        {showAllHistory && usageLog.some(r => dayOf(r.created_at) !== latestDay) && (
+                          <button
+                            onClick={() => setShowAllHistory(false)}
+                            style={{
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                              width: "100%", minHeight: 40, marginTop: 8,
+                              border: "none", borderRadius: 10,
+                              background: "transparent", cursor: "pointer",
+                              fontSize: 13, fontWeight: 600, color: subtleColor, fontFamily: FONT,
+                              WebkitTapHighlightColor: "transparent",
+                            }}
+                          >
+                            Thu gọn <ChevronRight size={14} strokeWidth={2} style={{ transform: "rotate(-90deg)" }} />
+                          </button>
+                        )}
                       </div>
-                    )}
+                      );
+                    })()}
                   </>
                 )}
               </div>
