@@ -435,6 +435,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   const [toolsSearch, setToolsSearch] = useState("");
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [showWatchlistPicker, setShowWatchlistPicker] = useState(false);
+  // Khi mở watchlist picker ở chế độ BẮT BUỘC (agent phải có ≥1 mã mới lưu/chạy được):
+  // "save" | "run" = hành động chờ thực hiện sau khi user chọn đủ mã; null = mở bình thường.
+  const [symbolGate, setSymbolGate] = useState<null | "save" | "run">(null);
   const [showTriggerPicker, setShowTriggerPicker] = useState(false);
 
   // ── Accordion ─────────────────────────────────────────────────────────────
@@ -700,7 +703,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
 
   // ── Run test ──────────────────────────────────────────────────────────────
   const handleRunTest = async () => {
-    // Mã quan tâm là TÙY CHỌN — nếu trống, brain tự rút mã từ prompt
+    // BẮT BUỘC có ≥1 mã: không mã → tool không biết lấy dữ liệu mã nào → model dễ bịa.
+    // Mở modal chọn mã (chế độ bắt buộc), sau khi chọn đủ sẽ tự chạy tiếp.
+    if (allSymbols.length === 0) { setSymbolGate("run"); setShowWatchlistPicker(true); return; }
     setIsRunning(true);
     setRunResult(null);
     setRunResultText(null);
@@ -745,6 +750,8 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
 
   // ── Save agent ────────────────────────────────────────────────────────────
   const handleSave = async () => {
+    // BẮT BUỘC có ≥1 mã trước khi lưu — chặn agent "rỗng mã" (nguyên nhân báo cáo bịa mã).
+    if (allSymbols.length === 0) { setSymbolGate("save"); setShowWatchlistPicker(true); return; }
     setIsSaved(true);
     const schedule = triggerType === "scheduled"
       ? buildScheduleValue(frequency, scheduleTime, [...selectedDays].sort((a, b) => a - b))
@@ -1627,14 +1634,22 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
 
       {/* ════════ WATCHLIST PICKER MODAL ════════ */}
       {showWatchlistPicker && (
-        <div onClick={() => setShowWatchlistPicker(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.30)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={() => { setShowWatchlistPicker(false); setSymbolGate(null); }} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.30)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div onClick={e => e.stopPropagation()} style={{ width: 520, maxHeight: "80vh", borderRadius: 16, overflow: "hidden", background: bgPanel, display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.22), 0 0 0 0.5px " + divider }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 20px 14px", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
               <TrendingUp size={16} color={brand} strokeWidth={1.5} />
-              <span style={{ fontSize: 16, fontWeight: 700, color: fg, flex: 1 }}>Theo dõi thị trường</span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: fg, flex: 1 }}>{symbolGate ? "Chọn mã cổ phiếu" : "Theo dõi thị trường"}</span>
               <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.10)", color: brand }}>{totalMa} mã</span>
-              <button onClick={() => setShowWatchlistPicker(false)} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: "none", background: "transparent", cursor: "pointer" }}><X size={16} color={fgMuted} strokeWidth={1.5} /></button>
+              <button onClick={() => { setShowWatchlistPicker(false); setSymbolGate(null); }} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: "none", background: "transparent", cursor: "pointer" }}><X size={16} color={fgMuted} strokeWidth={1.5} /></button>
             </div>
+            {symbolGate && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 9, padding: "12px 20px", background: isDark ? "rgba(255,159,10,0.10)" : "rgba(255,149,0,0.08)", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
+                <AlertTriangle size={15} color="#FF9500" strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12.5, color: fg, lineHeight: 1.5 }}>
+                  Agent cần <strong>ít nhất 1 mã cổ phiếu</strong> để {symbolGate === "save" ? "lưu" : "chạy"}. Chọn mã bên dưới rồi bấm <strong>{symbolGate === "save" ? "Lưu agent" : "Chạy thử"}</strong>. Không có mã, agent sẽ không biết phân tích cổ phiếu nào.
+                </span>
+              </div>
+            )}
             <div style={{ overflowY: "auto", flex: 1 }}>
               <div style={{ padding: "14px 20px", borderBottom: "0.5px solid " + divider }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Kết nối danh mục</div>
@@ -1702,6 +1717,20 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 </div>
               )}
             </div>
+            {symbolGate && (
+              <div style={{ display: "flex", gap: 10, padding: "14px 20px", borderTop: "0.5px solid " + divider, flexShrink: 0 }}>
+                <button onClick={() => { setShowWatchlistPicker(false); setSymbolGate(null); }} style={{ padding: "10px 18px", borderRadius: 9, border: "0.5px solid " + divider, background: "transparent", color: fgMuted, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>Huỷ</button>
+                <button disabled={allSymbols.length === 0} onClick={() => {
+                  const action = symbolGate;
+                  setShowWatchlistPicker(false);
+                  setSymbolGate(null);
+                  if (action === "save") handleSave();
+                  else if (action === "run") handleRunTest();
+                }} style={{ flex: 1, padding: "10px 18px", borderRadius: 9, border: "none", background: allSymbols.length === 0 ? (isDark ? "rgba(77,143,232,0.30)" : "rgba(8,73,172,0.30)") : brand, color: "#fff", fontSize: 13, fontWeight: 700, cursor: allSymbols.length === 0 ? "not-allowed" : "pointer", fontFamily: FONT }}>
+                  {symbolGate === "save" ? "Lưu agent" : "Chạy thử"} với {totalMa} mã
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
