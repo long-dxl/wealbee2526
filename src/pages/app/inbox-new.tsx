@@ -37,6 +37,9 @@ interface Brief {
   date: string;
   dayLabel: string;
   symbol?: string;
+  // Brief thường phân tích NHIỀU mã (cả danh mục) — chỉ gán nhãn tickers[0]
+  // khiến user hiểu nhầm tin chỉ nói về 1 mã
+  symbols: string[];
   read: boolean;
 }
 
@@ -317,6 +320,7 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
           date: createdAt.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" }),
           dayLabel: dayLabelOf(createdAt),
           symbol: row.tickers?.[0],
+          symbols: Array.isArray(row.tickers) ? row.tickers.filter(Boolean) : [],
           read: row.is_read ?? false,
         };
       });
@@ -721,16 +725,28 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                       }}>
                         {brief.agentName}
                       </span>
-                      {brief.symbol && (
-                        <span
-                          onClick={(e) => { e.stopPropagation(); onSelectTicker?.(brief.symbol!); }}
-                          style={{
-                            fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, flexShrink: 0,
-                            background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
-                            color: brand, cursor: onSelectTicker ? "pointer" : "default",
-                          }}
-                        >
-                          {brief.symbol}
+                      {brief.symbols.length > 0 && (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                          <span
+                            onClick={(e) => { e.stopPropagation(); onSelectTicker?.(brief.symbols[0]); }}
+                            style={{
+                              fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5,
+                              background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
+                              color: brand, cursor: onSelectTicker ? "pointer" : "default",
+                            }}
+                          >
+                            {brief.symbols[0]}
+                          </span>
+                          {/* Brief phân tích nhiều mã — "+N" để user biết không chỉ 1 mã */}
+                          {brief.symbols.length > 1 && (
+                            <span title={brief.symbols.slice(1).join(", ")} style={{
+                              fontSize: 10.5, fontWeight: 700, padding: "1px 5px", borderRadius: 5,
+                              background: isDark ? "rgba(255,255,255,0.06)" : "rgba(26,26,46,0.06)",
+                              color: fgSubtle,
+                            }}>
+                              +{brief.symbols.length - 1}
+                            </span>
+                          )}
                         </span>
                       )}
                       <span style={{ fontSize: 11.5, color: fgSubtle, flexShrink: 0 }}>{brief.time}</span>
@@ -762,16 +778,27 @@ export function Inbox({ isDark = false, onSelectTicker }: { isDark?: boolean; on
                       <BookOpen size={10} strokeWidth={2} style={{ flexShrink: 0 }} />
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{brief.agentName}</span>
                     </span>
-                    {brief.symbol && (
+                    {/* Hiện tối đa 3 mã + "+N" — brief thường phân tích cả danh mục, gán mỗi 1 mã gây hiểu nhầm */}
+                    {brief.symbols.slice(0, 3).map(sym => (
                       <span
-                        onClick={(e) => { e.stopPropagation(); onSelectTicker?.(brief.symbol!); }}
+                        key={sym}
+                        onClick={(e) => { e.stopPropagation(); onSelectTicker?.(sym); }}
                         style={{
-                          fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 5,
+                          fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 5, flexShrink: 0,
                           background: isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.07)",
                           color: brand, cursor: onSelectTicker ? "pointer" : "default",
                         }}
                       >
-                        {brief.symbol}
+                        {sym}
+                      </span>
+                    ))}
+                    {brief.symbols.length > 3 && (
+                      <span title={brief.symbols.slice(3).join(", ")} style={{
+                        fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 5, flexShrink: 0,
+                        background: isDark ? "rgba(255,255,255,0.06)" : "rgba(26,26,46,0.06)",
+                        color: fgSubtle,
+                      }}>
+                        +{brief.symbols.length - 3}
                       </span>
                     )}
                     {!brief.read && (
