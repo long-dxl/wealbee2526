@@ -60,6 +60,15 @@ export function Navbar({ theme, onToggleTheme, onOpenDemo }: { theme: "dark" | "
           >
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
+          {/* Đăng nhập phải thấy ngay trên navbar cả mobile — user cũ vào landing chủ yếu để login,
+              giấu trong hamburger là mất lối vào. Mobile: pill viền gọn; desktop: text link như cũ. */}
+          <Link
+            to="/login"
+            className="rounded-full border px-3.5 py-1.5 transition-opacity hover:opacity-70 sm:hidden"
+            style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 600, fontSize: 13.5, color: "var(--wb-text)", textDecoration: "none", borderColor: "var(--wb-border)" }}
+          >
+            Đăng nhập
+          </Link>
           <Link
             to="/login"
             className="hidden rounded-full px-4 py-2 transition-opacity hover:opacity-70 sm:block"
