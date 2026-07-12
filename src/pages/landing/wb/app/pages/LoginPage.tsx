@@ -131,7 +131,9 @@ export function LoginPage() {
             <button type="button" onClick={toggleTheme} aria-label="Chuyển giao diện" className="transition-opacity hover:opacity-60" style={{ color: muted }}>
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <span style={{ fontFamily: "Montserrat, sans-serif", fontSize: 14, color: muted }}>
+            {/* Mobile ẩn — câu này gãy 2 dòng làm header chật, và cuối form đã có
+                sẵn "Chưa có tài khoản? Yêu cầu bản Demo →" nên không mất lối vào */}
+            <span className="max-sm:hidden" style={{ fontFamily: "Montserrat, sans-serif", fontSize: 14, color: muted }}>
               Chưa có tài khoản?{" "}
               <Link to="/" style={{ color: "#4D8FE8", fontWeight: 600, textDecoration: "none" }}>
                 Yêu cầu Demo
