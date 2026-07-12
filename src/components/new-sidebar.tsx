@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import {
   House, Inbox, Bot, Plus, LayoutTemplate, Wrench,
   BookOpen, Wallet, Settings, List,
-  ChevronsLeft, ChevronsRight, Sparkles,
+  ChevronsLeft, ChevronsRight, Sparkles, MessageSquarePlus,
 } from "lucide-react";
 import { WealbeeLogo } from "./WealbeeIcon";
 import { lightTheme, type Theme } from "../lib/theme-context";
@@ -36,7 +36,7 @@ const navItems: NavItem[] = [
   { id: "inbox",     icon: Inbox,      label: "Hộp thư" },
   { id: "agents",    icon: Bot,        label: "Agent của tôi" },
   { id: "divider-studio", section: "AGENT STUDIO", icon: Plus, label: "" },
-  { id: "create-agent", icon: Plus, label: "Tạo Agent" },
+  // { id: "create-agent", icon: Plus, label: "Tạo Agent" },
   { id: "templates", icon: LayoutTemplate, label: "Mẫu Agent" },
   { id: "tools", icon: Wrench, label: "Thư viện công cụ" },
   { id: "knowledge", icon: BookOpen, label: "Kho kiến thức" },
@@ -308,33 +308,12 @@ export function Sidebar({
         padding: collapsed ? "8px 8px" : "8px",
         borderTop: "1px solid " + (isDark ? "rgba(255,255,255,0.06)" : "rgba(26,26,46,0.07)"),
         display: "flex",
-        flexDirection: collapsed ? "column" : "row",
-        alignItems: "center",
+        flexDirection: "column",
         gap: 2,
       }}>
         <button
-          onClick={() => onNavigate("settings")}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = currentPage === "settings" ? activeBg : "transparent"; }}
-          style={{
-            display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start",
-            gap: 9, width: "100%", height: 36,
-            padding: collapsed ? "0" : "0 10px",
-            borderRadius: 7, border: "none",
-            background: currentPage === "settings" ? activeBg : "transparent",
-            color: currentPage === "settings" ? theme.brand : inactiveText,
-            cursor: "pointer", fontFamily: FONT, fontSize: 13.5, fontWeight: currentPage === "settings" ? 600 : 500,
-            transition: "background 100ms ease",
-          }}
-        >
-          <Settings size={16} strokeWidth={currentPage === "settings" ? 2 : 1.6}
-            color={currentPage === "settings" ? theme.brand : inactiveIcon} />
-          {!collapsed && <span>Cài đặt</span>}
-        </button>
-
-        <button
-          onClick={onToggleCollapse}
-          title={collapsed ? "Mở rộng" : "Thu gọn"}
+          onClick={() => onNavigate("feedback")}
+          title="Gửi phản hồi"
           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
           style={{
@@ -342,15 +321,55 @@ export function Sidebar({
             gap: 9, width: "100%", height: 36,
             padding: collapsed ? "0" : "0 10px",
             borderRadius: 7, border: "none", background: "transparent",
-            color: inactiveText, cursor: "pointer", fontFamily: FONT, fontSize: 13.5, fontWeight: 600,
+            color: inactiveText, cursor: "pointer", fontFamily: FONT, fontSize: 13.5, fontWeight: 500,
             transition: "background 100ms ease",
           }}
         >
-          {collapsed
-            ? <ChevronsRight size={16} strokeWidth={1.6} color={inactiveIcon} />
-            : <><ChevronsLeft size={16} strokeWidth={1.6} color={inactiveIcon} /><span>Thu gọn</span></>
-          }
+          <MessageSquarePlus size={16} strokeWidth={1.6} color={inactiveIcon} />
+          {!collapsed && <span>Gửi phản hồi</span>}
         </button>
+
+        <div style={{ display: "flex", flexDirection: collapsed ? "column" : "row", alignItems: "center", gap: 2 }}>
+          <button
+            onClick={() => onNavigate("settings")}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = currentPage === "settings" ? activeBg : "transparent"; }}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start",
+              gap: 9, width: "100%", height: 36,
+              padding: collapsed ? "0" : "0 10px",
+              borderRadius: 7, border: "none",
+              background: currentPage === "settings" ? activeBg : "transparent",
+              color: currentPage === "settings" ? theme.brand : inactiveText,
+              cursor: "pointer", fontFamily: FONT, fontSize: 13.5, fontWeight: currentPage === "settings" ? 600 : 500,
+              transition: "background 100ms ease",
+            }}
+          >
+            <Settings size={16} strokeWidth={currentPage === "settings" ? 2 : 1.6}
+              color={currentPage === "settings" ? theme.brand : inactiveIcon} />
+            {!collapsed && <span>Cài đặt</span>}
+          </button>
+
+          <button
+            onClick={onToggleCollapse}
+            title={collapsed ? "Mở rộng" : "Thu gọn"}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start",
+              gap: 9, width: "100%", height: 36,
+              padding: collapsed ? "0" : "0 10px",
+              borderRadius: 7, border: "none", background: "transparent",
+              color: inactiveText, cursor: "pointer", fontFamily: FONT, fontSize: 13.5, fontWeight: 600,
+              transition: "background 100ms ease",
+            }}
+          >
+            {collapsed
+              ? <ChevronsRight size={16} strokeWidth={1.6} color={inactiveIcon} />
+              : <><ChevronsLeft size={16} strokeWidth={1.6} color={inactiveIcon} /><span>Thu gọn</span></>
+            }
+          </button>
+        </div>
       </div>
     </aside>
   );

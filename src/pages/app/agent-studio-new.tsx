@@ -4,9 +4,9 @@ import {
   ChevronLeft, Bot, Save, Play, Sparkles, ChevronDown, ChevronUp,
   Check, X, Plus, FileText, Wrench, BookOpen, TrendingUp,
   Zap, Clock, RefreshCw, CheckCircle2, AlertTriangle, Eye,
-  Lightbulb, Mail, Inbox, Info, Settings, History, RotateCcw,
+  Lightbulb, Inbox, Info, Settings, History, RotateCcw,
   Search, BarChart2, Activity, Globe, Calculator, ArrowRight, Users,
-  MessageCircle, Copy, ClipboardList,
+  MessageCircle, Copy, ClipboardList, Bell,
 } from "lucide-react";
 import { BriefRenderer, type BriefOutput } from "../../components/BriefRenderer";
 import { MdContent, RichContent } from "../../components/MdContent";
@@ -183,6 +183,74 @@ function ModelLogo({ provider, size = 44, uid = "0" }: { provider: string; size?
   return <div style={{ width: size, height: size, borderRadius: r, background: "#999", flexShrink: 0 }} />;
 }
 
+// ── Channel logos (phương thức thông báo) — logo thật thay icon/chữ viết tắt chung chung ──
+function GmailIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" shapeRendering="geometricPrecision">
+      <path fill="#4caf50" d="M45,16.2l-5,2.75l-5,4.75L35,40h7c1.657,0,3-1.343,3-3V16.2z" />
+      <path fill="#1e88e5" d="M3,16.2l3.614,1.71L13,23.7V40H6c-1.657,0-3-1.343-3-3V16.2z" />
+      <polygon fill="#e53935" points="35,11.2 24,19.45 13,11.2 12,17 13,23.7 24,31.95 35,23.7 36,17" />
+      <path fill="#c62828" d="M3,12.298V16.2l10,7.5V11.2L9.876,8.859C8.132,7.554,5.55,7.995,4.336,9.789 C3.469,11.071,3,12.556,3,12.298z" />
+      <path fill="#fbc02d" d="M45,12.298V16.2l-10,7.5V11.2l3.124-2.341c1.744-1.305,4.326-0.864,5.54,0.93 C44.531,11.071,45,12.556,45,12.298z" />
+    </svg>
+  );
+}
+
+// Logo Zalo thật (wordmark) — trích từ file gốc do user cung cấp (Downloads/Logo Zalo.svg),
+// chỉ giữ phần nằm trong viewBox hiển thị (0 0 309.312 309.312); phần còn lại của file gốc
+// là các logo khác nằm ngoài khung nhìn nên không dùng.
+function ZaloWordmark({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 309.312 309.312">
+      <path fill="#0068FF" d="M57.616,1.567c10.59-1.67,21.36-1.68,32.06-1.44l-0.92,0.85c-14,9.17-25.61,21.76-34,36.21
+        c-16.82,28.93-22.95,63.14-21.56,96.3c1.38,27,7.86,54.15,21.6,77.62c2.3,4.2,6.13,7.91,6.19,13.01
+        c0.43,10.94-4.98,21.25-12.3,29.07c0.48,0.5,0.95,1,1.43,1.5c6.85,7.48,14.16,14.51,21.12,21.89
+        c9.89,11.18,21.16,21.08,30.85,32.46c-16.12,0.24-32.43,0.99-48.36-2.02c-20.05-3.89-37.85-17.79-46.35-36.37
+        c-5.15-10.74-6.69-22.75-7.09-34.52c-0.01-54.34-0.01-108.67,0-163c0.22-18.16,5.03-37.16,17.81-50.63
+        C28.216,11.087,42.546,3.667,57.616,1.567z" />
+      <path fill="#0068FF" d="M204.436,101.347c4.29,0,8.58,0,12.88,0c-0.07,25.13-0.07,50.27,0,75.4c-4.2-0.59-11.19,2.1-12.77-3.49
+        C204.286,149.297,204.526,125.317,204.436,101.347z" />
+      <path fill="#0068FF" d="M73.196,102.237c19.96-0.02,39.9-0.15,59.85-0.01c-0.14,3.91-0.36,8.17-2.98,11.33
+        c-13.64,16.98-26.99,34.18-40.62,51.16c14.49,0.09,28.98,0.03,43.47,0.03c-0.27,3.39,0.92,7.34-1.28,10.28
+        c-1.38,1.9-3.88,1.73-5.95,1.75c-18.13-0.1-36.26,0.09-54.38-0.1c0.05-3.83,0.09-8.07,2.77-11.12
+        c13.48-16.91,27.12-33.7,40.54-50.65c-13.79,0.02-27.59-0.09-41.38,0.06C73.146,110.727,73.176,106.477,73.196,102.237z" />
+      <path fill="#0068FF" d="M249.246,118.877c14.36-3.21,29.94,6.22,33.87,20.36c4.93,14.71-4.07,32.2-18.94,36.68
+        c-12.63,4.45-27.75-1.36-34.3-13c-5.14-8.6-5.45-19.86-0.78-28.71C233.056,126.397,240.706,120.687,249.246,118.877z
+        M249.006,131.617c-8.76,3.09-13.48,13.75-10.06,22.36c2.83,8.14,12.36,13.12,20.64,10.62c9.45-2.26,15.16-13.33,11.81-22.4
+        C268.596,133.217,257.746,128.037,249.006,131.617z" />
+      <path fill="#0068FF" d="M142.866,129.347c6.91-8.56,19.01-12.78,29.67-9.73c3.52,0.89,6.71,2.65,9.79,4.52
+        c-0.03-0.94-0.1-2.81-0.13-3.75c4.03-0.02,8.05-0.01,12.08-0.03c-0.02,18.8-0.04,37.6,0.01,56.41c-2.96-0.08-5.97,0.27-8.88-0.33
+        c-2.04-0.83-2.67-3.06-3.48-4.88c-11.12,8.64-28.59,6.68-37.83-3.84C134.246,157.527,133.736,140.167,142.866,129.347z
+        M159.146,131.867c-9.26,3.26-13.75,15.19-9.06,23.79c4,8.38,15.26,11.9,23.31,7.28c7.47-3.92,10.92-13.65,7.71-21.43
+        C177.996,133.047,167.506,128.307,159.146,131.867z" />
+      <path fill="#FFFFFF" d="M88.756,0.977c2.24-0.64,4.58-0.84,6.9-0.91c39.99,0.15,79.98-0.02,119.97,0.05
+        c10.69,0.13,21.44-0.59,32.05,1.04c14.69,1.12,28.83,7.34,39.76,17.17c13.72,13.11,21.04,31.99,21.27,50.82
+        c0.01,53.01-0.02,106.06,0.03,159.05c-0.14,0.31-0.41,0.95-0.55,1.27c-14.25,15.94-33.41,26.73-53.44,33.71
+        c-26.99,9.2-55.9,12.16-84.27,10c-28.37-2.44-56.96-9.85-81.02-25.53c-12.3,5.47-25.87,8.15-39.34,7.04
+        c-0.48-0.5-0.95-1-1.43-1.5c7.32-7.82,12.73-18.13,12.3-29.07c-0.06-5.1-3.89-8.81-6.19-13.01
+        c-13.74-23.47-20.22-50.62-21.6-77.62c-1.39-33.16,4.74-67.37,21.56-96.3C63.146,22.737,74.756,10.147,88.756,0.977z
+        M204.436,101.347c0.09,23.97-0.15,47.95,0.11,71.91c1.58,5.59,8.57,2.9,12.77,3.49c-0.07-25.13-0.07-50.27,0-75.4
+        C213.016,101.347,208.726,101.347,204.436,101.347z M73.196,102.237c-0.02,4.24-0.05,8.49,0.04,12.73
+        c13.79-0.15,27.59-0.04,41.38-0.06c-13.42,16.95-27.06,33.74-40.54,50.65c-2.68,3.05-2.72,7.29-2.77,11.12
+        c18.12,0.19,36.25,0,54.38,0.1c2.07-0.02,4.57,0.15,5.95-1.75c2.2-2.94,1.01-6.89,1.28-10.28c-14.49,0-28.98,0.06-43.47-0.03
+        c13.63-16.98,26.98-34.18,40.62-51.16c2.62-3.16,2.84-7.42,2.98-11.33C113.096,102.087,93.156,102.217,73.196,102.237z
+        M249.246,118.877c-8.54,1.81-16.19,7.52-20.15,15.33c-4.67,8.85-4.36,20.11,0.78,28.71c6.55,11.64,21.67,17.45,34.3,13
+        c14.87-4.48,23.87-21.97,18.94-36.68C279.186,125.097,263.606,115.667,249.246,118.877z M142.866,129.347
+        c-9.13,10.82-8.62,28.18,1.23,38.37c9.24,10.52,26.71,12.48,37.83,3.84c0.81,1.82,1.44,4.05,3.48,4.88
+        c2.91,0.6,5.92,0.25,8.88,0.33c-0.05-18.81-0.03-37.61-0.01-56.41c-4.03,0.02-8.05,0.01-12.08,0.03c0.03,0.94,0.1,2.81,0.13,3.75
+        c-3.08-1.87-6.27-3.63-9.79-4.52C161.876,116.567,149.776,120.787,142.866,129.347z" />
+      <path fill="#FFFFFF" d="M159.146,131.867c8.36-3.56,18.85,1.18,21.96,9.64c3.21,7.78-0.24,17.51-7.71,21.43
+        c-8.05,4.62-19.31,1.1-23.31-7.28C145.396,147.057,149.886,135.127,159.146,131.867z" />
+      <path fill="#FFFFFF" d="M249.006,131.617c8.74-3.58,19.59,1.6,22.39,10.58c3.35,9.07-2.36,20.14-11.81,22.4
+        c-8.28,2.5-17.81-2.48-20.64-10.62C235.526,145.367,240.246,134.707,249.006,131.617z" />
+      <path fill="#0068FF" d="M308.186,229.467l0.79-0.86c0.41,15.63-1.28,31.94-8.95,45.85c-8.92,16.32-25.1,28.44-43.3,32.32
+        c-10.21,2.11-20.68,2.58-31.08,2.45c-31.99,0.01-63.98,0-95.97,0.01c-9.2-0.15-18.42,0.28-27.59-0.2
+        c-9.69-11.38-20.96-21.28-30.85-32.46c-6.96-7.38-14.27-14.41-21.12-21.89c13.47,1.11,27.04-1.57,39.34-7.04
+        c24.06,15.68,52.65,23.09,81.02,25.53c28.37,2.16,57.28-0.8,84.27-10C274.776,256.197,293.936,245.407,308.186,229.467z" />
+    </svg>
+  );
+}
+
 // ── KB Doc type (loaded from Supabase) ───────────────────────────────────────
 interface KBDoc {
   id: string;
@@ -284,6 +352,7 @@ const TOOL_GROUPS = TOOL_GROUP_PRESENTATION.map(group => ({ ...group, tools: gro
   return metadata ? { ...tool, name: metadata.label, desc: metadata.description, available: tool.available !== false } : { ...tool, available: false };
 }) }));
 const ALL_TOOLS = TOOL_GROUPS.flatMap(g => g.tools);
+const AVAILABLE_TOOLS_COUNT = ALL_TOOLS.filter(t => t.available).length;
 
 // ── Default prompt ──────────────────────────────────────────────────────────
 const DEFAULT_PROMPT = `Tôi muốn xem bản tin hàng ngày về danh mục của tôi theo thứ tự sau:
@@ -366,6 +435,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   const [toolsSearch, setToolsSearch] = useState("");
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [showWatchlistPicker, setShowWatchlistPicker] = useState(false);
+  const [showTriggerPicker, setShowTriggerPicker] = useState(false);
 
   // ── Accordion ─────────────────────────────────────────────────────────────
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(["model", "tools", "watchlist"]));
@@ -756,6 +826,27 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
   const allSymbols = watchlist;
   const totalMa = allSymbols.length;
   const displayTickers = allSymbols;
+
+  // Tóm tắt điều kiện kích hoạt cho nút mở modal (Section "trigger") — cùng cấu trúc
+  // icon + dòng chính + dòng phụ như nút "Công cụ phân tích" / "Mã quan tâm".
+  const FREQ_LABEL: Record<typeof frequency, string> = { daily: "Mỗi ngày", weekdays: "Ngày giao dịch", weekly: "Hàng tuần", custom: "Tùy chọn" };
+  const EVENT_LABEL: Record<typeof eventType, string> = { volume_spike: "Khối lượng đột biến", insider_buy: "Nội bộ/lãnh đạo mua", high_impact_news: "Tin tác động mạnh" };
+  const DAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+  const TriggerIcon = triggerType === "manual" ? Play : triggerType === "event" ? Zap : Clock;
+  const triggerSummary = (() => {
+    if (triggerType === "manual") return { primary: "Thủ công", secondary: "Chỉ chạy khi bạn bấm Chạy thử — không tự động" };
+    if (triggerType === "event") {
+      const detail = eventType === "volume_spike" ? `Bội số TB20 ≥ ${eventMultiple} lần`
+        : eventType === "insider_buy" ? `Trong ${eventDays} ngày gần nhất`
+        : `Điểm tác động ≥ ${eventMinImpact}`;
+      return { primary: `Theo sự kiện · ${EVENT_LABEL[eventType]}`, secondary: detail };
+    }
+    const daysStr = frequency === "daily" || frequency === "weekdays"
+      ? FREQ_LABEL[frequency]
+      : [...selectedDays].sort().map(d => DAY_LABELS[d]).join(", ") || "Chưa chọn ngày";
+    return { primary: `Theo lịch · ${FREQ_LABEL[frequency]}`, secondary: `${scheduleTime} · ${daysStr}` };
+  })();
+  const notifyCount = 1 + (notifyEmail ? 1 : 0) + (notifyZalo ? 1 : 0);
   // Gợi ý mã: khớp tiền tố symbol HOẶC tên công ty; ẩn mã đã thêm; tối đa 8
   const symQuery = stockInput.trim().toUpperCase();
   const stockSuggestions = symQuery
@@ -946,7 +1037,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
 
           {/* Tools */}
           {/* Công cụ phân tích */}
-          <Section id="tools" label="Công cụ phân tích" icon={<Wrench size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("tools")} onToggle={() => toggleSection("tools")} badge={`${selectedTools.size}/${ALL_TOOLS.length} công cụ`} isDark={isDark}>
+          <Section id="tools" label="Công cụ phân tích" icon={<Wrench size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("tools")} onToggle={() => toggleSection("tools")} badge={`${selectedTools.size}/${AVAILABLE_TOOLS_COUNT} công cụ`} isDark={isDark}>
             <button
               onClick={() => setShowToolsPicker(true)}
               style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: bgPanel, fontFamily: FONT }}
@@ -967,7 +1058,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 )}
               </div>
               <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: selTools.length > 0 ? fg : fgDisabled, marginBottom: 3 }}>{selTools.length}/{ALL_TOOLS.length} công cụ đang bật</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: selTools.length > 0 ? fg : fgDisabled, marginBottom: 3 }}>{selTools.length}/{AVAILABLE_TOOLS_COUNT} công cụ đang bật</div>
                 <div style={{ fontSize: 11, color: fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {selTools.length > 0 ? selTools.slice(0, 4).map(t => t.name).join(" · ") + (selTools.length > 4 ? ` +${selTools.length - 4}` : "") : "Nhấn để chọn công cụ phân tích"}
                 </div>
@@ -982,13 +1073,13 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
               onClick={() => setShowWatchlistPicker(true)}
               style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: bgPanel, fontFamily: FONT }}
             >
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(52,199,89,0.10)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <TrendingUp size={18} color="#34C759" strokeWidth={1.5} />
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <TrendingUp size={18} color={brand} strokeWidth={1.5} />
               </div>
               <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: fg, marginBottom: 3, display: "flex", alignItems: "center", gap: 6 }}>
                   {totalMa} mã theo dõi
-                  {isPortfolioConnected && <span style={{ fontSize: 10, padding: "1px 7px", borderRadius: 99, background: "rgba(52,199,89,0.12)", color: "#1a7a3a", fontWeight: 700 }}>Danh mục</span>}
+                  {isPortfolioConnected && <span style={{ fontSize: 10, padding: "1px 7px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)", color: brand, fontWeight: 700 }}>Danh mục</span>}
                 </div>
                 <div style={{ fontSize: 11, color: fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {displayTickers.slice(0, 6).join(" · ")}{displayTickers.length > 6 ? ` +${displayTickers.length - 6}` : ""}
@@ -1000,201 +1091,110 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
 
           {/* Điều kiện kích hoạt agent */}
           <Section id="trigger" label="Điều kiện kích hoạt agent" icon={<Clock size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("trigger")} onToggle={() => toggleSection("trigger")} badge={triggerType === "manual" ? "Thủ công" : triggerType === "scheduled" ? scheduleTime : "Sự kiện"} isDark={isDark}>
-            <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-              {([
-                { id: "manual", label: "Thủ công", Icon: Play },
-                { id: "scheduled", label: "Theo lịch", Icon: Clock },
-                { id: "event", label: "Theo sự kiện", Icon: Zap },
-              ] as const).map(o => {
-                const active = triggerType === o.id;
-                return (
-                  <div key={o.id} onClick={() => setTriggerType(o.id)} style={{ flex: 1, padding: "10px 8px", borderRadius: 10, cursor: "pointer", textAlign: "center", border: active ? "1.5px solid " + brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.10)"), background: active ? (isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.05)") : "transparent", transition: "all 120ms ease" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 13, fontWeight: 700, color: active ? brand : fgMuted }}>
-                      <o.Icon size={13} strokeWidth={1.5} color={active ? brand : fgMuted} />{o.label}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {triggerType === "manual" && (
-              <div style={{ padding: "10px 12px", borderRadius: 9, background: isDark ? "rgba(255,255,255,0.03)" : "rgba(26,26,46,0.03)", marginBottom: 14, fontSize: 11, color: fgMuted, lineHeight: 1.5 }}>
-                Agent chỉ chạy khi bạn bấm <strong>Chạy thử</strong> / chạy tay. Không tự động.
+            <button
+              onClick={() => setShowTriggerPicker(true)}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.18)"), background: bgPanel, fontFamily: FONT }}
+            >
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <TriggerIcon size={16} color={brand} strokeWidth={1.5} />
               </div>
-            )}
-
-            {triggerType === "event" && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Loại sự kiện kích hoạt</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 12 }}>
-                  {([
-                    { id: "volume_spike", label: "Khối lượng đột biến", desc: "KL một phiên vượt bội số TB20 phiên" },
-                    { id: "insider_buy", label: "Nội bộ / lãnh đạo MUA", desc: "Có giao dịch mua của người nội bộ" },
-                    { id: "high_impact_news", label: "Tin tác động mạnh", desc: "Tin có điểm tác động ≥ ngưỡng" },
-                  ] as const).map(e => {
-                    const active = eventType === e.id;
-                    return (
-                      <div key={e.id} onClick={() => setEventType(e.id)} style={{ padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: active ? "1px solid " + brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.10)"), background: active ? (isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)") : bgPanel }}>
-                        <div style={{ fontSize: 13, fontWeight: active ? 700 : 600, color: active ? brand : fg }}>{e.label}</div>
-                        <div style={{ fontSize: 11, color: fgSubtle, marginTop: 2 }}>{e.desc}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {/* Tham số theo loại */}
-                {eventType === "volume_spike" && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: fg }}>
-                    <span>Bội số TB20:</span>
-                    <input type="number" min={1} step={0.5} value={eventMultiple} onChange={e => setEventMultiple(Number(e.target.value) || 2)} style={{ width: 70, padding: "6px 8px", borderRadius: 7, border: "0.5px solid " + inputBorder, background: bgPanel, color: fg, fontSize: 13, fontWeight: 700, outline: "none", fontFamily: FONT }} />
-                    <span style={{ color: fgSubtle }}>lần (vd 2 = gấp đôi TB)</span>
-                  </div>
-                )}
-                {eventType === "insider_buy" && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: fg }}>
-                    <span>Trong vòng:</span>
-                    <input type="number" min={1} value={eventDays} onChange={e => setEventDays(Number(e.target.value) || 7)} style={{ width: 70, padding: "6px 8px", borderRadius: 7, border: "0.5px solid " + inputBorder, background: bgPanel, color: fg, fontSize: 13, fontWeight: 700, outline: "none", fontFamily: FONT }} />
-                    <span style={{ color: fgSubtle }}>ngày gần nhất</span>
-                  </div>
-                )}
-                {eventType === "high_impact_news" && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: fg }}>
-                    <span>Điểm tác động ≥</span>
-                    <input type="number" min={1} max={10} step={0.5} value={eventMinImpact} onChange={e => setEventMinImpact(Number(e.target.value) || 5)} style={{ width: 70, padding: "6px 8px", borderRadius: 7, border: "0.5px solid " + inputBorder, background: bgPanel, color: fg, fontSize: 13, fontWeight: 700, outline: "none", fontFamily: FONT }} />
-                    <span style={{ color: fgSubtle }}>(thang -10..+10)</span>
-                  </div>
-                )}
-                <div style={{ fontSize: 10, color: fgDisabled, marginTop: 10, lineHeight: 1.5 }}>
-                  Áp dụng cho các mã trong "Mã quan tâm". Hệ thống kiểm tra định kỳ, đúng điều kiện → agent tự chạy & tạo báo cáo.
-                </div>
+              <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: fg, marginBottom: 3 }}>{triggerSummary.primary}</div>
+                <div style={{ fontSize: 11, color: fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{triggerSummary.secondary}</div>
               </div>
-            )}
+              <ChevronDown size={14} color={fgDisabled} strokeWidth={1.5} />
+            </button>
+          </Section>
 
-            {triggerType === "scheduled" && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Tần suất phân tích</div>
-                <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                  {([{ id: "daily", label: "Mỗi ngày" }, { id: "weekdays", label: "Ngày GD" }, { id: "weekly", label: "Hàng tuần" }, { id: "custom", label: "Tùy chọn" }] as const).map(f => (
-                    <button key={f.id} onClick={() => { setFrequency(f.id); if (f.id === "weekly") setSelectedDays(new Set([0])); if (f.id === "daily" || f.id === "weekdays") setSelectedDays(new Set([0, 1, 2, 3, 4])); }} style={{ flex: 1, padding: "6px 4px", borderRadius: 8, border: "none", cursor: "pointer", background: frequency === f.id ? brand : isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.06)", color: frequency === f.id ? "#fff" : fgMuted, fontSize: 11, fontWeight: frequency === f.id ? 700 : 500, fontFamily: FONT, transition: "all 100ms ease" }}>{f.label}</button>
-                  ))}
-                </div>
-                {(frequency === "weekly" || frequency === "custom") && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Ngày trong tuần</div>
-                    <div style={{ display: "flex", gap: 5 }}>
-                      {["T2","T3","T4","T5","T6","T7","CN"].map((d, i) => {
-                        const isWknd = i >= 5; const sel = selectedDays.has(i);
-                        return <button key={d} onClick={() => toggleDay(i)} style={{ flex: 1, aspectRatio: "1", borderRadius: 8, border: "none", cursor: "pointer", background: sel ? (isWknd ? "#FF9500" : brand) : isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.06)", color: sel ? "#fff" : isWknd ? "#FF9500" : fgMuted, fontSize: 11, fontWeight: sel ? 700 : 500, fontFamily: FONT, transition: "all 100ms ease", padding: "7px 0" }}>{d}</button>;
-                      })}
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Giờ gửi</div>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "0.5px solid " + inputBorder, background: bgPanel, fontSize: 13, fontWeight: 700, color: fg, outline: "none", fontFamily: FONT, cursor: "pointer" }} />
-                    <div style={{ display: "flex", gap: 5 }}>
-                      {["09:15","11:30","15:15"].map(t => (
-                        <button key={t} onClick={() => setScheduleTime(t)} style={{ padding: "7px 8px", borderRadius: 7, border: "none", cursor: "pointer", background: scheduleTime === t ? (isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)") : isDark ? "rgba(255,255,255,0.05)" : "rgba(26,26,46,0.05)", color: scheduleTime === t ? brand : fgMuted, fontSize: 11, fontWeight: scheduleTime === t ? 700 : 400, fontFamily: FONT }}>{t}</button>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 10, color: fgDisabled, marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
-                    <Info size={9} strokeWidth={1.5} color={fgDisabled} />09:15 = đầu phiên · 11:30 = giữa phiên · 15:15 = cuối phiên
-                  </div>
-                </div>
+          {/* Phương thức thông báo — tách riêng khỏi điều kiện kích hoạt (chỉ 3 dòng bật/tắt,
+              không cần picker modal như tools/watchlist, chỉ cần accordion riêng để đỡ dài trang) */}
+          <Section id="notify" label="Phương thức thông báo" icon={<Bell size={14} strokeWidth={1.5} color={brand} />} open={openSections.has("notify")} onToggle={() => toggleSection("notify")} badge={`${notifyCount}/3 kênh`} isDark={isDark}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, border: "1px solid " + (isDark ? "rgba(77,143,232,0.25)" : "rgba(8,73,172,0.20)"), background: isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 9, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Inbox size={16} color={brand} strokeWidth={1.5} /></div>
+                <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700, color: brand }}>Inbox Wealbee</div><div style={{ fontSize: 11, color: fgSubtle }}>Luôn bật, kết quả vào Inbox app</div></div>
+                <div style={{ width: 36, height: 20, borderRadius: 99, background: brand, display: "flex", alignItems: "center", justifyContent: "flex-end", padding: "0 3px", flexShrink: 0 }}><div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff" }} /></div>
               </div>
-            )}
 
+              <div onClick={() => setNotifyEmail(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: notifyEmail ? "1px solid " + (isDark ? "rgba(77,143,232,0.30)" : "rgba(8,73,172,0.25)") : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.10)"), background: notifyEmail ? (isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.03)") : bgPanel, transition: "all 120ms ease" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 9, background: "#fff", border: "1px solid " + (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: notifyEmail ? 1 : 0.55, transition: "opacity 150ms ease" }}><GmailIcon size={20} /></div>
+                <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: notifyEmail ? 700 : 400, color: fg }}>Email</div><div style={{ fontSize: 11, color: fgSubtle }}>{notifyEmail ? (userEmail || "email của bạn") : "Gửi brief qua email"}</div></div>
+                <div style={{ width: 36, height: 20, borderRadius: 99, flexShrink: 0, background: notifyEmail ? brand : isDark ? "rgba(255,255,255,0.18)" : "rgba(26,26,46,0.18)", display: "flex", alignItems: "center", justifyContent: notifyEmail ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms ease" }}><div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.15)" }} /></div>
+              </div>
 
-            <div style={{ borderTop: "0.5px solid " + dividerFaint, paddingTop: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Phương thức thông báo</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, border: "1px solid " + (isDark ? "rgba(77,143,232,0.25)" : "rgba(8,73,172,0.20)"), background: isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)" }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 9, background: isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Inbox size={16} color={brand} strokeWidth={1.5} /></div>
-                  <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700, color: brand }}>Inbox Wealbee</div><div style={{ fontSize: 11, color: fgSubtle }}>Luôn bật, kết quả vào Inbox app</div></div>
-                  <div style={{ width: 36, height: 20, borderRadius: 99, background: brand, display: "flex", alignItems: "center", justifyContent: "flex-end", padding: "0 3px", flexShrink: 0 }}><div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff" }} /></div>
+              <div onClick={() => setNotifyZalo(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: notifyZalo ? "1px solid rgba(0,120,255,0.30)" : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.10)"), background: notifyZalo ? "rgba(0,120,255,0.04)" : bgPanel, transition: "all 120ms ease" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 9, flexShrink: 0, background: "#fff", border: "1px solid " + (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"), display: "flex", alignItems: "center", justifyContent: "center", opacity: notifyZalo ? 1 : 0.55, transition: "opacity 150ms ease" }}>
+                  <ZaloWordmark size={20} />
                 </div>
-
-                <div onClick={() => setNotifyEmail(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: notifyEmail ? "1px solid " + (isDark ? "rgba(77,143,232,0.30)" : "rgba(8,73,172,0.25)") : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.10)"), background: notifyEmail ? (isDark ? "rgba(77,143,232,0.06)" : "rgba(8,73,172,0.03)") : bgPanel, transition: "all 120ms ease" }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 9, background: notifyEmail ? (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.10)") : isDark ? "rgba(255,255,255,0.06)" : "#F5F5F7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Mail size={16} color={notifyEmail ? brand : fgDisabled} strokeWidth={1.5} /></div>
-                  <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: notifyEmail ? 700 : 400, color: fg }}>Email</div><div style={{ fontSize: 11, color: fgSubtle }}>{notifyEmail ? (userEmail || "email của bạn") : "Gửi brief qua email"}</div></div>
-                  <div style={{ width: 36, height: 20, borderRadius: 99, flexShrink: 0, background: notifyEmail ? brand : isDark ? "rgba(255,255,255,0.18)" : "rgba(26,26,46,0.18)", display: "flex", alignItems: "center", justifyContent: notifyEmail ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms ease" }}><div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.15)" }} /></div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: notifyZalo ? 700 : 400, color: fg, display: "flex", alignItems: "center", gap: 5 }}>Zalo Bot {notifyZalo && zaloLinkName === null && <span style={{ fontSize: 10, background: "rgba(0,120,255,0.10)", color: "#0068FF", padding: "1px 6px", borderRadius: 6, fontWeight: 600 }}>Cần kết nối</span>}</div>
+                  <div style={{ fontSize: 11, color: fgSubtle }}>Nhận brief qua tin nhắn bot Zalo của Wealbee</div>
                 </div>
+                <div style={{ width: 36, height: 20, borderRadius: 99, flexShrink: 0, background: notifyZalo ? "#0068FF" : "rgba(26,26,46,0.18)", display: "flex", alignItems: "center", justifyContent: notifyZalo ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms ease" }}><div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.15)" }} /></div>
+              </div>
 
-                <div onClick={() => setNotifyZalo(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: notifyZalo ? "1px solid rgba(0,120,255,0.30)" : "0.5px solid " + (isDark ? "rgba(255,255,255,0.07)" : "rgba(8,73,172,0.10)"), background: notifyZalo ? "rgba(0,120,255,0.04)" : bgPanel, transition: "all 120ms ease" }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 9, flexShrink: 0, background: notifyZalo ? "rgba(0,120,255,0.12)" : isDark ? "rgba(255,255,255,0.06)" : "#F5F5F7", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <div style={{ width: 20, height: 20, borderRadius: 5, background: "linear-gradient(135deg,#0068FF,#00B4FF)", display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ fontSize: 9, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px", fontFamily: "system-ui" }}>Za</span></div>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: notifyZalo ? 700 : 400, color: fg, display: "flex", alignItems: "center", gap: 5 }}>Zalo Bot {notifyZalo && zaloLinkName === null && <span style={{ fontSize: 10, background: "rgba(0,120,255,0.10)", color: "#0068FF", padding: "1px 6px", borderRadius: 6, fontWeight: 600 }}>Cần kết nối</span>}</div>
-                    <div style={{ fontSize: 11, color: fgSubtle }}>Nhận brief qua tin nhắn bot Zalo của Wealbee</div>
-                  </div>
-                  <div style={{ width: 36, height: 20, borderRadius: 99, flexShrink: 0, background: notifyZalo ? "#0068FF" : "rgba(26,26,46,0.18)", display: "flex", alignItems: "center", justifyContent: notifyZalo ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms ease" }}><div style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.15)" }} /></div>
-                </div>
-
-                {notifyZalo && (
-                  zaloLinkName !== null ? (
-                    /* Đã kết nối → confirm */
-                    <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(26,168,95,0.07)", border: "0.5px solid rgba(26,168,95,0.25)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "#1a7a3a", fontWeight: 700 }}>
-                        <Check size={12} strokeWidth={2.5} color="#1a7a3a" /> Đã kết nối Zalo{zaloLinkName ? ` · ${zaloLinkName}` : ""}
-                      </div>
-                      <div style={{ fontSize: 11, color: fgSubtle, lineHeight: 1.5, marginTop: 2 }}>Agent này sẽ gửi brief về Zalo của bạn sau mỗi lần chạy.</div>
+              {notifyZalo && (
+                zaloLinkName !== null ? (
+                  /* Đã kết nối → confirm */
+                  <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(26,168,95,0.07)", border: "0.5px solid rgba(26,168,95,0.25)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "#1a7a3a", fontWeight: 700 }}>
+                      <Check size={12} strokeWidth={2.5} color="#1a7a3a" /> Đã kết nối Zalo{zaloLinkName ? ` · ${zaloLinkName}` : ""}
                     </div>
-                  ) : !zaloConnecting ? (
-                    /* Chưa kết nối → nhắc + nút mở card inline */
-                    <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(0,120,255,0.05)", border: "0.5px solid rgba(0,120,255,0.15)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#0068FF", fontWeight: 700, marginBottom: 3 }}>
-                        <Settings size={11} strokeWidth={1.5} color="#0068FF" /> Chưa kết nối Zalo
-                      </div>
-                      <div style={{ fontSize: 11, color: fgSubtle, lineHeight: 1.5, marginBottom: 6 }}>Bạn cần liên kết tài khoản với bot Zalo của Wealbee thì agent mới gửi được thông báo.</div>
-                      <button type="button" onClick={startZaloConnect}
-                        style={{ padding: "5px 12px", borderRadius: 7, border: "none", background: "#0068FF", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
-                        Kết nối Zalo ngay
-                      </button>
+                    <div style={{ fontSize: 11, color: fgSubtle, lineHeight: 1.5, marginTop: 2 }}>Agent này sẽ gửi brief về Zalo của bạn sau mỗi lần chạy.</div>
+                  </div>
+                ) : !zaloConnecting ? (
+                  /* Chưa kết nối → nhắc + nút mở card inline */
+                  <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(0,120,255,0.05)", border: "0.5px solid rgba(0,120,255,0.15)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#0068FF", fontWeight: 700, marginBottom: 3 }}>
+                      <Settings size={11} strokeWidth={1.5} color="#0068FF" /> Chưa kết nối Zalo
                     </div>
-                  ) : (
-                    /* Card kết nối inline: mở bot + gửi mã, không rời trang */
-                    <div style={{ padding: 12, borderRadius: 10, background: "rgba(0,120,255,0.05)", border: "1px solid rgba(0,120,255,0.20)", display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      <div style={{ flex: 1, minWidth: 180 }}>
-                        <div style={{ fontSize: 11.5, fontWeight: 700, color: fg, marginBottom: 6 }}>Bước 1 — Mở bot & Bước 2 — gửi mã dưới đây</div>
-                        <a href={ZALO_BOT_LINK} target="_blank" rel="noreferrer"
-                          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, background: "#0068FF", color: "#fff", fontSize: 11.5, fontWeight: 700, textDecoration: "none", fontFamily: FONT, marginBottom: 8 }}>
-                          <MessageCircle size={13} /> Mở Bot Wealbee
-                        </a>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ flex: 1, fontFamily: "monospace", fontSize: 20, fontWeight: 800, letterSpacing: "0.14em", color: "#0068FF", textAlign: "center", background: bgPanel, borderRadius: 8, padding: "7px 0", border: "1px dashed rgba(0,120,255,0.4)" }}>
-                            {zaloCode ?? "……"}
-                          </div>
-                          {zaloCode && (
-                            <button type="button" onClick={() => { navigator.clipboard.writeText(zaloCode); setZaloCopied(true); setTimeout(() => setZaloCopied(false), 1500); }}
-                              title="Sao chép" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 8, border: "0.5px solid " + divider, background: "transparent", cursor: "pointer", color: fg }}>
-                              {zaloCopied ? <Check size={16} color="#1a7a3a" /> : <Copy size={16} />}
-                            </button>
-                          )}
+                    <div style={{ fontSize: 11, color: fgSubtle, lineHeight: 1.5, marginBottom: 6 }}>Bạn cần liên kết tài khoản với bot Zalo của Wealbee thì agent mới gửi được thông báo.</div>
+                    <button type="button" onClick={startZaloConnect}
+                      style={{ padding: "5px 12px", borderRadius: 7, border: "none", background: "#0068FF", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
+                      Kết nối Zalo ngay
+                    </button>
+                  </div>
+                ) : (
+                  /* Card kết nối inline: mở bot + gửi mã, không rời trang */
+                  <div style={{ padding: 12, borderRadius: 10, background: "rgba(0,120,255,0.05)", border: "1px solid rgba(0,120,255,0.20)", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 700, color: fg, marginBottom: 6 }}>Bước 1 — Mở bot & Bước 2 — gửi mã dưới đây</div>
+                      <a href={ZALO_BOT_LINK} target="_blank" rel="noreferrer"
+                        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, background: "#0068FF", color: "#fff", fontSize: 11.5, fontWeight: 700, textDecoration: "none", fontFamily: FONT, marginBottom: 8 }}>
+                        <MessageCircle size={13} /> Mở Bot Wealbee
+                      </a>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ flex: 1, fontFamily: "monospace", fontSize: 20, fontWeight: 800, letterSpacing: "0.14em", color: "#0068FF", textAlign: "center", background: bgPanel, borderRadius: 8, padding: "7px 0", border: "1px dashed rgba(0,120,255,0.4)" }}>
+                          {zaloCode ?? "……"}
                         </div>
-                        <div style={{ fontSize: 10.5, color: fgSubtle, margin: "5px 0 8px" }}>Mã hết hạn sau 15 phút · trên máy tính quét QR bên phải</div>
-                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                          <button type="button" onClick={refreshZaloLink} disabled={zaloBusy}
-                            style={{ padding: "6px 12px", borderRadius: 7, border: "none", background: "#1a7a3a", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT, display: "flex", alignItems: "center", gap: 5 }}>
-                            <Check size={13} /> Đã gửi, kiểm tra
+                        {zaloCode && (
+                          <button type="button" onClick={() => { navigator.clipboard.writeText(zaloCode); setZaloCopied(true); setTimeout(() => setZaloCopied(false), 1500); }}
+                            title="Sao chép" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 8, border: "0.5px solid " + divider, background: "transparent", cursor: "pointer", color: fg }}>
+                            {zaloCopied ? <Check size={16} color="#1a7a3a" /> : <Copy size={16} />}
                           </button>
-                          <button type="button" onClick={() => { setZaloConnecting(false); setZaloCode(null); }}
-                            style={{ padding: "6px 4px", border: "none", background: "transparent", color: fgSubtle, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>
-                            Đóng
-                          </button>
-                        </div>
+                        )}
                       </div>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                        <div style={{ background: "#fff", borderRadius: 8, padding: 6, border: "0.5px solid " + divider }}>
-                          <img src={ZALO_BOT_QR} alt="QR Bot Wealbee" width={104} height={104} style={{ display: "block" }} />
-                        </div>
-                        <span style={{ fontSize: 9.5, fontWeight: 600, color: fgSubtle, textAlign: "center", maxWidth: 116 }}>Quét bằng camera Zalo</span>
+                      <div style={{ fontSize: 10.5, color: fgSubtle, margin: "5px 0 8px" }}>Mã hết hạn sau 15 phút · trên máy tính quét QR bên phải</div>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        <button type="button" onClick={refreshZaloLink} disabled={zaloBusy}
+                          style={{ padding: "6px 12px", borderRadius: 7, border: "none", background: "#1a7a3a", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT, display: "flex", alignItems: "center", gap: 5 }}>
+                          <Check size={13} /> Đã gửi, kiểm tra
+                        </button>
+                        <button type="button" onClick={() => { setZaloConnecting(false); setZaloCode(null); }}
+                          style={{ padding: "6px 4px", border: "none", background: "transparent", color: fgSubtle, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT }}>
+                          Đóng
+                        </button>
                       </div>
                     </div>
-                  )
-                )}
-              </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                      <div style={{ background: "#fff", borderRadius: 8, padding: 6, border: "0.5px solid " + divider }}>
+                        <img src={ZALO_BOT_QR} alt="QR Bot Wealbee" width={104} height={104} style={{ display: "block" }} />
+                      </div>
+                      <span style={{ fontSize: 9.5, fontWeight: 600, color: fgSubtle, textAlign: "center", maxWidth: 116 }}>Quét bằng camera Zalo</span>
+                    </div>
+                  </div>
+                )
+              )}
             </div>
           </Section>
         </div>
@@ -1513,9 +1513,9 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 20px 14px", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
                 <Wrench size={16} color={brand} strokeWidth={1.5} />
                 <span style={{ fontSize: 16, fontWeight: 700, color: fg, flex: 1 }}>Công cụ phân tích</span>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.10)", color: brand }}>{selectedTools.size}/{ALL_TOOLS.length} đang bật</span>
-                <button onClick={() => { if (selectedTools.size === ALL_TOOLS.length) setSelectedTools(new Set()); else setSelectedTools(new Set(ALL_TOOLS.filter(t => t.available).map(t => t.id))); }} style={{ padding: "5px 12px", borderRadius: 7, border: "0.5px solid " + divider, background: "transparent", color: brand, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
-                  {selectedTools.size === ALL_TOOLS.length ? "Tắt tất cả" : "Bật tất cả"}
+                <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.10)", color: brand }}>{selectedTools.size}/{AVAILABLE_TOOLS_COUNT} đang bật</span>
+                <button onClick={() => { if (selectedTools.size === AVAILABLE_TOOLS_COUNT) setSelectedTools(new Set()); else setSelectedTools(new Set(ALL_TOOLS.filter(t => t.available).map(t => t.id))); }} style={{ padding: "5px 12px", borderRadius: 7, border: "0.5px solid " + divider, background: "transparent", color: brand, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>
+                  {selectedTools.size === AVAILABLE_TOOLS_COUNT ? "Tắt tất cả" : "Bật tất cả"}
                 </button>
                 <button onClick={close} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: "none", background: "transparent", cursor: "pointer" }}><X size={16} color={fgMuted} strokeWidth={1.5} /></button>
               </div>
@@ -1528,7 +1528,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
               </div>
               <div style={{ overflowY: "auto", flex: 1 }}>
                 {TOOL_GROUPS.map(group => {
-                  const groupTools = group.tools.filter(t => !toolsSearch || t.name.toLowerCase().includes(lower) || t.desc.toLowerCase().includes(lower) || group.category.toLowerCase().includes(lower));
+                  const groupTools = group.tools.filter(t => t.available && (!toolsSearch || t.name.toLowerCase().includes(lower) || t.desc.toLowerCase().includes(lower) || group.category.toLowerCase().includes(lower)));
                   if (groupTools.length === 0) return null;
                   return (
                     <div key={group.id}>
@@ -1540,14 +1540,13 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                         const needsExpand = t.desc.length > 100;
                         return (
                           <div key={t.id} style={{ borderBottom: idx < groupTools.length - 1 ? "0.5px solid " + dividerFaint : "none" }}>
-                            <div onClick={() => t.available && toggleTool(t.id)} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "14px 20px", cursor: t.available ? "pointer" : "default", background: sel ? (isDark ? "rgba(52,199,89,0.07)" : "rgba(52,199,89,0.05)") : "transparent", transition: "background 80ms", opacity: t.available ? 1 : 0.45 }}>
+                            <div onClick={() => toggleTool(t.id)} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "14px 20px", cursor: "pointer", background: sel ? (isDark ? "rgba(255,255,255,0.045)" : "rgba(26,26,46,0.03)") : "transparent", transition: "background 80ms" }}>
                               <div style={{ width: 44, height: 44, borderRadius: 12, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
                                 <Icon size={20} color={brand} strokeWidth={1.5} />
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 14, fontWeight: 700, color: fg, marginBottom: 3, display: "flex", alignItems: "center", gap: 7 }}>
                                   {t.name}
-                                  {!t.available && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(26,26,46,0.07)", color: fgDisabled }}>Sắp ra mắt</span>}
                                 </div>
                                 {t.includes?.length > 0 && (
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
@@ -1580,7 +1579,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                                   </button>
                                 )}
                               </div>
-                              <div style={{ width: 40, height: 22, borderRadius: 99, flexShrink: 0, background: sel && t.available ? "#34C759" : isDark ? "rgba(255,255,255,0.12)" : "rgba(26,26,46,0.12)", display: "flex", alignItems: "center", justifyContent: sel && t.available ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms ease", marginTop: 2 }}>
+                              <div style={{ width: 40, height: 22, borderRadius: 99, flexShrink: 0, background: sel ? brand : isDark ? "rgba(255,255,255,0.12)" : "rgba(26,26,46,0.12)", display: "flex", alignItems: "center", justifyContent: sel ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms ease", marginTop: 2 }}>
                                 <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.20)" }} />
                               </div>
                             </div>
@@ -1633,7 +1632,7 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 20px 14px", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
               <TrendingUp size={16} color={brand} strokeWidth={1.5} />
               <span style={{ fontSize: 16, fontWeight: 700, color: fg, flex: 1 }}>Theo dõi thị trường</span>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 99, background: isDark ? "rgba(52,199,89,0.12)" : "rgba(52,199,89,0.10)", color: "#1a7a3a" }}>{totalMa} mã</span>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 99, background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.10)", color: brand }}>{totalMa} mã</span>
               <button onClick={() => setShowWatchlistPicker(false)} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: "none", background: "transparent", cursor: "pointer" }}><X size={16} color={fgMuted} strokeWidth={1.5} /></button>
             </div>
             <div style={{ overflowY: "auto", flex: 1 }}>
@@ -1644,15 +1643,15 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                   // Bấm khi ĐANG kết nối → ngắt kết nối, xoá sạch để user tự chọn lại từ đầu.
                   // Bấm khi CHƯA kết nối → đồng bộ chủ động: mã theo dõi chuyển hẳn về đúng mã trong danh mục.
                   setWatchlist(isPortfolioConnected ? [] : portfolioSymbols);
-                }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, cursor: portfolioSymbols.length > 0 ? "pointer" : "default", border: isPortfolioConnected ? "1px solid rgba(52,199,89,0.35)" : "0.5px solid " + divider, background: isPortfolioConnected ? "rgba(52,199,89,0.06)" : bgMuted, transition: "all 120ms", opacity: portfolioSymbols.length === 0 ? 0.45 : 1 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 11, background: isPortfolioConnected ? "rgba(52,199,89,0.15)" : isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.06)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><TrendingUp size={18} color={isPortfolioConnected ? "#1a7a3a" : fgDisabled} strokeWidth={1.5} /></div>
+                }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, cursor: portfolioSymbols.length > 0 ? "pointer" : "default", border: isPortfolioConnected ? "1px solid " + (isDark ? "rgba(77,143,232,0.35)" : "rgba(8,73,172,0.30)") : "0.5px solid " + divider, background: isPortfolioConnected ? (isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.05)") : bgMuted, transition: "all 120ms", opacity: portfolioSymbols.length === 0 ? 0.45 : 1 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 11, background: isPortfolioConnected ? (isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)") : isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.06)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><TrendingUp size={18} color={isPortfolioConnected ? brand : fgDisabled} strokeWidth={1.5} /></div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: isPortfolioConnected ? "#1a7a3a" : fg }}>Kết nối danh mục hiện tại</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: isPortfolioConnected ? brand : fg }}>Kết nối danh mục hiện tại</div>
                     <div style={{ fontSize: 11, color: fgSubtle, marginTop: 2 }}>
                       {portfolioSymbols.length > 0 ? `${portfolioSymbols.join(" · ")} (${portfolioSymbols.length} mã)` : "Chưa có danh mục, thêm mã bên dưới"}
                     </div>
                   </div>
-                  <div style={{ width: 40, height: 22, borderRadius: 99, background: isPortfolioConnected ? "#34C759" : isDark ? "rgba(255,255,255,0.15)" : "rgba(26,26,46,0.15)", display: "flex", alignItems: "center", justifyContent: isPortfolioConnected ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms", flexShrink: 0 }}>
+                  <div style={{ width: 40, height: 22, borderRadius: 99, background: isPortfolioConnected ? brand : isDark ? "rgba(255,255,255,0.15)" : "rgba(26,26,46,0.15)", display: "flex", alignItems: "center", justifyContent: isPortfolioConnected ? "flex-end" : "flex-start", padding: "0 3px", transition: "all 200ms", flexShrink: 0 }}>
                     <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.20)" }} />
                   </div>
                 </div>
@@ -1689,20 +1688,135 @@ export function AgentStudio({ onBack, agentId, initialName, initialDescription, 
                 <div style={{ padding: "14px 20px" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Đang theo dõi ({allSymbols.length})</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-                    {watchlist.map(sym => {
-                      const inPortfolio = portfolioSymbols.includes(sym);
+                    {watchlist.map(sym => (
+                      <span key={sym} style={{
+                        display: "flex", alignItems: "center", gap: 6, padding: "6px 10px 6px 14px", borderRadius: 99,
+                        background: isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)",
+                        fontSize: 13, fontWeight: 700, color: brand,
+                      }}>
+                        {sym}
+                        <button onClick={() => setWatchlist(p => p.filter(s => s !== sym))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}><X size={11} color={brand} strokeWidth={2.5} /></button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════ TRIGGER PICKER MODAL ════════ */}
+      {showTriggerPicker && (
+        <div onClick={() => setShowTriggerPicker(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.30)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 480, maxHeight: "80vh", borderRadius: 16, overflow: "hidden", background: bgPanel, display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.22), 0 0 0 0.5px " + divider }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 20px 14px", borderBottom: "0.5px solid " + divider, flexShrink: 0 }}>
+              <Clock size={16} color={brand} strokeWidth={1.5} />
+              <span style={{ fontSize: 16, fontWeight: 700, color: fg, flex: 1 }}>Điều kiện kích hoạt agent</span>
+              <button onClick={() => setShowTriggerPicker(false)} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: "none", background: "transparent", cursor: "pointer" }}><X size={16} color={fgMuted} strokeWidth={1.5} /></button>
+            </div>
+            <div style={{ overflowY: "auto", flex: 1, padding: "16px 20px" }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+                {([
+                  { id: "manual", label: "Thủ công", Icon: Play },
+                  { id: "scheduled", label: "Theo lịch", Icon: Clock },
+                  { id: "event", label: "Theo sự kiện", Icon: Zap },
+                ] as const).map(o => {
+                  const active = triggerType === o.id;
+                  return (
+                    <div key={o.id} onClick={() => setTriggerType(o.id)} style={{ flex: 1, padding: "10px 8px", borderRadius: 10, cursor: "pointer", textAlign: "center", border: active ? "1.5px solid " + brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.10)"), background: active ? (isDark ? "rgba(77,143,232,0.10)" : "rgba(8,73,172,0.05)") : "transparent", transition: "all 120ms ease" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, fontSize: 13, fontWeight: 700, color: active ? brand : fgMuted }}>
+                        <o.Icon size={13} strokeWidth={1.5} color={active ? brand : fgMuted} />{o.label}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {triggerType === "manual" && (
+                <div style={{ padding: "10px 12px", borderRadius: 9, background: isDark ? "rgba(255,255,255,0.03)" : "rgba(26,26,46,0.03)", fontSize: 11, color: fgMuted, lineHeight: 1.5 }}>
+                  Agent chỉ chạy khi bạn bấm <strong>Chạy thử</strong> / chạy tay. Không tự động.
+                </div>
+              )}
+
+              {triggerType === "event" && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Loại sự kiện kích hoạt</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 12 }}>
+                    {([
+                      { id: "volume_spike", label: "Khối lượng đột biến", desc: "KL một phiên vượt bội số TB20 phiên" },
+                      { id: "insider_buy", label: "Nội bộ / lãnh đạo MUA", desc: "Có giao dịch mua của người nội bộ" },
+                      { id: "high_impact_news", label: "Tin tác động mạnh", desc: "Tin có điểm tác động ≥ ngưỡng" },
+                    ] as const).map(e => {
+                      const active = eventType === e.id;
                       return (
-                        <span key={sym} style={{
-                          display: "flex", alignItems: "center", gap: 6, padding: "6px 10px 6px 14px", borderRadius: 99,
-                          background: inPortfolio ? (isDark ? "rgba(52,199,89,0.12)" : "rgba(52,199,89,0.10)") : (isDark ? "rgba(77,143,232,0.12)" : "rgba(8,73,172,0.08)"),
-                          border: inPortfolio ? "0.5px solid rgba(52,199,89,0.4)" : "none",
-                          fontSize: 13, fontWeight: 700, color: inPortfolio ? "#34C759" : brand,
-                        }}>
-                          {sym}
-                          <button onClick={() => setWatchlist(p => p.filter(s => s !== sym))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}><X size={11} color={inPortfolio ? "#34C759" : brand} strokeWidth={2.5} /></button>
-                        </span>
+                        <div key={e.id} onClick={() => setEventType(e.id)} style={{ padding: "10px 12px", borderRadius: 10, cursor: "pointer", border: active ? "1px solid " + brand : "0.5px solid " + (isDark ? "rgba(255,255,255,0.08)" : "rgba(8,73,172,0.10)"), background: active ? (isDark ? "rgba(77,143,232,0.08)" : "rgba(8,73,172,0.04)") : bgPanel }}>
+                          <div style={{ fontSize: 13, fontWeight: active ? 700 : 600, color: active ? brand : fg }}>{e.label}</div>
+                          <div style={{ fontSize: 11, color: fgSubtle, marginTop: 2 }}>{e.desc}</div>
+                        </div>
                       );
                     })}
+                  </div>
+                  {/* Tham số theo loại */}
+                  {eventType === "volume_spike" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: fg }}>
+                      <span>Bội số TB20:</span>
+                      <input type="number" min={1} step={0.5} value={eventMultiple} onChange={e => setEventMultiple(Number(e.target.value) || 2)} style={{ width: 70, padding: "6px 8px", borderRadius: 7, border: "0.5px solid " + inputBorder, background: bgPanel, color: fg, fontSize: 13, fontWeight: 700, outline: "none", fontFamily: FONT }} />
+                      <span style={{ color: fgSubtle }}>lần (vd 2 = gấp đôi TB)</span>
+                    </div>
+                  )}
+                  {eventType === "insider_buy" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: fg }}>
+                      <span>Trong vòng:</span>
+                      <input type="number" min={1} value={eventDays} onChange={e => setEventDays(Number(e.target.value) || 7)} style={{ width: 70, padding: "6px 8px", borderRadius: 7, border: "0.5px solid " + inputBorder, background: bgPanel, color: fg, fontSize: 13, fontWeight: 700, outline: "none", fontFamily: FONT }} />
+                      <span style={{ color: fgSubtle }}>ngày gần nhất</span>
+                    </div>
+                  )}
+                  {eventType === "high_impact_news" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: fg }}>
+                      <span>Điểm tác động ≥</span>
+                      <input type="number" min={1} max={10} step={0.5} value={eventMinImpact} onChange={e => setEventMinImpact(Number(e.target.value) || 5)} style={{ width: 70, padding: "6px 8px", borderRadius: 7, border: "0.5px solid " + inputBorder, background: bgPanel, color: fg, fontSize: 13, fontWeight: 700, outline: "none", fontFamily: FONT }} />
+                      <span style={{ color: fgSubtle }}>(thang -10..+10)</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: fgDisabled, marginTop: 10, lineHeight: 1.5 }}>
+                    Áp dụng cho các mã trong "Mã quan tâm". Hệ thống kiểm tra định kỳ, đúng điều kiện → agent tự chạy & tạo báo cáo.
+                  </div>
+                </div>
+              )}
+
+              {triggerType === "scheduled" && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Tần suất phân tích</div>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                    {([{ id: "daily", label: "Mỗi ngày" }, { id: "weekdays", label: "Ngày GD" }, { id: "weekly", label: "Hàng tuần" }, { id: "custom", label: "Tùy chọn" }] as const).map(f => (
+                      <button key={f.id} onClick={() => { setFrequency(f.id); if (f.id === "weekly") setSelectedDays(new Set([0])); if (f.id === "daily" || f.id === "weekdays") setSelectedDays(new Set([0, 1, 2, 3, 4])); }} style={{ flex: 1, padding: "6px 4px", borderRadius: 8, border: "none", cursor: "pointer", background: frequency === f.id ? brand : isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.06)", color: frequency === f.id ? "#fff" : fgMuted, fontSize: 11, fontWeight: frequency === f.id ? 700 : 500, fontFamily: FONT, transition: "all 100ms ease" }}>{f.label}</button>
+                    ))}
+                  </div>
+                  {(frequency === "weekly" || frequency === "custom") && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Ngày trong tuần</div>
+                      <div style={{ display: "flex", gap: 5 }}>
+                        {["T2","T3","T4","T5","T6","T7","CN"].map((d, i) => {
+                          const isWknd = i >= 5; const sel = selectedDays.has(i);
+                          return <button key={d} onClick={() => toggleDay(i)} style={{ flex: 1, aspectRatio: "1", borderRadius: 8, border: "none", cursor: "pointer", background: sel ? (isWknd ? "#FF9500" : brand) : isDark ? "rgba(255,255,255,0.07)" : "rgba(26,26,46,0.06)", color: sel ? "#fff" : isWknd ? "#FF9500" : fgMuted, fontSize: 11, fontWeight: sel ? 700 : 500, fontFamily: FONT, transition: "all 100ms ease", padding: "7px 0" }}>{d}</button>;
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: fgDisabled, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Giờ gửi</div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "0.5px solid " + inputBorder, background: bgPanel, fontSize: 13, fontWeight: 700, color: fg, outline: "none", fontFamily: FONT, cursor: "pointer" }} />
+                      <div style={{ display: "flex", gap: 5 }}>
+                        {["09:15","11:30","15:15"].map(t => (
+                          <button key={t} onClick={() => setScheduleTime(t)} style={{ padding: "7px 8px", borderRadius: 7, border: "none", cursor: "pointer", background: scheduleTime === t ? (isDark ? "rgba(77,143,232,0.15)" : "rgba(8,73,172,0.10)") : isDark ? "rgba(255,255,255,0.05)" : "rgba(26,26,46,0.05)", color: scheduleTime === t ? brand : fgMuted, fontSize: 11, fontWeight: scheduleTime === t ? 700 : 400, fontFamily: FONT }}>{t}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, color: fgDisabled, marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                      <Info size={9} strokeWidth={1.5} color={fgDisabled} />09:15 = đầu phiên · 11:30 = giữa phiên · 15:15 = cuối phiên
+                    </div>
                   </div>
                 </div>
               )}

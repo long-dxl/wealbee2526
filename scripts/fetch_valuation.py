@@ -6,7 +6,7 @@ Tính P/E,P/B,P/S,BVPS,MARKET_CAP,FCF_YIELD bằng LN/VCSH/DT/FCF (FY mới nh�
 Dùng: fetch_valuation.py FPT MBB SSI BVH        # dry-run
       fetch_valuation.py --all --write          # full + ghi
 """
-import os, sys, json, glob, time, urllib.request
+import os, sys, json, glob, time, urllib.request, urllib.parse
 import warnings; warnings.filterwarnings("ignore")
 import contextlib, io
 
@@ -40,13 +40,22 @@ def db_get(path):
     r.add_header("apikey",KEY); r.add_header("Authorization","Bearer "+KEY)
     with urllib.request.urlopen(r) as resp: return json.load(resp)
 
+def db_delete(path):
+    r=urllib.request.Request(URL+path,method="DELETE")
+    r.add_header("apikey",KEY); r.add_header("Authorization","Bearer "+KEY)
+    with urllib.request.urlopen(r): pass
+
 def _qkey(p):  # "Q1/2025" -> (2025,1)
     q,y=p.split("/"); return (int(y), int(q[1]))
 
 def load_financials(syms):
     """Bulk: {symbol: {net_profit(FY), equity, revenue(FY), fcf, ttm_np, ttm_rev, fy}}.
-    TTM = tổng 4 quý gần nhất (net profit & doanh thu)."""
-    codes="IS_NET_PROFIT_PARENT,IS_NET_PROFIT,BS_EQUITY,IS_REVENUE,BANK_TOI,CF_FCF"
+    TTM = tổng 4 quý gần nhất (net profit & doanh thu). Equity ưu tiên BS_EQUITY_PARENT
+    (loại NCI — VCSH tổng gồm cả lợi ích cổ đông thiểu số không thuộc về cổ đông sở hữu
+    CP, chuẩn CFA/IFRS cho BVPS/PB) của QUÝ MỚI NHẤT nếu mới hơn FY (equity là số dư tại
+    1 thời điểm, không cộng dồn như TTM — verify VHM Q1/2026: BVPS=63.864đ vs Simplize
+    thật=63.850đ, lệch 0.02%; trong khi dùng VCSH tổng của FY cũ lệch tới ~12-27%)."""
+    codes="IS_NET_PROFIT_PARENT,IS_NET_PROFIT,BS_EQUITY,BS_EQUITY_PARENT,IS_REVENUE,BANK_TOI,CF_FCF"
     rows=[]; step=1000; off=0
     while True:
         page=db_get(f"/rest/v1/financial_statements?item_code=in.({codes})"
@@ -66,7 +75,8 @@ def load_financials(syms):
             d=years[yr]
             np_=d.get("IS_NET_PROFIT_PARENT") or d.get("IS_NET_PROFIT")
             if np_:
-                rec=dict(net_profit=np_, equity=d.get("BS_EQUITY"),
+                equity=d.get("BS_EQUITY_PARENT") or d.get("BS_EQUITY")
+                rec=dict(net_profit=np_, equity=equity,
                          revenue=d.get("IS_REVENUE") or d.get("BANK_TOI"), fcf=d.get("CF_FCF"),
                          fy=yr, ttm_np=None, ttm_rev=None)
                 qs=q.get(s,{})
@@ -76,6 +86,11 @@ def load_financials(syms):
                     rvs=[ (qs[p].get("IS_REVENUE") or qs[p].get("BANK_TOI")) for p in last4]
                     if all(x is not None for x in nps): rec["ttm_np"]=sum(nps)
                     if all(x is not None for x in rvs): rec["ttm_rev"]=sum(rvs)
+                if qs:
+                    latest_q=max(qs,key=_qkey)
+                    if _qkey(latest_q)>_qkey(f"Q4/{yr}"):
+                        eq_q=qs[latest_q].get("BS_EQUITY_PARENT") or qs[latest_q].get("BS_EQUITY")
+                        if eq_q is not None: rec["equity"]=eq_q
                 out[s]=rec
                 break
     return out
@@ -161,5 +176,20 @@ def main():
         try: urllib.request.urlopen(req); ok+=len(ch)
         except urllib.error.HTTPError as e: err+=len(ch); print("ERR",e.read().decode()[:200])
     print(f"Ghi financial_ratios (CURRENT): OK={ok} ERR={err}")
+    # Dọn snapshot CURRENT cũ (ngày khác ASOF) — mỗi lần chạy period=ASOF là 1 phần
+    # unique key nên KHÔNG tự đè, chạy định kỳ sẽ tích luỹ vô hạn nếu không xoá. Đọc
+    # financial-report.ts (mục "Định giá hiện tại") phải luôn thấy đúng 1 ngày/mã.
+    written=set(r["symbol"] for r in out)
+    del_ok=del_err=0
+    wl=list(written)
+    for i in range(0,len(wl),CHUNK):
+        ch=wl[i:i+CHUNK]
+        symlist=",".join(urllib.parse.quote(s) for s in ch)
+        try:
+            db_delete(f"/rest/v1/financial_ratios?symbol=in.({symlist})&period_type=eq.CURRENT&period=neq.{ASOF}")
+            del_ok+=len(ch)
+        except Exception as e:
+            del_err+=len(ch); print("  DEL ERR",repr(e)[:100])
+    print(f"Dọn CURRENT cũ (khác {ASOF}): {del_ok} mã xử lý, {del_err} lỗi")
 
 if __name__=="__main__": main()
