@@ -418,11 +418,14 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
             }}>{m === "candle" ? "Nến" : "Tương quan"}</button>
           ))}
         </div>
-        {/* Mở rộng toàn màn hình — chỉ mobile cần (desktop đã đủ chỗ trong layout 3 cột) */}
+        {/* Mở rộng toàn màn hình — chỉ mobile cần (desktop đã đủ chỗ trong layout 3 cột).
+            marginRight 10px: canvas trục giá bên phải rộng hơn số hiển thị thật ~10px
+            (lightweight-charts tự chừa margin nội bộ quanh nhãn giá) — lùi nút vào
+            đúng 10px để thẳng hàng dọc với chữ số trục Oy thay vì với mép canvas. */}
         {isMobile && (
           <button onClick={() => setIsFullscreen(v => !v)} title={isFullscreen ? "Thu nhỏ" : "Mở rộng toàn màn hình"} style={{
             display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0,
-            borderRadius: 8, border: "none", cursor: "pointer", background: tk.CARD2, color: tk.MUTED,
+            marginRight: 10, borderRadius: 8, border: "none", cursor: "pointer", background: tk.CARD2, color: tk.MUTED,
             WebkitTapHighlightColor: "transparent",
           }}>
             {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
