@@ -19,7 +19,7 @@ import { useCurrentUser } from "../../lib/hooks/useCurrentUser";
 import { useIsMobile } from "../../components/ui/use-mobile";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { IndexDetailModal } from "../../components/index-detail-modal";
-import { fmtIndexValue, fmtIndexChange, fmtStockPrice } from "../../lib/format-price";
+import { fmtIndexValue, fmtIndexChange, fmtStockPrice, fmtFinNumber } from "../../lib/format-price";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface MoverRow   { symbol: string; price: number; pct: number; vol: string; isCeil: boolean; isFloor: boolean; }
@@ -712,7 +712,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
       type: "portfolio",
       label: "Danh mục của bạn",
       badge: watchHoldings.length > 0 ? `${watchHoldings.length} mã` : "Chưa có dữ liệu",
-      summary: portfolioTotal > 0 ? `Tổng: ${portfolioTotal.toLocaleString("vi-VN")} đ · ${watchHoldings.map(h => h.symbol).join(" ")}` : "Chưa có holdings",
+      summary: portfolioTotal > 0 ? `Tổng: ${fmtFinNumber(portfolioTotal)} đ · ${watchHoldings.map(h => h.symbol).join(" ")}` : "Chưa có holdings",
     };
     e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
     e.dataTransfer.effectAllowed = "copy";
@@ -1100,14 +1100,17 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)"; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "1"; }}
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "0"; }}>
         <DragHint />
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        {/* Mobile: xếp dọc (số tổng + nút "Xem danh mục" chung 1 hàng ngang bị ép
+            hẹp, số 26px bold + "đ" tự tràn xuống dòng riêng) — tách 2 hàng để số
+            tổng có trọn chiều rộng thẻ, không bao giờ vỡ dòng nữa. */}
+        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "center", gap: isMobile ? 12 : 0, marginBottom: 12 }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: fg, marginBottom: 4 }}>DANH MỤC CỦA BẠN</div>
             {watchLoading ? (
               <div style={{ fontSize: 22, color: fgSubtle }}>Đang tải…</div>
             ) : watchHoldings.length > 0 ? (
               <>
-                <div style={{ fontSize: 26, fontWeight: 700, color: fg }}>{portfolioTotal.toLocaleString("vi-VN")} đ</div>
+                <div style={{ fontSize: 26, fontWeight: 700, color: fg, whiteSpace: "nowrap" }}>{fmtFinNumber(portfolioTotal)} đ</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                   <span style={{ fontSize: 13, color: fgSubtle }}>{watchHoldings.length} mã</span>
                 </div>
@@ -1117,7 +1120,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
             )}
           </div>
           <button onClick={e => { e.stopPropagation(); onNavigate("portfolio"); }}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.20)"), background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 600, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 14px", borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.20)"), background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 600, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif", alignSelf: isMobile ? "flex-start" : "center", WebkitTapHighlightColor: "transparent" }}>
             Xem danh mục <ArrowUpRight size={14} strokeWidth={1.5} />
           </button>
         </div>
