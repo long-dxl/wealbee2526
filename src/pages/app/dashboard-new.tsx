@@ -881,7 +881,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
       {/* Market section */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: fg }}>CHỈ SỐ THỊ TRƯỜNG</span>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: fg }}>THỊ TRƯỜNG</span>
           {marketUpdatedAt && <span style={{ fontSize: 10, color: fgSubtle }}>Cập nhật lúc {fmtUpdatedAt(marketUpdatedAt)}</span>}
         </div>
         <button onClick={() => setMarketExpanded(v => !v)}

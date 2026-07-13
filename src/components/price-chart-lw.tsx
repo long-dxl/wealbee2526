@@ -9,6 +9,7 @@ import {
   createChart, CandlestickSeries, HistogramSeries, LineSeries,
   ColorType, LineStyle, type IChartApi, type ISeriesApi, type UTCTimestamp,
 } from "lightweight-charts";
+import { Maximize2, Minimize2, X } from "lucide-react";
 import { supabase } from "../lib/supabase/client";
 
 type OhlcRow = { date: string; open: number; high: number; low: number; close: number; volume: number };
@@ -33,7 +34,14 @@ interface PriceChartLWProps {
   HNX_C: string;
   fmtPct: (v: number) => string;
   FONT: string;
+  isMobile?: boolean;
+  // Trang cha (ticker-detail-page) sở hữu state "period" và render pill chọn
+  // khung thời gian NGOÀI component này — khi bung full-screen (che kín toàn bộ
+  // trang), pill đó bị khuất theo nên phải có cách đổi khung ngay trong overlay.
+  onPeriodChange?: (p: string) => void;
 }
+
+const FS_PERIODS = ["1D", "7D", "1M", "3M", "YTD", "5Y"] as const;
 
 const toTime = (dateStr: string): UTCTimestamp => (Math.floor(new Date(dateStr + "T00:00:00Z").getTime() / 1000) as UTCTimestamp);
 
@@ -78,11 +86,14 @@ function buildPctSeries(ohlc: OhlcRow[], vniPrices: IndexRow[], hnxPrices: Index
   return { stock, vni, hnx };
 }
 
-export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices, sym, tk, isDark, GREEN, RED, VNI_C, HNX_C, fmtPct, FONT }: PriceChartLWProps) {
+export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices, sym, tk, isDark, GREEN, RED, VNI_C, HNX_C, fmtPct, FONT, isMobile = false, onPeriodChange }: PriceChartLWProps) {
   const [mode, setMode] = useState<"candle" | "pct">("candle");
   const [showVni, setShowVni] = useState(true);
   const [showHnx, setShowHnx] = useState(true);
   const [hoverBar, setHoverBar] = useState<Bar | null>(null);   // null = chưa hover, hiện nến mới nhất
+  // Mobile: xem chart trong 1 card nhỏ giữa trang khá gò bó khi cần soi kỹ nến/
+  // volume — cho phép bung chart ra chiếm trọn viewport (đóng bằng nút X/thu nhỏ).
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const [intradayBars, setIntradayBars] = useState<Bar[]>([]);
   const [intradayLoading, setIntradayLoading] = useState(false);
@@ -116,6 +127,17 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
       : ohlc.map(r => ({ time: toTime(r.date), open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume }))
   ), [is1D, intradayBars, ohlc]);
 
+  // Chiều cao chart theo breakpoint + trạng thái full-screen — mobile mặc định
+  // cao hơn desktop 1 chút (nhiều đất hơn khi không có sidebar/ActionHub chiếm
+  // 2 bên), full-screen tận dụng gần hết chiều cao viewport để soi nến/volume.
+  const computeHeights = (fullscreen: boolean, mobile: boolean) => {
+    if (fullscreen) {
+      const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+      return { candleH: Math.max(280, Math.round(vh * 0.48)), volH: 120, pctH: Math.max(340, Math.round(vh * 0.62)) };
+    }
+    return { candleH: mobile ? 240 : 220, volH: mobile ? 80 : 70, pctH: mobile ? 260 : 240 };
+  };
+
   const baseOpts = (host: HTMLDivElement) => ({
     width: host.clientWidth,
     layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: tk.MUTED, fontFamily: FONT },
@@ -132,12 +154,13 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
   // Khởi tạo chart 1 lần khi mount
   useEffect(() => {
     if (!candleHostRef.current || !volHostRef.current || !pctHostRef.current) return;
+    const initH = computeHeights(false, isMobile); // isFullscreen luôn false lúc mount
 
     // Chart Nến KHÔNG hiện trục thời gian riêng (ẩn hẳn hàng tháng/ngày) — chỉ
     // chart Volume bên dưới hiện, để không bị lặp 2 hàng label. Logo TradingView
     // cũng dời xuống góc chart Volume cho đồng bộ với chỗ hiện trục thời gian.
     const candleChart = createChart(candleHostRef.current, {
-      ...baseOpts(candleHostRef.current), height: 220,
+      ...baseOpts(candleHostRef.current), height: initH.candleH,
       layout: { ...baseOpts(candleHostRef.current).layout, attributionLogo: false },
       timeScale: { ...baseOpts(candleHostRef.current).timeScale, visible: false },
     });
@@ -147,7 +170,7 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
     candleChartRef.current = candleChart;
     candleSeriesRef.current = candleSeries;
 
-    const volChart = createChart(volHostRef.current, { ...baseOpts(volHostRef.current), height: 70, layout: { ...baseOpts(volHostRef.current).layout, attributionLogo: true } });
+    const volChart = createChart(volHostRef.current, { ...baseOpts(volHostRef.current), height: initH.volH, layout: { ...baseOpts(volHostRef.current).layout, attributionLogo: true } });
     const volSeries = volChart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "" });
     volChartRef.current = volChart;
     volSeriesRef.current = volSeries;
@@ -187,7 +210,7 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
       isSyncingRef.current = false;
     });
 
-    const pctChart = createChart(pctHostRef.current, { ...baseOpts(pctHostRef.current), height: 240, layout: { ...baseOpts(pctHostRef.current).layout, attributionLogo: false } });
+    const pctChart = createChart(pctHostRef.current, { ...baseOpts(pctHostRef.current), height: initH.pctH, layout: { ...baseOpts(pctHostRef.current).layout, attributionLogo: false } });
     const pctFormat = { type: "custom" as const, formatter: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%` };
     const stockLine = pctChart.addSeries(LineSeries, { color: GREEN, lineWidth: 2, priceFormat: pctFormat });
     const vniLine   = pctChart.addSeries(LineSeries, { color: VNI_C, lineWidth: 1, lineStyle: LineStyle.Dashed, priceFormat: pctFormat });
@@ -300,6 +323,24 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
     return () => cancelAnimationFrame(raf);
   }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Bật/tắt full-screen (hoặc đổi breakpoint) — chart đã tạo 1 lần lúc mount với
+  // height cố định, phải applyOptions lại height + width rồi refit/zoom đúng
+  // chế độ đang xem. requestAnimationFrame vì container vừa đổi layout (fixed
+  // inset:0) có thể chưa kịp phản ánh clientWidth mới trong cùng tick.
+  useEffect(() => {
+    const { candleH, volH, pctH } = computeHeights(isFullscreen, isMobile);
+    candleChartRef.current?.applyOptions({ height: candleH });
+    volChartRef.current?.applyOptions({ height: volH });
+    pctChartRef.current?.applyOptions({ height: pctH });
+    const raf = requestAnimationFrame(() => {
+      if (candleHostRef.current) candleChartRef.current?.applyOptions({ width: candleHostRef.current.clientWidth });
+      if (volHostRef.current) volChartRef.current?.applyOptions({ width: volHostRef.current.clientWidth });
+      if (pctHostRef.current) pctChartRef.current?.applyOptions({ width: pctHostRef.current.clientWidth });
+      if (mode === "candle") applyCandleZoom(); else applyPctFit();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isFullscreen, isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Toggle hiện/ẩn VN-Index, HNX-Index trên chart %
   useEffect(() => {
     vniLineRef.current?.applyOptions({ visible: showVni });
@@ -331,16 +372,56 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
   if (pctPreview.hnx.length)   lastPct.hnx   = pctPreview.hnx[pctPreview.hnx.length - 1].value;
 
   return (
-    <div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-        {(["candle", "pct"] as const).map(m => (
-          <button key={m} onClick={() => setMode(m)} style={{
-            padding: "5px 13px", borderRadius: 8, border: "none", cursor: "pointer",
-            background: mode === m ? "#0849AC" : tk.CARD2,
-            color: mode === m ? "#fff" : tk.MUTED,
-            fontSize: 12, fontWeight: mode === m ? 700 : 500, fontFamily: FONT,
-          }}>{m === "candle" ? "Nến" : "So sánh"}</button>
-        ))}
+    <div style={isFullscreen ? {
+      position: "fixed", inset: 0, zIndex: 500, background: tk.CARD,
+      padding: "calc(12px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom))",
+      overflowY: "auto",
+    } : undefined}>
+      {isFullscreen && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: tk.TEXT, fontFamily: FONT }}>{sym}</span>
+            <button onClick={() => setIsFullscreen(false)} title="Đóng" style={{ background: "none", border: "none", cursor: "pointer", color: tk.MUTED, padding: 4, WebkitTapHighlightColor: "transparent" }}>
+              <X size={20} />
+            </button>
+          </div>
+          {/* Pill khung thời gian của trang cha bị che khuất khi full-screen —
+              nhân bản ở đây để user vẫn đổi được 1D/7D/1M/3M/YTD/5Y. */}
+          {onPeriodChange && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+              {FS_PERIODS.map(p => (
+                <button key={p} onClick={() => onPeriodChange(p)} style={{
+                  padding: "6px 13px", borderRadius: 8, border: "none", cursor: "pointer", flexShrink: 0,
+                  background: period === p ? "#0849AC" : tk.CARD2,
+                  color: period === p ? "#fff" : tk.MUTED,
+                  fontSize: 12.5, fontWeight: period === p ? 700 : 500, fontFamily: FONT,
+                }}>{p}</button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          {(["candle", "pct"] as const).map(m => (
+            <button key={m} onClick={() => setMode(m)} style={{
+              padding: "5px 13px", borderRadius: 8, border: "none", cursor: "pointer",
+              background: mode === m ? "#0849AC" : tk.CARD2,
+              color: mode === m ? "#fff" : tk.MUTED,
+              fontSize: 12, fontWeight: mode === m ? 700 : 500, fontFamily: FONT,
+            }}>{m === "candle" ? "Nến" : "Tương quan"}</button>
+          ))}
+        </div>
+        {/* Mở rộng toàn màn hình — chỉ mobile cần (desktop đã đủ chỗ trong layout 3 cột) */}
+        {isMobile && (
+          <button onClick={() => setIsFullscreen(v => !v)} title={isFullscreen ? "Thu nhỏ" : "Mở rộng toàn màn hình"} style={{
+            display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0,
+            borderRadius: 8, border: "none", cursor: "pointer", background: tk.CARD2, color: tk.MUTED,
+            WebkitTapHighlightColor: "transparent",
+          }}>
+            {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
+        )}
       </div>
 
       {/* Cả 2 luôn mount (giữ chart instance sống), chỉ ẩn/hiện bằng display để tránh
@@ -348,12 +429,22 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
       <div style={{ display: mode === "candle" ? "block" : "none" }}>
         <div style={{ position: "relative" }}>
           {displayBar && (
-            <div style={{ position: "absolute", top: 6, left: 6, zIndex: 2, display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "2px 10px", fontSize: 12, fontFamily: FONT, pointerEvents: "none" }}>
-              <span style={{ color: tk.MUTED }}>O <b style={{ color: barColor }}>{displayBar.open.toLocaleString("vi-VN")}</b></span>
-              <span style={{ color: tk.MUTED }}>H <b style={{ color: barColor }}>{displayBar.high.toLocaleString("vi-VN")}</b></span>
-              <span style={{ color: tk.MUTED }}>L <b style={{ color: barColor }}>{displayBar.low.toLocaleString("vi-VN")}</b></span>
-              <span style={{ color: tk.MUTED }}>C <b style={{ color: barColor }}>{displayBar.close.toLocaleString("vi-VN")}</b></span>
-              <span style={{ color: tk.MUTED }}>Vol <b style={{ color: tk.TEXT }}>{fmtVol(displayBar.volume)}</b></span>
+            /* Grid cố định 3 cột (không phải flexWrap tự do) — tránh số liệu dài
+               (VD "197.600") tràn vào đúng vùng trục giá bên phải, gây chữ đè chữ
+               ở màn hẹp. maxWidth chừa đúng khoảng price-scale (minimumWidth 70). */
+            <div style={{
+              position: "absolute", top: 6, left: 6, zIndex: 2,
+              maxWidth: isMobile ? "calc(100% - 84px)" : "calc(100% - 110px)",
+              display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px 10px",
+              fontSize: isMobile ? 11 : 12, fontFamily: FONT, pointerEvents: "none",
+              background: isDark ? "rgba(11,13,24,0.55)" : "rgba(255,255,255,0.72)",
+              borderRadius: 6, padding: "3px 7px",
+            }}>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>O <b style={{ color: barColor }}>{displayBar.open.toLocaleString("vi-VN")}</b></span>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>H <b style={{ color: barColor }}>{displayBar.high.toLocaleString("vi-VN")}</b></span>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>L <b style={{ color: barColor }}>{displayBar.low.toLocaleString("vi-VN")}</b></span>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>C <b style={{ color: barColor }}>{displayBar.close.toLocaleString("vi-VN")}</b></span>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap", gridColumn: "span 2" }}>Vol <b style={{ color: tk.TEXT }}>{fmtVol(displayBar.volume)}</b></span>
             </div>
           )}
           {is1D && (intradayLoading || intradayError) && (

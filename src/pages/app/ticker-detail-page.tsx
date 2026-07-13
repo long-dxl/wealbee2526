@@ -1253,6 +1253,8 @@ export function TickerDetailPage() {
                     HNX_C={HNX_C}
                     fmtPct={fmtPct}
                     FONT={FONT}
+                    isMobile={isMobile}
+                    onPeriodChange={(p) => setPeriod(p as Period)}
                   />
                 </div>
             </div>
