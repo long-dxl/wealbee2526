@@ -598,8 +598,8 @@ const fmtCell = (v: number, f: StmtFmt) =>
 :               v.toFixed(2);
 const chartVal = (v: number, f: StmtFmt) => f === "ty" ? v / 1e9 : f === "pct" ? v * 100 : v;
 
-function StatementPanel({ tab, companyType, stmt, ratios }: {
-  tab: FinTab; companyType: string | null; stmt: any[]; ratios: any[];
+function StatementPanel({ tab, companyType, stmt, ratios, isMobile }: {
+  tab: FinTab; companyType: string | null; stmt: any[]; ratios: any[]; isMobile: boolean;
 }) {
   const tk = useTK();
   const rows = FIN_TEMPLATES[tab][fam(companyType)];
@@ -642,44 +642,99 @@ function StatementPanel({ tab, companyType, stmt, ratios }: {
           <div style={{ fontSize: 15, fontWeight: 700, color: tk.TEXT, marginBottom: 3 }}>Chỉ tiêu tài chính</div>
           <div style={{ fontSize: 12, color: tk.MUTED }}>Click vào từng chỉ tiêu để xem biểu đồ · {years[0]}–{years[years.length - 1]}</div>
         </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT }}>
-            <thead>
-              <tr style={{ background: tk.CARD2 }}>
-                <th style={{ textAlign: "left", padding: "10px 22px", fontSize: 11, fontWeight: 700, color: tk.MUTED2, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 170 }}>Chỉ tiêu</th>
-                {years.map(y => (
-                  <th key={y} style={{ textAlign: "right", padding: "10px 16px 10px 0", fontSize: 11, fontWeight: 700, color: tk.MUTED2 }}>{y}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(row => {
-                const isActive = activeCode === row.code;
-                return (
-                  <tr key={row.code} onClick={() => setActiveCode(row.code)}
-                    style={{ cursor: "pointer", background: isActive ? tk.ACCENT_HL : "transparent", borderTop: `0.5px solid ${tk.BORDER}` }}
-                    onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = tk.ROW_HOV; }}
-                    onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
-                    <td style={{ padding: "11px 22px", fontSize: 13, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 700 : 400 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {isActive && <div style={{ width: 3, height: 16, background: tk.ACCENT_BAR, borderRadius: 2, flexShrink: 0 }} />}
-                        {row.label}
-                      </div>
-                    </td>
-                    {years.map(y => {
-                      const raw = lookup[row.code]?.[y];
-                      return (
-                        <td key={y} style={{ padding: "11px 16px 11px 0", textAlign: "right", fontSize: 13, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 600 : 400, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                          {raw != null ? fmtCell(raw, row.fmt) : "—"}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        {isMobile ? (
+          /* Mobile: bảng 6 cột (Chỉ tiêu + 5 năm) luôn tràn ngang, overflowX chỉ
+             lộ 1-2 cột — thay bằng list: tên chỉ tiêu + giá trị năm gần nhất +
+             delta YoY (▲/▼, màu xanh/đỏ đồng bộ toàn app). Xu hướng đủ 5 năm đã
+             có trong biểu đồ cột phía trên khi tap chọn dòng. */
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 22px 8px", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: tk.MUTED2 }}>
+              <span>Chỉ tiêu</span>
+              <span>Năm {years[years.length - 1]}</span>
+            </div>
+            {rows.map(row => {
+              const isActive = activeCode === row.code;
+              const latestY = years[years.length - 1];
+              const prevY   = years.length > 1 ? years[years.length - 2] : undefined;
+              const latestRaw = lookup[row.code]?.[latestY];
+              const prevRaw   = prevY != null ? lookup[row.code]?.[prevY] : undefined;
+              let delta: { up: boolean; str: string } | null = null;
+              if (latestRaw != null && prevRaw != null) {
+                const isPctFmt = row.fmt === "pct";
+                const diff = isPctFmt ? (latestRaw - prevRaw) * 100 : (prevRaw !== 0 ? ((latestRaw - prevRaw) / Math.abs(prevRaw)) * 100 : null);
+                if (diff != null && Number.isFinite(diff)) {
+                  const up = diff >= 0;
+                  delta = { up, str: isPctFmt ? `${up ? "+" : ""}${diff.toFixed(1)}đpt` : `${up ? "+" : ""}${diff.toFixed(1)}%` };
+                }
+              }
+              return (
+                <div key={row.code} onClick={() => setActiveCode(row.code)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                    padding: "12px 22px", cursor: "pointer",
+                    background: isActive ? tk.ACCENT_HL : "transparent",
+                    borderTop: `0.5px solid ${tk.BORDER}`,
+                  }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    {isActive && <div style={{ width: 3, height: 16, background: tk.ACCENT_BAR, borderRadius: 2, flexShrink: 0 }} />}
+                    <span style={{ fontSize: 13.5, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 700 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {row.label}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1, flexShrink: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontVariantNumeric: "tabular-nums" }}>
+                      {latestRaw != null ? fmtCell(latestRaw, row.fmt) : "—"}
+                    </span>
+                    {delta && (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: delta.up ? GREEN : RED }}>
+                        {delta.up ? "▲" : "▼"} {delta.str}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT }}>
+              <thead>
+                <tr style={{ background: tk.CARD2 }}>
+                  <th style={{ textAlign: "left", padding: "10px 22px", fontSize: 11, fontWeight: 700, color: tk.MUTED2, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 170 }}>Chỉ tiêu</th>
+                  {years.map(y => (
+                    <th key={y} style={{ textAlign: "right", padding: "10px 16px 10px 0", fontSize: 11, fontWeight: 700, color: tk.MUTED2 }}>{y}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(row => {
+                  const isActive = activeCode === row.code;
+                  return (
+                    <tr key={row.code} onClick={() => setActiveCode(row.code)}
+                      style={{ cursor: "pointer", background: isActive ? tk.ACCENT_HL : "transparent", borderTop: `0.5px solid ${tk.BORDER}` }}
+                      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = tk.ROW_HOV; }}
+                      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
+                      <td style={{ padding: "11px 22px", fontSize: 13, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 700 : 400 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {isActive && <div style={{ width: 3, height: 16, background: tk.ACCENT_BAR, borderRadius: 2, flexShrink: 0 }} />}
+                          {row.label}
+                        </div>
+                      </td>
+                      {years.map(y => {
+                        const raw = lookup[row.code]?.[y];
+                        return (
+                          <td key={y} style={{ padding: "11px 16px 11px 0", textAlign: "right", fontSize: 13, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 600 : 400, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
+                            {raw != null ? fmtCell(raw, row.fmt) : "—"}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1221,7 +1276,7 @@ export function TickerDetailPage() {
             <div style={{ padding: "22px 24px" }}>
               {stmt.length === 0
                 ? <EmptyState message={`Chưa có dữ liệu tài chính cho ${sym}`} />
-                : <StatementPanel key={finTab} tab={finTab} companyType={ticker?.company_type ?? null} stmt={stmt} ratios={ratiosFY} />
+                : <StatementPanel key={finTab} tab={finTab} companyType={ticker?.company_type ?? null} stmt={stmt} ratios={ratiosFY} isMobile={isMobile} />
               }
             </div>
           </div>
