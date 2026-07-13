@@ -46,9 +46,7 @@ interface PriceChartLWProps {
   // khung thời gian NGOÀI component này — khi bung full-screen (che kín toàn bộ
   // trang), pill đó bị khuất theo nên phải có cách đổi khung ngay trong overlay.
   onPeriodChange?: (p: string) => void;
-  // Tên đầy đủ công ty + thời điểm cập nhật giá — hiện ở footer full-screen (mobile
-  // header rút gọn không có 2 thông tin này) để tận dụng khoảng trống dưới chart.
-  companyName?: string;
+  // Thời điểm cập nhật giá — hiện bên phải pill nổi mã/giá khi full-screen.
   updatedAt?: string;
   // Full-screen ẩn hẳn header trang (giống Finpath — tập trung tối đa cho chart),
   // thay bằng 1 pill nổi gọn hiện mã + giá + % thay đổi — lấy đúng số liệu trang
@@ -103,7 +101,7 @@ function buildPctSeries(ohlc: OhlcRow[], vniPrices: IndexRow[], hnxPrices: Index
   return { stock, vni, hnx };
 }
 
-export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices, sym, tk, isDark, GREEN, RED, VNI_C, HNX_C, fmtPct, FONT, isMobile = false, onPeriodChange, companyName, updatedAt, latestClose, chgAbs, chgPct }: PriceChartLWProps) {
+export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices, sym, tk, isDark, GREEN, RED, VNI_C, HNX_C, fmtPct, FONT, isMobile = false, onPeriodChange, updatedAt, latestClose, chgAbs, chgPct }: PriceChartLWProps) {
   const [mode, setMode] = useState<"candle" | "pct">("candle");
   const [showVni, setShowVni] = useState(true);
   const [showHnx, setShowHnx] = useState(true);
@@ -147,16 +145,16 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
   // Chiều cao chart theo breakpoint + trạng thái full-screen — mobile mặc định
   // cao hơn desktop 1 chút (nhiều đất hơn khi không có sidebar/ActionHub chiếm
   // 2 bên). Full-screen ẩn hẳn chrome của trang (header trang + app-bar — xem
-  // pill nổi thay thế bên dưới) nên tận dụng gần hết chiều cao viewport thật:
-  // volH tăng theo % thay vì cố định 120 như trước (khối lượng từng bị "lùn"
-  // so với không gian thật có), chừa lại cho footer tên công ty/giờ cập nhật.
+  // pill nổi thay thế bên dưới), KHÔNG còn footer (đã bỏ, giờ cập nhật dời lên
+  // cùng hàng pill) — toàn bộ không gian dư ra dồn hết vào nến/volume, gần lấp
+  // đầy viewport thật thay vì chừa khoảng trắng như trước.
   const computeHeights = (fullscreen: boolean, mobile: boolean) => {
     if (fullscreen) {
       const vh = typeof window !== "undefined" ? window.innerHeight : 800;
       return {
-        candleH: Math.max(300, Math.round(vh * 0.50)),
-        volH: Math.max(100, Math.round(vh * 0.17)),
-        pctH: Math.max(340, Math.round(vh * 0.62)),
+        candleH: Math.max(320, Math.round(vh * 0.58)),
+        volH: Math.max(110, Math.round(vh * 0.20)),
+        pctH: Math.max(380, Math.round(vh * 0.68)),
       };
     }
     return { candleH: mobile ? 240 : 220, volH: mobile ? 80 : 70, pctH: mobile ? 260 : 240 };
@@ -422,21 +420,26 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
     } : undefined}>
       {/* Pill nổi mã + giá + % — thay thế hoàn toàn header trang bị ẩn khi
           full-screen, phong cách Finpath nhưng theo màu sắc/font Wealbee
-          (CARD2 + border thay vì nền đen trong suốt, brand color cho mã). */}
+          (CARD2 + border thay vì nền đen trong suốt, brand color cho mã).
+          Giờ cập nhật đặt cùng hàng bên phải (căn giữa theo chiều dọc với pill)
+          thay vì để dưới footer riêng — không còn footer, chart giãn hết cỡ. */}
       {isFullscreen && (
-        <div style={{
-          display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 12,
-          padding: "7px 12px", borderRadius: 10, background: tk.CARD2, border: `1px solid ${tk.BORDER}`,
-        }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: tk.MUTED, fontFamily: FONT }}>{sym}</span>
-          {latestClose != null && (
-            <span style={{ fontSize: 15, fontWeight: 800, color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{fmtStockPrice(latestClose)}</span>
-          )}
-          {chgAbs != null && chgPct != null && (
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: isPriceUp ? GREEN : RED, fontFamily: FONT }}>
-              {fmtStockChange(chgAbs)} ({isPriceUp ? "+" : ""}{chgPct.toFixed(2)}%)
-            </span>
-          )}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            padding: "7px 12px", borderRadius: 10, background: tk.CARD2, border: `1px solid ${tk.BORDER}`,
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: tk.MUTED, fontFamily: FONT }}>{sym}</span>
+            {latestClose != null && (
+              <span style={{ fontSize: 15, fontWeight: 800, color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{fmtStockPrice(latestClose)}</span>
+            )}
+            {chgAbs != null && chgPct != null && (
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: isPriceUp ? GREEN : RED, fontFamily: FONT }}>
+                {fmtStockChange(chgAbs)} ({isPriceUp ? "+" : ""}{chgPct.toFixed(2)}%)
+              </span>
+            )}
+          </div>
+          {updatedAt && <span style={{ fontSize: 11.5, color: tk.MUTED, whiteSpace: "nowrap", fontFamily: FONT }}>Cập nhật lúc {updatedAt}</span>}
         </div>
       )}
       {isFullscreen && onPeriodChange && (
@@ -533,15 +536,6 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
           </button>
         </div>
       </div>
-      {/* Footer full-screen: tận dụng khoảng trống còn lại dưới chart — header
-          trang trên mobile rút gọn không hiện tên đầy đủ (ellipsis) lẫn giờ cập
-          nhật, nên vẫn cần thông tin này ở đây dù header đã hiện phía trên. */}
-      {isFullscreen && (companyName || updatedAt) && (
-        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${tk.BORDER}` }}>
-          {companyName && <div style={{ fontSize: 15, fontWeight: 700, color: tk.TEXT }}>{companyName}</div>}
-          {updatedAt && <div style={{ fontSize: 12, color: tk.MUTED, marginTop: 3 }}>{sym} · Cập nhật lúc {updatedAt}</div>}
-        </div>
-      )}
     </div>
   );
 }

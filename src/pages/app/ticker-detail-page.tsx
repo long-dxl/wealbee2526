@@ -1259,7 +1259,6 @@ export function TickerDetailPage() {
                       FONT={FONT}
                       isMobile={isMobile}
                       onPeriodChange={(p) => setPeriod(p as Period)}
-                      companyName={ticker.name}
                       updatedAt={priceUpdatedAt ?? undefined}
                       latestClose={latest ? Number(latest.close) : null}
                       chgAbs={chgAbs}
