@@ -9,7 +9,7 @@ import {
   createChart, CandlestickSeries, HistogramSeries, LineSeries,
   ColorType, LineStyle, type IChartApi, type ISeriesApi, type UTCTimestamp,
 } from "lightweight-charts";
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { supabase } from "../lib/supabase/client";
 
 type OhlcRow = { date: string; open: number; high: number; low: number; close: number; volume: number };
@@ -377,29 +377,21 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
       padding: "calc(12px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom))",
       overflowY: "auto",
     } : undefined}>
-      {isFullscreen && (
-        <>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: tk.TEXT, fontFamily: FONT }}>{sym}</span>
-            <button onClick={() => setIsFullscreen(false)} title="Đóng" style={{ background: "none", border: "none", cursor: "pointer", color: tk.MUTED, padding: 4, WebkitTapHighlightColor: "transparent" }}>
-              <X size={20} />
-            </button>
-          </div>
-          {/* Pill khung thời gian của trang cha bị che khuất khi full-screen —
-              nhân bản ở đây để user vẫn đổi được 1D/7D/1M/3M/YTD/5Y. */}
-          {onPeriodChange && (
-            <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-              {FS_PERIODS.map(p => (
-                <button key={p} onClick={() => onPeriodChange(p)} style={{
-                  padding: "6px 13px", borderRadius: 8, border: "none", cursor: "pointer", flexShrink: 0,
-                  background: period === p ? "#0849AC" : tk.CARD2,
-                  color: period === p ? "#fff" : tk.MUTED,
-                  fontSize: 12.5, fontWeight: period === p ? 700 : 500, fontFamily: FONT,
-                }}>{p}</button>
-              ))}
-            </div>
-          )}
-        </>
+      {/* Tên mã + nút đóng riêng 1 hàng đã bỏ — trùng lặp với nút Minimize2 ở hàng
+          chế độ Nến/Tương quan bên dưới (cùng đóng full-screen) và với tên mã đã
+          gộp vào legend OHLC nổi trên canvas. Bỏ hàng này trả lại ~40px chiều cao
+          cho chart, đúng tinh thần "pill nổi" thay vì header chiếm riêng 1 hàng. */}
+      {isFullscreen && onPeriodChange && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          {FS_PERIODS.map(p => (
+            <button key={p} onClick={() => onPeriodChange(p)} style={{
+              padding: "6px 13px", borderRadius: 8, border: "none", cursor: "pointer", flexShrink: 0,
+              background: period === p ? "#0849AC" : tk.CARD2,
+              color: period === p ? "#fff" : tk.MUTED,
+              fontSize: 12.5, fontWeight: period === p ? 700 : 500, fontFamily: FONT,
+            }}>{p}</button>
+          ))}
+        </div>
       )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 12 }}>
         <div style={{ display: "flex", gap: 6 }}>
@@ -440,6 +432,12 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
               background: isDark ? "rgba(11,13,24,0.55)" : "rgba(255,255,255,0.72)",
               borderRadius: 6, padding: "3px 7px",
             }}>
+              {/* Tên mã chỉ gộp vào legend khi full-screen — ở chế độ nhúng bình
+                  thường trên trang chi tiết mã, tên mã đã hiện sẵn ở header trang,
+                  thêm vào đây sẽ trùng lặp thừa. */}
+              {isFullscreen && (
+                <span style={{ gridColumn: "span 3", fontSize: isMobile ? 12.5 : 13.5, fontWeight: 700, color: tk.TEXT, marginBottom: 1 }}>{sym}</span>
+              )}
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>O <b style={{ color: barColor }}>{displayBar.open.toLocaleString("vi-VN")}</b></span>
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>H <b style={{ color: barColor }}>{displayBar.high.toLocaleString("vi-VN")}</b></span>
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>L <b style={{ color: barColor }}>{displayBar.low.toLocaleString("vi-VN")}</b></span>
