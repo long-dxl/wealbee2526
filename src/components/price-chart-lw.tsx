@@ -46,6 +46,13 @@ interface PriceChartLWProps {
   // khung thời gian NGOÀI component này — khi bung full-screen (che kín toàn bộ
   // trang), pill đó bị khuất theo nên phải có cách đổi khung ngay trong overlay.
   onPeriodChange?: (p: string) => void;
+  // Tên đầy đủ công ty + thời điểm cập nhật giá — hiện ở footer full-screen (mobile
+  // header rút gọn không có 2 thông tin này) để tận dụng khoảng trống dưới chart.
+  companyName?: string;
+  updatedAt?: string;
+  // Header trang chi tiết mã (sticky, cao cố định) cần giữ hiển thị phía trên khi
+  // full-screen thay vì bị che mất — offset đúng bằng chiều cao header đó.
+  fullscreenTopOffset?: number;
 }
 
 const FS_PERIODS = ["1D", "7D", "1M", "3M", "YTD", "5Y"] as const;
@@ -93,7 +100,7 @@ function buildPctSeries(ohlc: OhlcRow[], vniPrices: IndexRow[], hnxPrices: Index
   return { stock, vni, hnx };
 }
 
-export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices, sym, tk, isDark, GREEN, RED, VNI_C, HNX_C, fmtPct, FONT, isMobile = false, onPeriodChange }: PriceChartLWProps) {
+export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices, sym, tk, isDark, GREEN, RED, VNI_C, HNX_C, fmtPct, FONT, isMobile = false, onPeriodChange, companyName, updatedAt, fullscreenTopOffset = 0 }: PriceChartLWProps) {
   const [mode, setMode] = useState<"candle" | "pct">("candle");
   const [showVni, setShowVni] = useState(true);
   const [showHnx, setShowHnx] = useState(true);
@@ -136,11 +143,19 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
 
   // Chiều cao chart theo breakpoint + trạng thái full-screen — mobile mặc định
   // cao hơn desktop 1 chút (nhiều đất hơn khi không có sidebar/ActionHub chiếm
-  // 2 bên), full-screen tận dụng gần hết chiều cao viewport để soi nến/volume.
-  const computeHeights = (fullscreen: boolean, mobile: boolean) => {
+  // 2 bên). Full-screen tận dụng gần hết chiều cao khả dụng (trừ topOffset —
+  // phần header trang vẫn hiện phía trên) cho nến/volume: volH tăng theo % thay
+  // vì cố định 120 như trước (khối lượng từng bị "lùn" so với không gian thật
+  // có), chừa lại ~15% cho footer tên công ty/giờ cập nhật bên dưới.
+  const computeHeights = (fullscreen: boolean, mobile: boolean, topOffset = 0) => {
     if (fullscreen) {
       const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-      return { candleH: Math.max(280, Math.round(vh * 0.48)), volH: 120, pctH: Math.max(340, Math.round(vh * 0.62)) };
+      const avail = Math.max(400, vh - topOffset);
+      return {
+        candleH: Math.max(300, Math.round(avail * 0.50)),
+        volH: Math.max(100, Math.round(avail * 0.17)),
+        pctH: Math.max(340, Math.round(avail * 0.62)),
+      };
     }
     return { candleH: mobile ? 240 : 220, volH: mobile ? 80 : 70, pctH: mobile ? 260 : 240 };
   };
@@ -342,7 +357,7 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
   // chế độ đang xem. requestAnimationFrame vì container vừa đổi layout (fixed
   // inset:0) có thể chưa kịp phản ánh clientWidth mới trong cùng tick.
   useEffect(() => {
-    const { candleH, volH, pctH } = computeHeights(isFullscreen, isMobile);
+    const { candleH, volH, pctH } = computeHeights(isFullscreen, isMobile, fullscreenTopOffset);
     candleChartRef.current?.applyOptions({ height: candleH });
     volChartRef.current?.applyOptions({ height: volH });
     pctChartRef.current?.applyOptions({ height: pctH });
@@ -353,7 +368,7 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
       if (mode === "candle") applyCandleZoom(); else applyPctFit();
     });
     return () => cancelAnimationFrame(raf);
-  }, [isFullscreen, isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isFullscreen, isMobile, fullscreenTopOffset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggle hiện/ẩn VN-Index, HNX-Index trên chart %
   useEffect(() => {
@@ -385,13 +400,29 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
   if (pctPreview.vni.length)   lastPct.vni   = pctPreview.vni[pctPreview.vni.length - 1].value;
   if (pctPreview.hnx.length)   lastPct.hnx   = pctPreview.hnx[pctPreview.hnx.length - 1].value;
 
+  // fullscreenTopOffset là khoảng cách TĨNH (không tính safe-area) từ đỉnh màn
+  // hình tới đáy header cần giữ hiện — cộng thêm env(safe-area-inset-top) ở đây
+  // (không nhét vào số truyền từ props) để tự đúng trên cả thiết bị có notch.
+  // Khi đã có offset, phần header phía trên đã tự chừa safe-area riêng rồi nên
+  // padding-top bên trong chart chỉ cần khoảng thở thường (12px), không cộng
+  // thêm safe-area lần 2; không có offset (dùng độc lập) thì giữ cách tính cũ.
+  const hasTopOffset = fullscreenTopOffset > 0;
+  const fullscreenTop = hasTopOffset ? `calc(${fullscreenTopOffset}px + env(safe-area-inset-top))` : 0;
+  const fullscreenPaddingTop = hasTopOffset ? "12px" : "calc(12px + env(safe-area-inset-top))";
+  // Legend OHLC/Vol 1 hàng ngang bất cứ khi nào đủ rộng: desktop (luôn rộng) hoặc
+  // mobile full-screen (không còn header trang chiếm chỗ, thừa hẳn không gian) —
+  // chỉ card nhúng trên mobile (chật, cạnh sidebar/ActionHub) mới cần grid 3 cột.
+  const legendSingleRow = !isMobile || isFullscreen;
+
   return (
     <div style={isFullscreen ? {
-      position: "fixed", inset: 0, zIndex: 500, background: tk.CARD,
+      // top = fullscreenTop (thay vì inset:0) — giữ header sticky của trang chi
+      // tiết mã (tên/mã/giá/nút back) hiện phía trên, không bị chart che mất.
+      position: "fixed", top: fullscreenTop, left: 0, right: 0, bottom: 0, zIndex: 500, background: tk.CARD,
       // Lề phải giảm còn 6px (thay vì 14px như lề trái) — full-screen là màn hình
       // dành riêng cho chart, trục giá nên sát mép phải nhất có thể mà vẫn chừa đủ
       // để không dính viền/bo góc thiết bị (khác padding card thường cần đều 4 phía).
-      padding: "calc(12px + env(safe-area-inset-top)) 6px calc(16px + env(safe-area-inset-bottom)) 14px",
+      padding: `${fullscreenPaddingTop} 6px calc(16px + env(safe-area-inset-bottom)) 14px`,
       overflowY: "auto",
     } : undefined}>
       {/* Tên mã + nút đóng riêng 1 hàng đã bỏ — trùng lặp với nút Minimize2 ở hàng
@@ -441,31 +472,26 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
       <div style={{ display: mode === "candle" ? "block" : "none" }}>
         <div style={{ position: "relative" }}>
           {displayBar && (
-            /* Mobile: grid cố định 3 cột (không phải flexWrap tự do) — tránh số liệu
-               dài tràn vào đúng vùng trục giá bên phải, gây chữ đè chữ ở màn hẹp.
-               maxWidth chừa đúng khoảng price-scale (minimumWidth 56). Desktop: đủ
-               rộng để cả 5 mục nằm 1 hàng — dùng flex thay vì ép vỡ xuống 2 hàng. */
+            /* legendSingleRow=false (chỉ còn card nhúng chật trên mobile): grid cố
+               định 3 cột — tránh số liệu dài tràn vào vùng trục giá bên phải, gây
+               chữ đè chữ. legendSingleRow=true (desktop, hoặc mobile full-screen —
+               đủ rộng): 1 hàng ngang gọn, không cần vỡ dòng. Tên mã không lặp lại ở
+               đây nữa — header trang (luôn hiện, kể cả khi full-screen) đã có sẵn. */
             <div style={{
               position: "absolute", top: 6, left: 6, zIndex: 2,
               maxWidth: isMobile ? "calc(100% - 84px)" : "calc(100% - 110px)",
-              display: isMobile ? "grid" : "flex",
-              gridTemplateColumns: isMobile ? "repeat(3, 1fr)" : undefined,
-              gap: isMobile ? "2px 10px" : 14,
+              display: legendSingleRow ? "flex" : "grid",
+              gridTemplateColumns: legendSingleRow ? undefined : "repeat(3, 1fr)",
+              gap: legendSingleRow ? 14 : "2px 10px",
               fontSize: isMobile ? 11 : 12, fontFamily: FONT, pointerEvents: "none",
               background: isDark ? "rgba(11,13,24,0.55)" : "rgba(255,255,255,0.72)",
               borderRadius: 6, padding: "3px 7px",
             }}>
-              {/* Tên mã chỉ gộp vào legend khi full-screen — ở chế độ nhúng bình
-                  thường trên trang chi tiết mã, tên mã đã hiện sẵn ở header trang,
-                  thêm vào đây sẽ trùng lặp thừa. */}
-              {isFullscreen && (
-                <span style={{ gridColumn: "span 3", fontSize: isMobile ? 12.5 : 13.5, fontWeight: 700, color: tk.TEXT, marginBottom: 1 }}>{sym}</span>
-              )}
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>O <b style={{ color: barColor }}>{fmtStockPrice(displayBar.open)}</b></span>
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>H <b style={{ color: barColor }}>{fmtStockPrice(displayBar.high)}</b></span>
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>L <b style={{ color: barColor }}>{fmtStockPrice(displayBar.low)}</b></span>
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>C <b style={{ color: barColor }}>{fmtStockPrice(displayBar.close)}</b></span>
-              <span style={{ color: tk.MUTED, whiteSpace: "nowrap", gridColumn: isMobile ? "span 2" : undefined }}>Vol <b style={{ color: tk.TEXT }}>{fmtVol(displayBar.volume)}</b></span>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap", gridColumn: legendSingleRow ? undefined : "span 2" }}>Vol <b style={{ color: tk.TEXT }}>{fmtVol(displayBar.volume)}</b></span>
             </div>
           )}
           {is1D && (intradayLoading || intradayError) && (
@@ -497,6 +523,15 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
           </button>
         </div>
       </div>
+      {/* Footer full-screen: tận dụng khoảng trống còn lại dưới chart — header
+          trang trên mobile rút gọn không hiện tên đầy đủ (ellipsis) lẫn giờ cập
+          nhật, nên vẫn cần thông tin này ở đây dù header đã hiện phía trên. */}
+      {isFullscreen && (companyName || updatedAt) && (
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${tk.BORDER}` }}>
+          {companyName && <div style={{ fontSize: 15, fontWeight: 700, color: tk.TEXT }}>{companyName}</div>}
+          {updatedAt && <div style={{ fontSize: 12, color: tk.MUTED, marginTop: 3 }}>{sym} · Cập nhật lúc {updatedAt}</div>}
+        </div>
+      )}
     </div>
   );
 }

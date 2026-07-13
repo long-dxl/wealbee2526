@@ -1259,6 +1259,12 @@ export function TickerDetailPage() {
                       FONT={FONT}
                       isMobile={isMobile}
                       onPeriodChange={(p) => setPeriod(p as Period)}
+                      companyName={ticker.name}
+                      updatedAt={priceUpdatedAt ?? undefined}
+                      // Đo thực tế: top bar mobile shell (~48px + viền 0.5px) + header
+                      // sticky trang này (height:60, dòng ~976) = 109px trước khi nội
+                      // dung trang bắt đầu — chart full-screen chừa đúng khoảng này.
+                      fullscreenTopOffset={isMobile ? 109 : 0}
                     />
                   </div>
                 </div>
