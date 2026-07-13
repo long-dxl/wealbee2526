@@ -1238,24 +1238,29 @@ export function TickerDetailPage() {
                     </div>
                   </div>
 
-                  <PriceChartLW
-                    ohlc={prices}
-                    periodCutoff={periodCutoff}
-                    period={period}
-                    vniPrices={vniPrices}
-                    hnxPrices={hnxPrices}
-                    sym={sym}
-                    tk={tk}
-                    isDark={isDark}
-                    GREEN={GREEN}
-                    RED={RED}
-                    VNI_C={VNI_C}
-                    HNX_C={HNX_C}
-                    fmtPct={fmtPct}
-                    FONT={FONT}
-                    isMobile={isMobile}
-                    onPeriodChange={(p) => setPeriod(p as Period)}
-                  />
+                  {/* Kéo riêng phần chart sát mép phải hơn (âm margin ăn vào padding
+                      24px của card) — chỉ chart mới cần tối đa chiều rộng cho trục
+                      giá, header giá/pill kỳ hạn phía trên giữ nguyên padding cũ. */}
+                  <div style={{ marginRight: -16 }}>
+                    <PriceChartLW
+                      ohlc={prices}
+                      periodCutoff={periodCutoff}
+                      period={period}
+                      vniPrices={vniPrices}
+                      hnxPrices={hnxPrices}
+                      sym={sym}
+                      tk={tk}
+                      isDark={isDark}
+                      GREEN={GREEN}
+                      RED={RED}
+                      VNI_C={VNI_C}
+                      HNX_C={HNX_C}
+                      fmtPct={fmtPct}
+                      FONT={FONT}
+                      isMobile={isMobile}
+                      onPeriodChange={(p) => setPeriod(p as Period)}
+                    />
+                  </div>
                 </div>
             </div>
           </div>
