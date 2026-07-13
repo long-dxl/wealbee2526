@@ -34,6 +34,11 @@ interface IndexCandleChartProps {
 
 const toTime = (dateStr: string): UTCTimestamp => (Math.floor(new Date(dateStr + "T00:00:00Z").getTime() / 1000) as UTCTimestamp);
 
+// Trục giá bên phải: chỉ số là điểm số, không chia 1000 — chỉ cần phẩy ngăn
+// nghìn + chấm thập phân theo chuẩn ngành (vd "1,800.54"), khác định dạng mặc
+// định của lightweight-charts (không có dấu ngăn cách hàng nghìn).
+const axisPriceFormatter = (p: number) => p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export function IndexCandleChart({ rows, periodCutoff, period, symbol, isDark, UP, DOWN, fmtNum, fmtVol, candleHeight = 260, volHeight = 76, isMobile = false }: IndexCandleChartProps) {
   const [hoverBar, setHoverBar] = useState<Bar | null>(null);
   const [intradayBars, setIntradayBars] = useState<Bar[]>([]);
@@ -67,12 +72,12 @@ export function IndexCandleChart({ rows, periodCutoff, period, symbol, isDark, U
     grid: { vertLines: { color: gridColor }, horzLines: { color: gridColor } },
     // minimumWidth cố định — bắt buộc để cột giá bên phải của chart Nến và
     // Volume rộng bằng nhau. LƯU Ý: đây là FLOOR (tối thiểu), không phải giá
-    // trị CỐ ĐỊNH — nếu label tự nhiên của 1 trong 2 chart (giá "2000.00" vs
+    // trị CỐ ĐỊNH — nếu label tự nhiên của 1 trong 2 chart (giá "1,800.54" vs
     // volume "845.36M", label giá trị hiện tại dạng chip đậm/đệm rộng hơn tick
     // thường) vượt quá minimumWidth, chart đó sẽ rộng hơn minimumWidth, phá vỡ
-    // sự bằng nhau. Đặt dư hẳn (100) để chắc chắn CẢ 2 đều bị ép về đúng 1 mức
-    // (100 vượt xa nhu cầu tự nhiên thực tế của cả 2 loại label).
-    rightPriceScale: { borderColor, minimumWidth: 100 },
+    // sự bằng nhau. Giảm từ 100 -> 76 để trục sát mép phải hơn (vẫn đủ rộng
+    // cho cả 2 loại label trong thực tế, chỉ bớt khoảng trắng dư thừa).
+    rightPriceScale: { borderColor, minimumWidth: 76 },
     timeScale: { borderColor, timeVisible: false },
     crosshair: { mode: 0 as const },
   });
@@ -90,6 +95,7 @@ export function IndexCandleChart({ rows, periodCutoff, period, symbol, isDark, U
     });
     const candleSeries = candleChart.addSeries(CandlestickSeries, {
       upColor: UP, downColor: DOWN, borderVisible: false, wickUpColor: UP, wickDownColor: DOWN,
+      priceFormat: { type: "custom", formatter: axisPriceFormatter, minMove: 0.01 },
     });
     candleChartRef.current = candleChart;
     candleSeriesRef.current = candleSeries;
@@ -202,7 +208,7 @@ export function IndexCandleChart({ rows, periodCutoff, period, symbol, isDark, U
       c?.applyOptions({
         layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor },
         grid: { vertLines: { color: gridColor }, horzLines: { color: gridColor } },
-        rightPriceScale: { borderColor, minimumWidth: 100 },
+        rightPriceScale: { borderColor, minimumWidth: 76 },
         timeScale: { borderColor },
       });
     });

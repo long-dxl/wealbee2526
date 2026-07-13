@@ -35,9 +35,12 @@ const PERIODS: Period[] = ["1D", "7D", "1M", "3M", "YTD", "5Y"];
 const UP = "#34C759";
 const DOWN = "#FF3B30";
 
+// Chỉ số (VN-Index/HNX/VN30/UPCOM) là điểm số, không phải tiền — hiển thị theo
+// chuẩn ngành chứng khoán (SSI/VNDirect/TCBS/Finpath): phẩy ngăn nghìn, chấm
+// thập phân (vd "1,800.54"), KHÁC locale vi-VN thông thường (chấm ngăn nghìn).
 function fmtNum(v: number | null | undefined, d = 2): string {
   if (v == null) return "—";
-  return Number(v).toLocaleString("vi-VN", { minimumFractionDigits: d, maximumFractionDigits: d });
+  return Number(v).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 function fmtVol(v: number | null | undefined): string {
   if (!v) return "—";

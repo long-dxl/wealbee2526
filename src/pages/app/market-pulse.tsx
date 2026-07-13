@@ -10,6 +10,7 @@ import { TrendingUp, TrendingDown, Clock, AlertCircle } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { IndexDetailModal } from "../../components/index-detail-modal";
+import { fmtIndexValue, fmtIndexChange, fmtStockPrice } from "../../lib/format-price";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface MoverRow { symbol: string; price: number; pct: number; vol: string; isCeil: boolean; isFloor: boolean; }
@@ -309,7 +310,7 @@ export function MarketPulse({
               type: "index",
               label: idx.name,
               badge: `${idx.pct >= 0 ? "+" : ""}${idx.pct.toFixed(2)}%`,
-              summary: `${idx.value.toLocaleString("vi-VN")} · ${idx.spark.length} ngày`,
+              summary: `${fmtIndexValue(idx.value)} · ${idx.spark.length} ngày`,
             };
             return (
               <div key={idx.name} {...makeDragHandlers(card)}
@@ -320,11 +321,11 @@ export function MarketPulse({
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; }}
               >
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle, marginBottom: 2 }}>{idx.name}</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: fg, marginBottom: 4 }}>{idx.value.toLocaleString("vi-VN")}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: fg, marginBottom: 4 }}>{fmtIndexValue(idx.value)}</div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
                   {isUp ? <TrendingUp size={13} color="#34C759" strokeWidth={1.5} /> : <TrendingDown size={13} color="#FF3B30" strokeWidth={1.5} />}
                   <span style={{ fontSize: 13, fontWeight: 600, color: isUp ? "#34C759" : "#FF3B30" }}>
-                    {isUp ? "+" : ""}{idx.pt.toFixed(2)} ({isUp ? "+" : ""}{idx.pct.toFixed(2)}%)
+                    {fmtIndexChange(idx.pt)} ({isUp ? "+" : ""}{idx.pct.toFixed(2)}%)
                   </span>
                 </div>
                 {idx.spark.length > 1 && (
@@ -368,14 +369,14 @@ export function MarketPulse({
                 <div key={i} style={{ height: 30, borderRadius: 8, background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", marginBottom: 2 }} />
               ))
             ) : gainers.map(s => {
-              const card: ContextCard = { id: `mover-gain-${s.symbol}`, type: "mover", label: s.symbol, badge: `+${s.pct.toFixed(2)}%`, summary: `${s.price.toLocaleString("vi-VN")} · Vol: ${s.vol}` };
+              const card: ContextCard = { id: `mover-gain-${s.symbol}`, type: "mover", label: s.symbol, badge: `+${s.pct.toFixed(2)}%`, summary: `${fmtStockPrice(s.price)} · Vol: ${s.vol}` };
               return (
                 <div key={s.symbol} {...makeDragHandlers(card)} onClick={() => onSelectTicker?.(s.symbol)}
                   style={{ display: "flex", alignItems: "center", padding: "7px 8px", borderRadius: 8, cursor: "pointer", transition: "background 80ms ease", userSelect: "none" }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
                   <span style={{ width: 48, fontWeight: 700, fontSize: 14, color: fg }}>{s.symbol}</span>
-                  <span style={{ flex: 1, fontSize: 13, color: fgSubtle }}>{s.price.toLocaleString("vi-VN")}</span>
+                  <span style={{ flex: 1, fontSize: 13, color: fgSubtle }}>{fmtStockPrice(s.price)}</span>
                   <span style={{ marginRight: 8 }}>
                     <PctBadge value={s.pct} ceilingFloor={s.isCeil ? "ceil" : undefined} />
                   </span>
@@ -398,14 +399,14 @@ export function MarketPulse({
                 <div key={i} style={{ height: 30, borderRadius: 8, background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", marginBottom: 2 }} />
               ))
             ) : losers.map(s => {
-              const card: ContextCard = { id: `mover-loss-${s.symbol}`, type: "mover", label: s.symbol, badge: `${s.pct.toFixed(2)}%`, summary: `${s.price.toLocaleString("vi-VN")} · Vol: ${s.vol}` };
+              const card: ContextCard = { id: `mover-loss-${s.symbol}`, type: "mover", label: s.symbol, badge: `${s.pct.toFixed(2)}%`, summary: `${fmtStockPrice(s.price)} · Vol: ${s.vol}` };
               return (
                 <div key={s.symbol} {...makeDragHandlers(card)} onClick={() => onSelectTicker?.(s.symbol)}
                   style={{ display: "flex", alignItems: "center", padding: "7px 8px", borderRadius: 8, cursor: "pointer", transition: "background 80ms ease", userSelect: "none" }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
                   <span style={{ width: 48, fontWeight: 700, fontSize: 14, color: fg }}>{s.symbol}</span>
-                  <span style={{ flex: 1, fontSize: 13, color: fgSubtle }}>{s.price.toLocaleString("vi-VN")}</span>
+                  <span style={{ flex: 1, fontSize: 13, color: fgSubtle }}>{fmtStockPrice(s.price)}</span>
                   <span style={{ marginRight: 8 }}>
                     <PctBadge value={s.pct} ceilingFloor={s.isFloor ? "floor" : undefined} />
                   </span>

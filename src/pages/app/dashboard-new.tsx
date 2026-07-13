@@ -19,6 +19,7 @@ import { useCurrentUser } from "../../lib/hooks/useCurrentUser";
 import { useIsMobile } from "../../components/ui/use-mobile";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { IndexDetailModal } from "../../components/index-detail-modal";
+import { fmtIndexValue, fmtIndexChange, fmtStockPrice } from "../../lib/format-price";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface MoverRow   { symbol: string; price: number; pct: number; vol: string; isCeil: boolean; isFloor: boolean; }
@@ -213,7 +214,7 @@ function IndexCard({ idx, isDark, onClick, active, onExpand }: { idx: IndexState
   const fgSubtle   = isDark ? "rgba(240,242,255,0.85)" : "#3D3D52";
 
   const handleDragStart = (e: React.DragEvent) => {
-    const card: ContextCard = { id: `index-${idx.name}`, type: "index", label: idx.name, badge: `${idx.pct >= 0 ? "+" : ""}${idx.pct.toFixed(2)}%`, summary: `${idx.value.toLocaleString("vi-VN")}` };
+    const card: ContextCard = { id: `index-${idx.name}`, type: "index", label: idx.name, badge: `${idx.pct >= 0 ? "+" : ""}${idx.pct.toFixed(2)}%`, summary: fmtIndexValue(idx.value) };
     e.dataTransfer.setData(DRAG_CARD_MIME, JSON.stringify(card));
     e.dataTransfer.effectAllowed = "copy";
   };
@@ -243,11 +244,11 @@ function IndexCard({ idx, isDark, onClick, active, onExpand }: { idx: IndexState
         </button>
       )}
       <div style={{ fontSize: 12, color: fgSubtle, fontFamily: "'Montserrat', system-ui, sans-serif", marginBottom: 4, fontWeight: 600, letterSpacing: "0.04em" }}>{idx.name}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif", marginBottom: 4 }}>{idx.value > 0 ? idx.value.toLocaleString("vi-VN") : "—"}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif", marginBottom: 4 }}>{idx.value > 0 ? fmtIndexValue(idx.value) : "—"}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
         {isUp ? <TrendingUp size={14} color="#34C759" strokeWidth={1.5} /> : <TrendingDown size={14} color="#FF3B30" strokeWidth={1.5} />}
         <span style={{ fontSize: 13, fontWeight: 600, color: isUp ? "#34C759" : "#FF3B30", fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-          {isUp ? "+" : ""}{idx.change.toFixed(2)} ({isUp ? "+" : ""}{idx.pct.toFixed(2)}%)
+          {fmtIndexChange(idx.change)} ({isUp ? "+" : ""}{idx.pct.toFixed(2)}%)
         </span>
       </div>
       {idx.sparkline.length > 1 && (
@@ -963,7 +964,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
                     <div key={s.symbol} onClick={() => onSelectTicker?.(s.symbol)}
                       style={{ display: "flex", alignItems: "center", padding: "9px 8px", borderRadius: 8, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
                       <span style={{ width: 52, fontWeight: 700, fontSize: 15, color: fg }}>{s.symbol}</span>
-                      <span style={{ flex: 1, fontSize: 13.5, color: fgSubtle, fontVariantNumeric: "tabular-nums" }}>{s.price.toLocaleString("vi-VN")}</span>
+                      <span style={{ flex: 1, fontSize: 13.5, color: fgSubtle, fontVariantNumeric: "tabular-nums" }}>{fmtStockPrice(s.price)}</span>
                       <span style={{ marginRight: 8 }}><MoverPctBadge value={s.pct} isCeil={moverTab === "gain" ? s.isCeil : undefined} isFloor={moverTab === "loss" ? s.isFloor : undefined} /></span>
                       <span style={{ fontSize: 12, color: fgSubtle, width: 42, textAlign: "right" }}>{s.vol}</span>
                     </div>
@@ -994,14 +995,14 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
                   {moversLoading && displayGainers.length === 0
                     ? Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
                     : displayGainers.map(s => {
-                      const rowCard: ContextCard = { id: `gain-${s.symbol}`, type: "mover", label: s.symbol, badge: `+${s.pct.toFixed(2)}%`, summary: `${s.price.toLocaleString("vi-VN")} · Vol: ${s.vol}` };
+                      const rowCard: ContextCard = { id: `gain-${s.symbol}`, type: "mover", label: s.symbol, badge: `+${s.pct.toFixed(2)}%`, summary: `${fmtStockPrice(s.price)} · Vol: ${s.vol}` };
                       return (
                         <div key={s.symbol} {...makeDragHandlers(rowCard)} onClick={() => onSelectTicker?.(s.symbol)}
                           style={{ display: "flex", alignItems: "center", padding: "7px 8px", borderRadius: 8, cursor: "pointer", transition: "background 80ms ease" }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
                           <span style={{ width: 48, fontWeight: 700, fontSize: 14, color: fg }}>{s.symbol}</span>
-                          <span style={{ flex: 1, fontSize: 13, color: fgSubtle }}>{s.price.toLocaleString("vi-VN")}</span>
+                          <span style={{ flex: 1, fontSize: 13, color: fgSubtle }}>{fmtStockPrice(s.price)}</span>
                           <span style={{ marginRight: 8 }}><MoverPctBadge value={s.pct} isCeil={s.isCeil} /></span>
                           <span style={{ fontSize: 12, color: fgSubtle, width: 40, textAlign: "right" }}>{s.vol}</span>
                         </div>
@@ -1033,14 +1034,14 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
                   {moversLoading && displayLosers.length === 0
                     ? Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
                     : displayLosers.map(s => {
-                      const rowCard: ContextCard = { id: `loss-${s.symbol}`, type: "mover", label: s.symbol, badge: `${s.pct.toFixed(2)}%`, summary: `${s.price.toLocaleString("vi-VN")} · Vol: ${s.vol}` };
+                      const rowCard: ContextCard = { id: `loss-${s.symbol}`, type: "mover", label: s.symbol, badge: `${s.pct.toFixed(2)}%`, summary: `${fmtStockPrice(s.price)} · Vol: ${s.vol}` };
                       return (
                         <div key={s.symbol} {...makeDragHandlers(rowCard)} onClick={() => onSelectTicker?.(s.symbol)}
                           style={{ display: "flex", alignItems: "center", padding: "7px 8px", borderRadius: 8, cursor: "pointer", transition: "background 80ms ease" }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
                           <span style={{ width: 48, fontWeight: 700, fontSize: 14, color: fg }}>{s.symbol}</span>
-                          <span style={{ flex: 1, fontSize: 13, color: fgSubtle }}>{s.price.toLocaleString("vi-VN")}</span>
+                          <span style={{ flex: 1, fontSize: 13, color: fgSubtle }}>{fmtStockPrice(s.price)}</span>
                           <span style={{ marginRight: 8 }}><MoverPctBadge value={s.pct} isFloor={s.isFloor} /></span>
                           <span style={{ fontSize: 12, color: fgSubtle, width: 40, textAlign: "right" }}>{s.vol}</span>
                         </div>
@@ -1132,7 +1133,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
                   <span style={{ width: 60, fontWeight: 700, fontSize: 14, color: fg }}>{h.symbol}</span>
                   <span style={{ flex: 1, fontSize: 13, color: fgMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</span>
-                  <span style={{ width: 80, fontSize: 14, fontWeight: 600, color: fg, textAlign: "right" }}>{h.price.toLocaleString("vi-VN")}</span>
+                  <span style={{ width: 80, fontSize: 14, fontWeight: 600, color: fg, textAlign: "right" }}>{fmtStockPrice(h.price)}</span>
                   <div style={{ width: 80, display: "flex", justifyContent: "flex-end" }}><PctBadge value={h.change} /></div>
                   {/* Cột chấm trạng thái chỉ trang trí — ẩn trên mobile cho khỏi tràn ngang */}
                   {!isMobile && (
@@ -1215,7 +1216,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
             {reports.slice(0, 5).map((rp, i) => {
               const shown = Math.min(reports.length, 5);
               const rs = recoStyle(rp.recommendation, isDark);
-              const metaBits = [rp.recommendation, rp.target_price ? `MT ${rp.target_price.toLocaleString("vi-VN")}đ` : null, reportDate(rp.report_date) || null].filter(Boolean).join(" · ");
+              const metaBits = [rp.recommendation, rp.target_price ? `MT ${fmtStockPrice(rp.target_price)}` : null, reportDate(rp.report_date) || null].filter(Boolean).join(" · ");
               const card: ContextCard = { id: rp.id, type: "report", label: rp.title.slice(0, 60), badge: rp.source_firm ?? "Vietstock", summary: [rp.ticker, metaBits].filter(Boolean).join(" · ").slice(0, 110) };
               return (
                 <div key={rp.id} draggable
@@ -1245,7 +1246,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 12, color: fgSubtle }}>{rp.source_firm ?? "Vietstock"}{reportDate(rp.report_date) ? " · " + reportDate(rp.report_date) : ""}</span>
                         {rp.recommendation && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: rs.bg, color: rs.text }}>{rp.recommendation}</span>}
-                        {rp.target_price != null && <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>Giá MT {rp.target_price.toLocaleString("vi-VN")}đ</span>}
+                        {rp.target_price != null && <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>Giá MT {fmtStockPrice(rp.target_price)}</span>}
                         {!isMobile && <span className="drag-hint" style={{ fontSize: 11, color: fgSubtle, opacity: 0, transition: "opacity 120ms", marginLeft: "auto", whiteSpace: "nowrap" }}>⠿ Kéo vào ActionHub</span>}
                       </div>
                     </div>

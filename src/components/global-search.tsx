@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Search, X, TrendingUp, TrendingDown } from "lucide-react";
 import { supabase } from "../lib/supabase/client";
 import { TICKER_LIST } from "../data/tickerData";
+import { fmtStockPrice } from "../lib/format-price";
 
 interface TickerRow {
   symbol: string;
@@ -272,7 +273,7 @@ export function GlobalSearch({ onSelectTicker, onNavigate, isDark = false, varia
                       {ticker.price > 0 ? (
                         <>
                           <div style={{ fontSize: 13, fontWeight: 700, color: priceColor }}>
-                            {ticker.price.toLocaleString("vi-VN")}
+                            {fmtStockPrice(ticker.price)}
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 3, justifyContent: "flex-end", marginTop: 1 }}>
                             {isUp ? <TrendingUp size={10} color="#28C840" /> : <TrendingDown size={10} color="#FF3B30" />}

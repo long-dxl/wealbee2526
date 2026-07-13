@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Search, Star, SlidersHorizontal } from "lucide-react";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
+import { fmtStockPrice } from "../../lib/format-price";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -302,7 +303,7 @@ export function Tickers({
           display: "grid", gridTemplateColumns: "80px 1fr 110px 100px 90px 100px 40px",
           padding: "10px 16px", borderBottom: "0.5px solid " + divider, background: bgMuted,
         }}>
-          {["Mã", "Tên công ty", "Giá (đ)", "Thay đổi", "KL", "Ngành", ""].map(col => (
+          {["Mã", "Tên công ty", "Giá", "Thay đổi", "KL", "Ngành", ""].map(col => (
             <div key={col} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: fgSubtle }}>{col}</div>
           ))}
         </div>
@@ -334,7 +335,7 @@ export function Tickers({
             type: "ticker",
             label: ticker.symbol,
             badge: `${ticker.change >= 0 ? "+" : ""}${ticker.change.toFixed(2)}%`,
-            summary: `${ticker.name} · ${ticker.price.toLocaleString("vi-VN")} đ · KL: ${ticker.volume}`,
+            summary: `${ticker.name} · ${fmtStockPrice(ticker.price)} · KL: ${ticker.volume}`,
           };
           return (
             <div
@@ -355,7 +356,7 @@ export function Tickers({
               <span style={{ fontWeight: 700, fontSize: 14, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{ticker.symbol}</span>
               <span style={{ fontSize: 13, color: fgMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ticker.name}</span>
               <span style={{ fontSize: 14, fontWeight: 700, color: fg, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                {ticker.price > 0 ? ticker.price.toLocaleString("vi-VN") : "—"}
+                {ticker.price > 0 ? fmtStockPrice(ticker.price) : "—"}
               </span>
               <PctBadge value={ticker.change} />
               <span style={{ fontSize: 13, color: fgMuted, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{ticker.volume}</span>

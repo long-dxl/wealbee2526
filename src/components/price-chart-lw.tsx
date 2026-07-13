@@ -11,6 +11,13 @@ import {
 } from "lightweight-charts";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { supabase } from "../lib/supabase/client";
+import { fmtStockPrice } from "../lib/format-price";
+
+// Trục giá + legend OHLC hiển thị theo đơn vị "nghìn đồng" (chuẩn bảng giá chứng
+// khoán VN — SSI iBoard, VNDirect, TCBS, DNSE, Finpath đều quy ước vậy: 12.600đ
+// hiện là "12.60"), phẩy ngăn cách nghìn/chấm thập phân theo chuẩn ngành, KHÔNG
+// theo locale vi-VN thông thường (chấm ngăn nghìn/phẩy thập phân).
+const axisPriceFormatter = (p: number) => p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type OhlcRow = { date: string; open: number; high: number; low: number; close: number; volume: number };
 type IndexRow = { date: string; close: number };
@@ -146,7 +153,10 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
     // rộng bằng nhau (nếu không, label "9,500.00" so với "555.1K" khác độ rộng
     // ký tự sẽ khiến 2 chart co giãn khác nhau, làm đường crosshair bị lệch trục
     // dọc giữa 2 pane dù cùng 1 vị trí thời gian).
-    rightPriceScale: { borderColor: tk.BORDER, minimumWidth: 70 },
+    // minimumWidth giảm từ 70 -> 56: sau khi giá cổ phiếu quy về đơn vị nghìn
+    // đồng (2 số thập phân, VD "16.00" thay vì "16000.00"), chuỗi nhãn ngắn hơn
+    // hẳn, gutter trục Y không cần rộng như cũ — kéo trục sát mép phải hơn.
+    rightPriceScale: { borderColor: tk.BORDER, minimumWidth: 56 },
     timeScale: { borderColor: tk.BORDER, timeVisible: false },
     crosshair: { mode: 0 },
   });
@@ -166,6 +176,7 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
     });
     const candleSeries = candleChart.addSeries(CandlestickSeries, {
       upColor: GREEN, downColor: RED, borderVisible: false, wickUpColor: GREEN, wickDownColor: RED,
+      priceFormat: { type: "custom", formatter: axisPriceFormatter, minMove: 0.01 },
     });
     candleChartRef.current = candleChart;
     candleSeriesRef.current = candleSeries;
@@ -205,7 +216,7 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
       const row = ohlcByTimeRef.current.get(param.time as number);
       setHoverBar(row ?? null);
       isSyncingRef.current = true;
-      if (row) candleChart.setCrosshairPosition(row.close, param.time, candleSeries);
+      if (row) candleChart.setCrosshairPosition(row.close / 1000, param.time, candleSeries);
       else candleChart.clearCrosshairPosition();
       isSyncingRef.current = false;
     });
@@ -288,7 +299,10 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
   // Đổ data khi ohlc/index/period đổi
   useEffect(() => {
     if (!candleSeriesRef.current || !volSeriesRef.current) return;
-    candleSeriesRef.current.setData(activeBars.map(b => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close })));
+    // Chia 1000 khi đổ vào series — trục Y + nhãn giá nến hiển thị theo đơn vị
+    // nghìn đồng (xem axisPriceFormatter). ohlcByTimeRef/activeBars vẫn giữ giá
+    // trị VND gốc để không ảnh hưởng logic khác (buildPctSeries, zoom theo index...).
+    candleSeriesRef.current.setData(activeBars.map(b => ({ time: b.time, open: b.open / 1000, high: b.high / 1000, low: b.low / 1000, close: b.close / 1000 })));
     volSeriesRef.current.setData(activeBars.map(b => ({ time: b.time, value: b.volume, color: b.close >= b.open ? `${GREEN}80` : `${RED}80` })));
     ohlcByTimeRef.current = new Map(activeBars.map(b => [b.time, b]));
 
@@ -422,8 +436,8 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
         <div style={{ position: "relative" }}>
           {displayBar && (
             /* Grid cố định 3 cột (không phải flexWrap tự do) — tránh số liệu dài
-               (VD "197.600") tràn vào đúng vùng trục giá bên phải, gây chữ đè chữ
-               ở màn hẹp. maxWidth chừa đúng khoảng price-scale (minimumWidth 70). */
+               tràn vào đúng vùng trục giá bên phải, gây chữ đè chữ ở màn hẹp.
+               maxWidth chừa đúng khoảng price-scale (minimumWidth 56). */
             <div style={{
               position: "absolute", top: 6, left: 6, zIndex: 2,
               maxWidth: isMobile ? "calc(100% - 84px)" : "calc(100% - 110px)",
@@ -438,10 +452,10 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
               {isFullscreen && (
                 <span style={{ gridColumn: "span 3", fontSize: isMobile ? 12.5 : 13.5, fontWeight: 700, color: tk.TEXT, marginBottom: 1 }}>{sym}</span>
               )}
-              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>O <b style={{ color: barColor }}>{displayBar.open.toLocaleString("vi-VN")}</b></span>
-              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>H <b style={{ color: barColor }}>{displayBar.high.toLocaleString("vi-VN")}</b></span>
-              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>L <b style={{ color: barColor }}>{displayBar.low.toLocaleString("vi-VN")}</b></span>
-              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>C <b style={{ color: barColor }}>{displayBar.close.toLocaleString("vi-VN")}</b></span>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>O <b style={{ color: barColor }}>{fmtStockPrice(displayBar.open)}</b></span>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>H <b style={{ color: barColor }}>{fmtStockPrice(displayBar.high)}</b></span>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>L <b style={{ color: barColor }}>{fmtStockPrice(displayBar.low)}</b></span>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>C <b style={{ color: barColor }}>{fmtStockPrice(displayBar.close)}</b></span>
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap", gridColumn: "span 2" }}>Vol <b style={{ color: tk.TEXT }}>{fmtVol(displayBar.volume)}</b></span>
             </div>
           )}

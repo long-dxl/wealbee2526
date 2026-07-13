@@ -8,6 +8,7 @@ import { useNavigate } from "react-router";
 import { supabase } from "../../lib/supabase/client";
 import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { FileText, Eye, Search, ArrowLeft, Sparkles } from "lucide-react";
+import { fmtStockPrice } from "../../lib/format-price";
 
 interface AnalystReport {
   id: string; ticker: string | null; title: string; source_firm: string | null;
@@ -82,7 +83,7 @@ export function AnalystReportsPage({ isDark, addContextCard }: { isDark: boolean
   }, [reports, q, filter]);
 
   const toCard = (rp: AnalystReport): ContextCard => {
-    const meta = [rp.recommendation, rp.target_price ? `MT ${rp.target_price.toLocaleString("vi-VN")}đ` : null, reportDate(rp.report_date) || null]
+    const meta = [rp.recommendation, rp.target_price ? `MT ${fmtStockPrice(rp.target_price)}` : null, reportDate(rp.report_date) || null]
       .filter(Boolean).join(" · ");
     return { id: rp.id, type: "report", label: rp.title.slice(0, 60), badge: rp.source_firm ?? "Vietstock", summary: [rp.ticker, meta].filter(Boolean).join(" · ").slice(0, 110) };
   };
@@ -164,7 +165,7 @@ export function AnalystReportsPage({ isDark, addContextCard }: { isDark: boolean
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                     <span style={{ fontSize: 12, color: fgSubtle }}>{rp.source_firm ?? "Vietstock"}{dt ? " · " + dt : ""}</span>
                     {rp.recommendation && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: rs.bg, color: rs.text }}>{rp.recommendation}</span>}
-                    {rp.target_price != null && <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>Giá MT {rp.target_price.toLocaleString("vi-VN")}đ</span>}
+                    {rp.target_price != null && <span style={{ fontSize: 11, fontWeight: 700, color: brand }}>Giá MT {fmtStockPrice(rp.target_price)}</span>}
                   </div>
                   <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
                     <button onClick={() => addContextCard(toCard(rp))}

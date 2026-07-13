@@ -22,6 +22,7 @@ import { supabase } from "../../lib/supabase/client";
 import type { AppOutletContext } from "./page-wrappers";
 import { useIsMobile } from "../../components/ui/use-mobile";
 import { PriceChartLW } from "../../components/price-chart-lw";
+import { fmtStockPrice, fmtStockChange, fmtFinNumber } from "../../lib/format-price";
 
 // ─── Theme tokens ─────────────────────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ type Period = typeof PERIODS[number];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtN   = (n: number) => n.toLocaleString("vi-VN");
+const fmtN   = (n: number) => fmtFinNumber(n);
 const fmtPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
 // Tỷ lệ cổ tức cổ phiếu/quyền mua: giữ tối đa 2 chữ số thập phân, bỏ số 0 thừa
 // — làm tròn về số nguyên (.toFixed(0)) từng khiến 6.84% và 7% hiện giống hệt
@@ -134,8 +135,8 @@ function RangeBar({ low, high, current }: { low: number; high: number; current: 
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-        <span style={{ fontSize: 11, color: tk.MUTED }}>{fmtN(low)}</span>
-        <span style={{ fontSize: 11, color: tk.MUTED }}>{fmtN(high)}</span>
+        <span style={{ fontSize: 11, color: tk.MUTED }}>{fmtStockPrice(low)}</span>
+        <span style={{ fontSize: 11, color: tk.MUTED }}>{fmtStockPrice(high)}</span>
       </div>
       <div style={{ height: 3, borderRadius: 2, background: tk.RANGE_TRACK, position: "relative" }}>
         <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${pct}%`, background: `linear-gradient(90deg,${RED},${GREEN})`, borderRadius: 2 }} />
@@ -348,7 +349,7 @@ function FinancialPanel({ data, tab }: { data: FinancialRow[]; tab: "metrics" | 
 // ─── Balance Sheet Panel ──────────────────────────────────────────────────────
 
 type BSKey = keyof BSRow;
-const fmtTy = (v: number) => Math.round(v).toLocaleString("vi-VN");
+const fmtTy = (v: number) => fmtFinNumber(Math.round(v));
 
 const BS_ROWS: { label: string; key: BSKey; fmt: (v: number) => string }[] = [
   { label: "Tổng tài sản",       key: "total_assets",  fmt: fmtTy },
@@ -452,7 +453,7 @@ function CashFlowPanel({ data }: { data: CFRow[] }) {
   const activeRow = CF_ROWS.find(r => r.key === activeKey)!;
 
   const fmtCF = (v: number | null) => v == null ? "—"
-    : `${v < 0 ? "-" : ""}${Math.round(Math.abs(v)).toLocaleString("vi-VN")}`;
+    : `${v < 0 ? "-" : ""}${fmtFinNumber(Math.round(Math.abs(v)))}`;
   const colorOf = (v: number | null) => v == null ? tk.MUTED : v >= 0 ? GREEN : RED;
 
   const chartData = recent.map(r => ({
@@ -592,8 +593,8 @@ const FIN_TEMPLATES: Record<FinTab, Record<"bank" | "other", DispRow[]>> = {
 };
 
 const fmtCell = (v: number, f: StmtFmt) =>
-  f === "ty"  ? (v < 0 ? "-" : "") + Math.round(Math.abs(v) / 1e9).toLocaleString("vi-VN")
-: f === "eps" ? Math.round(v).toLocaleString("vi-VN")
+  f === "ty"  ? (v < 0 ? "-" : "") + fmtFinNumber(Math.round(Math.abs(v) / 1e9))
+: f === "eps" ? fmtFinNumber(Math.round(v))
 : f === "pct" ? `${(v * 100).toFixed(1)}%`
 :               v.toFixed(2);
 const chartVal = (v: number, f: StmtFmt) => f === "ty" ? v / 1e9 : f === "pct" ? v * 100 : v;
@@ -1017,12 +1018,11 @@ export function TickerDetailPage() {
           <div style={{ display: "flex", alignItems: "baseline", gap: isMobile ? 8 : 6, flexShrink: 0 }}>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.8px", color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                {latest ? latest.close.toLocaleString("vi-VN") : "—"}
-                <span style={{ fontSize: 13, color: tk.MUTED, marginLeft: 5 }}>đ</span>
+                {latest ? fmtStockPrice(latest.close) : "—"}
               </div>
               {chgPct != null && (
                 <div style={{ fontSize: 13, fontWeight: 700, color: isUp ? GREEN : RED }}>
-                  {isUp ? "+" : ""}{chgAbs?.toLocaleString("vi-VN")} ({isUp ? "+" : ""}{chgPct.toFixed(2)}%)
+                  {chgAbs != null ? fmtStockChange(chgAbs) : ""} ({isUp ? "+" : ""}{chgPct.toFixed(2)}%)
                 </div>
               )}
             </div>
@@ -1134,10 +1134,10 @@ export function TickerDetailPage() {
                   {latest ? (
                     <>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 20px" }}>
-                        <PriceField label="Giá đóng cửa" value={`${Number(latest.close).toLocaleString("vi-VN")} đ`} />
+                        <PriceField label="Giá đóng cửa" value={fmtStockPrice(Number(latest.close))} />
                         <PriceField
                           label="Thay đổi"
-                          value={chgAbs != null ? `${chgAbs > 0 ? "+" : ""}${chgAbs.toLocaleString("vi-VN")} đ` : "—"}
+                          value={chgAbs != null ? fmtStockChange(chgAbs) : "—"}
                           color={isUp === true ? GREEN : isUp === false ? RED : tk.TEXT}
                         />
                         <PriceField
@@ -1147,7 +1147,7 @@ export function TickerDetailPage() {
                         />
                         <PriceField
                           label="Khối lượng"
-                          value={latest.volume >= 1e6 ? `${(latest.volume / 1e6).toFixed(2)}M` : latest.volume.toLocaleString("vi-VN")}
+                          value={latest.volume >= 1e6 ? `${(latest.volume / 1e6).toFixed(2)}M` : fmtFinNumber(latest.volume)}
                         />
                       </div>
 
@@ -1175,7 +1175,7 @@ export function TickerDetailPage() {
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                           <span style={{ fontSize: 11, color: tk.MUTED }}>Biên độ trong ngày</span>
                           <span style={{ fontSize: 11, fontWeight: 600, color: tk.TEXT }}>
-                            {Number(latest.low).toLocaleString("vi-VN")} – {Number(latest.high).toLocaleString("vi-VN")}
+                            {fmtStockPrice(Number(latest.low))} – {fmtStockPrice(Number(latest.high))}
                           </span>
                         </div>
                         <RangeBar low={Number(latest.low)} high={Number(latest.high)} current={Number(latest.close)} />
@@ -1186,7 +1186,7 @@ export function TickerDetailPage() {
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                             <span style={{ fontSize: 11, color: tk.MUTED }}>Biên độ 52 tuần</span>
                             <span style={{ fontSize: 11, fontWeight: 600, color: tk.TEXT }}>
-                              {yr52Low.toLocaleString("vi-VN")} – {yr52High.toLocaleString("vi-VN")}
+                              {fmtStockPrice(yr52Low)} – {fmtStockPrice(yr52High)}
                             </span>
                           </div>
                           <RangeBar low={yr52Low} high={yr52High} current={Number(latest.close)} />
@@ -1210,14 +1210,14 @@ export function TickerDetailPage() {
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                         <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-1.5px", color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>
-                          {latest ? latest.close.toLocaleString("vi-VN") : "—"}
+                          {latest ? fmtStockPrice(latest.close) : "—"}
                         </div>
                         {priceUpdatedAt && <span style={{ fontSize: 11, color: tk.MUTED, whiteSpace: "nowrap" }}>Cập nhật lúc {priceUpdatedAt}</span>}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         {chgPct != null && (
                           <span style={{ color: isUp ? GREEN : RED, fontSize: 15, fontWeight: 700 }}>
-                            {isUp ? "+" : ""}{chgAbs?.toLocaleString("vi-VN")} ({isUp ? "+" : ""}{chgPct.toFixed(2)}%)
+                            {chgAbs != null ? fmtStockChange(chgAbs) : ""} ({isUp ? "+" : ""}{chgPct.toFixed(2)}%)
                           </span>
                         )}
                         <span style={{ fontSize: 12, fontWeight: 700, color: stockPeriodPct >= 0 ? GREEN : RED, background: stockPeriodPct >= 0 ? "rgba(39,200,64,0.10)" : "rgba(255,57,49,0.10)", padding: "3px 9px", borderRadius: 6 }}>
@@ -1455,7 +1455,7 @@ export function TickerDetailPage() {
                           </div>
                           <div style={{ marginTop: 5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 12, color: tk.MUTED }}>
                             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>Đăng ký {dateRange}</span>
-                            <span style={{ flexShrink: 0, fontWeight: 600, color: tk.TEXT }}>{ins.volume != null ? `${ins.volume.toLocaleString("vi-VN")} CP` : "—"}</span>
+                            <span style={{ flexShrink: 0, fontWeight: 600, color: tk.TEXT }}>{ins.volume != null ? `${fmtFinNumber(ins.volume)} CP` : "—"}</span>
                           </div>
                         </div>
                       );
@@ -1489,7 +1489,7 @@ export function TickerDetailPage() {
                               </span>
                             </td>
                             <td style={{ padding: "10px 16px", fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 600, color: tk.TEXT }}>
-                              {ins.volume != null ? `${ins.volume.toLocaleString("vi-VN")} CP` : "—"}
+                              {ins.volume != null ? `${fmtFinNumber(ins.volume)} CP` : "—"}
                             </td>
                           </tr>
                         ))}

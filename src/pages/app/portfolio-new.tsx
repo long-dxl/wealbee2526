@@ -12,6 +12,7 @@ import { ContextCard, DRAG_CARD_MIME } from "../../types/cards";
 import { useBrokerConfig } from "../../lib/hooks/useBrokerConfig";
 import { fetchPositions, fetchCashBalance, type DnsePosition, type DnseCashBalance } from "../../lib/services/dnse";
 import { useIsMobile } from "../../components/ui/use-mobile";
+import { fmtStockPrice, fmtFinNumber } from "../../lib/format-price";
 
 interface TickerOption { symbol: string; name: string; }
 
@@ -711,7 +712,7 @@ export function Portfolio({
     type: "portfolio",
     label: "Danh mục của tôi",
     badge: totalPnl >= 0 ? `+${totalPnlPct.toFixed(2)}%` : `${totalPnlPct.toFixed(2)}%`,
-    summary: `Tổng giá trị: ${totalValue.toLocaleString("vi-VN")}đ · P&L: ${totalPnl >= 0 ? "+" : ""}${totalPnl.toLocaleString("vi-VN")}đ (${fmtPct(totalPnlPct)})`,
+    summary: `Tổng giá trị: ${fmtFinNumber(totalValue)}đ · P&L: ${totalPnl >= 0 ? "+" : ""}${fmtFinNumber(totalPnl)}đ (${fmtPct(totalPnlPct)})`,
   };
 
   const hoverStyle = `
@@ -760,11 +761,11 @@ export function Portfolio({
               </span>
             </div>
             <div style={{ fontSize: isMobile ? 28 : 34, fontWeight: 700, color: fg, marginBottom: 6, whiteSpace: "nowrap" }}>
-              {portfolioLoading ? "—" : `${totalValue.toLocaleString("vi-VN")} đ`}
+              {portfolioLoading ? "—" : `${fmtFinNumber(totalValue)} đ`}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: totalPnl >= 0 ? GREEN : RED }}>
-                {totalPnl >= 0 ? "+" : ""}{totalPnl.toLocaleString("vi-VN")} ({totalPnl >= 0 ? "+" : ""}{totalPnlPct.toFixed(2)}%)
+                {totalPnl >= 0 ? "+" : ""}{fmtFinNumber(totalPnl)} ({totalPnl >= 0 ? "+" : ""}{totalPnlPct.toFixed(2)}%)
               </span>
               <span style={{ fontSize: 13, color: fgSubtle }}>tổng P&L</span>
             </div>
@@ -827,7 +828,7 @@ export function Portfolio({
               ].map(item => (
                 <div key={item.label} style={{ flex: "1 1 140px", background: isDark ? "rgba(255,255,255,0.04)" : "#F5F5F7", borderRadius: 10, padding: "10px 14px" }}>
                   <div style={{ fontSize: 11, color: fgSubtle, marginBottom: 3 }}>{item.label}</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: fg }}>{item.value.toLocaleString("vi-VN")} đ</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: fg }}>{fmtFinNumber(item.value)} đ</div>
                 </div>
               ))}
             </div>
@@ -852,15 +853,15 @@ export function Portfolio({
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 700, color: brand }}>{pos.symbol}</div>
                       <div style={{ fontSize: 12.5, color: fgSubtle, marginTop: 2 }}>
-                        {pos.quantity.toLocaleString("vi-VN")} CP × TB {pos.averagePrice.toLocaleString("vi-VN")}
+                        {fmtFinNumber(pos.quantity)} CP × TB {fmtStockPrice(pos.averagePrice)}
                       </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 700, color: fg, fontVariantNumeric: "tabular-nums" }}>
-                        {pos.marketPrice != null ? pos.marketPrice.toLocaleString("vi-VN") : "—"}
+                        {pos.marketPrice != null ? fmtStockPrice(pos.marketPrice) : "—"}
                       </div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: pnlColor, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
-                        {pos.pnl != null ? `${pos.pnl >= 0 ? "+" : ""}${pos.pnl.toLocaleString("vi-VN")}` : "—"}
+                        {pos.pnl != null ? `${pos.pnl >= 0 ? "+" : ""}${fmtFinNumber(pos.pnl)}` : "—"}
                       </div>
                     </div>
                   </div>
@@ -897,12 +898,12 @@ export function Portfolio({
                     >
                       {pos.symbol}
                     </span>
-                    <span style={{ fontSize: 13, color: fg }}>{pos.quantity.toLocaleString("vi-VN")}</span>
-                    <span style={{ fontSize: 13, color: fgMuted }}>{pos.averagePrice.toLocaleString("vi-VN")}</span>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: fg }}>{pos.marketPrice != null ? pos.marketPrice.toLocaleString("vi-VN") : "—"}</span>
+                    <span style={{ fontSize: 13, color: fg }}>{fmtFinNumber(pos.quantity)}</span>
+                    <span style={{ fontSize: 13, color: fgMuted }}>{fmtStockPrice(pos.averagePrice)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: fg }}>{pos.marketPrice != null ? fmtStockPrice(pos.marketPrice) : "—"}</span>
                     <span style={{ fontSize: 13, color: fg }}>{pos.marketValue != null ? (pos.marketValue / 1_000_000).toFixed(1) + "M" : "—"}</span>
                     <span style={{ fontSize: 13, fontWeight: 700, color: pnlColor }}>
-                      {pos.pnl != null ? `${pos.pnl >= 0 ? "+" : ""}${pos.pnl.toLocaleString("vi-VN")}` : "—"}
+                      {pos.pnl != null ? `${pos.pnl >= 0 ? "+" : ""}${fmtFinNumber(pos.pnl)}` : "—"}
                     </span>
                   </div>
                 );
@@ -1141,7 +1142,7 @@ export function Portfolio({
               type: "ticker",
               label: h.symbol,
               badge: pnlPct !== null ? (pnlPct >= 0 ? `+${pnlPct.toFixed(1)}%` : `${pnlPct.toFixed(1)}%`) : undefined,
-              summary: `${h.name} · SL: ${h.quantity.toLocaleString("vi-VN")} · Giá HT: ${h.currentPrice.toLocaleString("vi-VN")}`,
+              summary: `${h.name} · SL: ${fmtFinNumber(h.quantity)} · Giá HT: ${fmtStockPrice(h.currentPrice)}`,
             };
             return (
               <div
@@ -1160,16 +1161,16 @@ export function Portfolio({
                     <span style={{ fontSize: 12, color: fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</span>
                   </div>
                   <div style={{ fontSize: 12.5, color: fgSubtle, marginTop: 3 }}>
-                    {h.quantity.toLocaleString("vi-VN")} CP{h.avgPrice ? ` × TB ${h.avgPrice.toLocaleString("vi-VN")}` : ""}
+                    {fmtFinNumber(h.quantity)} CP{h.avgPrice ? ` × TB ${fmtStockPrice(h.avgPrice)}` : ""}
                   </div>
                 </div>
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
                   <div style={{ fontSize: 16, fontWeight: 700, color: fg, fontVariantNumeric: "tabular-nums" }}>
-                    {h.currentPrice.toLocaleString("vi-VN")}
+                    {fmtStockPrice(h.currentPrice)}
                   </div>
                   {pnl !== null ? (
                     <div style={{ fontSize: 13, fontWeight: 700, color: isUp ? GREEN : RED, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
-                      {isUp ? "+" : ""}{pnl.toLocaleString("vi-VN")} ({isUp ? "+" : ""}{pnlPct!.toFixed(1)}%)
+                      {isUp ? "+" : ""}{fmtFinNumber(pnl)} ({isUp ? "+" : ""}{pnlPct!.toFixed(1)}%)
                     </div>
                   ) : (
                     <div style={{ fontSize: 11.5, color: fgSubtle, fontStyle: "italic", marginTop: 2 }}>Chưa có giá mua</div>
@@ -1236,7 +1237,7 @@ export function Portfolio({
             type: "ticker",
             label: h.symbol,
             badge: pnlPct !== null ? (pnlPct >= 0 ? `+${pnlPct.toFixed(1)}%` : `${pnlPct.toFixed(1)}%`) : undefined,
-            summary: `${h.name} · SL: ${h.quantity.toLocaleString("vi-VN")} · Giá HT: ${h.currentPrice.toLocaleString("vi-VN")}`,
+            summary: `${h.name} · SL: ${fmtFinNumber(h.quantity)} · Giá HT: ${fmtStockPrice(h.currentPrice)}`,
           };
 
           return (
@@ -1266,16 +1267,16 @@ export function Portfolio({
                 {h.symbol}
               </span>
               <span style={{ fontSize: 13, color: fgMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</span>
-              <span style={{ fontSize: 13, color: fg }}>{h.quantity.toLocaleString("vi-VN")}</span>
+              <span style={{ fontSize: 13, color: fg }}>{fmtFinNumber(h.quantity)}</span>
               <span style={{ fontSize: 13, color: fgMuted }}>
-                {h.avgPrice ? h.avgPrice.toLocaleString("vi-VN") : <em style={{ color: fgSubtle }}>—</em>}
+                {h.avgPrice ? fmtStockPrice(h.avgPrice) : <em style={{ color: fgSubtle }}>—</em>}
               </span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: fg }}>{h.currentPrice.toLocaleString("vi-VN")}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: fg }}>{fmtStockPrice(h.currentPrice)}</span>
               <div>
                 {pnl !== null ? (
                   <>
                     <div style={{ fontSize: 13, fontWeight: 700, color: isUp ? GREEN : RED }}>
-                      {isUp ? "+" : ""}{pnl.toLocaleString("vi-VN")}
+                      {isUp ? "+" : ""}{fmtFinNumber(pnl)}
                     </div>
                     <div style={{ fontSize: 11, color: isUp ? GREEN : RED, opacity: 0.8 }}>
                       {isUp ? "+" : ""}{pnlPct!.toFixed(1)}%
@@ -1340,7 +1341,7 @@ export function Portfolio({
               type: "ticker",
               label: h.symbol,
               badge: pnlPct !== null ? (pnlPct >= 0 ? `+${pnlPct.toFixed(1)}%` : `${pnlPct.toFixed(1)}%`) : undefined,
-              summary: `${h.name} · SL: ${h.quantity.toLocaleString("vi-VN")} · Giá HT: ${h.currentPrice.toLocaleString("vi-VN")}`,
+              summary: `${h.name} · SL: ${fmtFinNumber(h.quantity)} · Giá HT: ${fmtStockPrice(h.currentPrice)}`,
             };
             const actions: { icon: React.ElementType; label: string; danger?: boolean; run: () => void }[] = [
               { icon: Sparkles,     label: `Hỏi AI về ${h.symbol}`, run: () => onAddContextCard?.(sheetCard) },
