@@ -11,7 +11,7 @@ import {
 } from "lightweight-charts";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { supabase } from "../lib/supabase/client";
-import { fmtStockPrice } from "../lib/format-price";
+import { fmtStockPrice, fmtStockChange } from "../lib/format-price";
 
 // Trục giá + legend OHLC hiển thị theo đơn vị "nghìn đồng" (chuẩn bảng giá chứng
 // khoán VN — SSI iBoard, VNDirect, TCBS, DNSE, Finpath đều quy ước vậy: 12.600đ
@@ -50,9 +50,12 @@ interface PriceChartLWProps {
   // header rút gọn không có 2 thông tin này) để tận dụng khoảng trống dưới chart.
   companyName?: string;
   updatedAt?: string;
-  // Header trang chi tiết mã (sticky, cao cố định) cần giữ hiển thị phía trên khi
-  // full-screen thay vì bị che mất — offset đúng bằng chiều cao header đó.
-  fullscreenTopOffset?: number;
+  // Full-screen ẩn hẳn header trang (giống Finpath — tập trung tối đa cho chart),
+  // thay bằng 1 pill nổi gọn hiện mã + giá + % thay đổi — lấy đúng số liệu trang
+  // cha đã tính (đồng bộ với mọi nơi khác trên trang, tránh lệch số do tính lại).
+  latestClose?: number | null;
+  chgAbs?: number | null;
+  chgPct?: number | null;
 }
 
 const FS_PERIODS = ["1D", "7D", "1M", "3M", "YTD", "5Y"] as const;
@@ -100,7 +103,7 @@ function buildPctSeries(ohlc: OhlcRow[], vniPrices: IndexRow[], hnxPrices: Index
   return { stock, vni, hnx };
 }
 
-export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices, sym, tk, isDark, GREEN, RED, VNI_C, HNX_C, fmtPct, FONT, isMobile = false, onPeriodChange, companyName, updatedAt, fullscreenTopOffset = 0 }: PriceChartLWProps) {
+export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices, sym, tk, isDark, GREEN, RED, VNI_C, HNX_C, fmtPct, FONT, isMobile = false, onPeriodChange, companyName, updatedAt, latestClose, chgAbs, chgPct }: PriceChartLWProps) {
   const [mode, setMode] = useState<"candle" | "pct">("candle");
   const [showVni, setShowVni] = useState(true);
   const [showHnx, setShowHnx] = useState(true);
@@ -143,18 +146,17 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
 
   // Chiều cao chart theo breakpoint + trạng thái full-screen — mobile mặc định
   // cao hơn desktop 1 chút (nhiều đất hơn khi không có sidebar/ActionHub chiếm
-  // 2 bên). Full-screen tận dụng gần hết chiều cao khả dụng (trừ topOffset —
-  // phần header trang vẫn hiện phía trên) cho nến/volume: volH tăng theo % thay
-  // vì cố định 120 như trước (khối lượng từng bị "lùn" so với không gian thật
-  // có), chừa lại ~15% cho footer tên công ty/giờ cập nhật bên dưới.
-  const computeHeights = (fullscreen: boolean, mobile: boolean, topOffset = 0) => {
+  // 2 bên). Full-screen ẩn hẳn chrome của trang (header trang + app-bar — xem
+  // pill nổi thay thế bên dưới) nên tận dụng gần hết chiều cao viewport thật:
+  // volH tăng theo % thay vì cố định 120 như trước (khối lượng từng bị "lùn"
+  // so với không gian thật có), chừa lại cho footer tên công ty/giờ cập nhật.
+  const computeHeights = (fullscreen: boolean, mobile: boolean) => {
     if (fullscreen) {
       const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-      const avail = Math.max(400, vh - topOffset);
       return {
-        candleH: Math.max(300, Math.round(avail * 0.50)),
-        volH: Math.max(100, Math.round(avail * 0.17)),
-        pctH: Math.max(340, Math.round(avail * 0.62)),
+        candleH: Math.max(300, Math.round(vh * 0.50)),
+        volH: Math.max(100, Math.round(vh * 0.17)),
+        pctH: Math.max(340, Math.round(vh * 0.62)),
       };
     }
     return { candleH: mobile ? 240 : 220, volH: mobile ? 80 : 70, pctH: mobile ? 260 : 240 };
@@ -357,7 +359,7 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
   // chế độ đang xem. requestAnimationFrame vì container vừa đổi layout (fixed
   // inset:0) có thể chưa kịp phản ánh clientWidth mới trong cùng tick.
   useEffect(() => {
-    const { candleH, volH, pctH } = computeHeights(isFullscreen, isMobile, fullscreenTopOffset);
+    const { candleH, volH, pctH } = computeHeights(isFullscreen, isMobile);
     candleChartRef.current?.applyOptions({ height: candleH });
     volChartRef.current?.applyOptions({ height: volH });
     pctChartRef.current?.applyOptions({ height: pctH });
@@ -368,7 +370,7 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
       if (mode === "candle") applyCandleZoom(); else applyPctFit();
     });
     return () => cancelAnimationFrame(raf);
-  }, [isFullscreen, isMobile, fullscreenTopOffset]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isFullscreen, isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggle hiện/ẩn VN-Index, HNX-Index trên chart %
   useEffect(() => {
@@ -400,35 +402,43 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
   if (pctPreview.vni.length)   lastPct.vni   = pctPreview.vni[pctPreview.vni.length - 1].value;
   if (pctPreview.hnx.length)   lastPct.hnx   = pctPreview.hnx[pctPreview.hnx.length - 1].value;
 
-  // fullscreenTopOffset là khoảng cách TĨNH (không tính safe-area) từ đỉnh màn
-  // hình tới đáy header cần giữ hiện — cộng thêm env(safe-area-inset-top) ở đây
-  // (không nhét vào số truyền từ props) để tự đúng trên cả thiết bị có notch.
-  // Khi đã có offset, phần header phía trên đã tự chừa safe-area riêng rồi nên
-  // padding-top bên trong chart chỉ cần khoảng thở thường (12px), không cộng
-  // thêm safe-area lần 2; không có offset (dùng độc lập) thì giữ cách tính cũ.
-  const hasTopOffset = fullscreenTopOffset > 0;
-  const fullscreenTop = hasTopOffset ? `calc(${fullscreenTopOffset}px + env(safe-area-inset-top))` : 0;
-  const fullscreenPaddingTop = hasTopOffset ? "12px" : "calc(12px + env(safe-area-inset-top))";
   // Legend OHLC/Vol 1 hàng ngang bất cứ khi nào đủ rộng: desktop (luôn rộng) hoặc
   // mobile full-screen (không còn header trang chiếm chỗ, thừa hẳn không gian) —
   // chỉ card nhúng trên mobile (chật, cạnh sidebar/ActionHub) mới cần grid 3 cột.
   const legendSingleRow = !isMobile || isFullscreen;
+  const isPriceUp = chgAbs != null ? chgAbs >= 0 : true;
 
   return (
     <div style={isFullscreen ? {
-      // top = fullscreenTop (thay vì inset:0) — giữ header sticky của trang chi
-      // tiết mã (tên/mã/giá/nút back) hiện phía trên, không bị chart che mất.
-      position: "fixed", top: fullscreenTop, left: 0, right: 0, bottom: 0, zIndex: 500, background: tk.CARD,
+      // Full-screen ẩn hẳn chrome của trang (app-bar + header trang) — giống
+      // triết lý Finpath: tập trung tối đa cho chart. Thay vào đó là 1 pill nổi
+      // gọn (mã + giá + %) ngay bên dưới, không chiếm nguyên 1 hàng header cứng.
+      position: "fixed", inset: 0, zIndex: 500, background: tk.CARD,
       // Lề phải giảm còn 6px (thay vì 14px như lề trái) — full-screen là màn hình
       // dành riêng cho chart, trục giá nên sát mép phải nhất có thể mà vẫn chừa đủ
       // để không dính viền/bo góc thiết bị (khác padding card thường cần đều 4 phía).
-      padding: `${fullscreenPaddingTop} 6px calc(16px + env(safe-area-inset-bottom)) 14px`,
+      padding: "calc(12px + env(safe-area-inset-top)) 6px calc(16px + env(safe-area-inset-bottom)) 14px",
       overflowY: "auto",
     } : undefined}>
-      {/* Tên mã + nút đóng riêng 1 hàng đã bỏ — trùng lặp với nút Minimize2 ở hàng
-          chế độ Nến/Tương quan bên dưới (cùng đóng full-screen) và với tên mã đã
-          gộp vào legend OHLC nổi trên canvas. Bỏ hàng này trả lại ~40px chiều cao
-          cho chart, đúng tinh thần "pill nổi" thay vì header chiếm riêng 1 hàng. */}
+      {/* Pill nổi mã + giá + % — thay thế hoàn toàn header trang bị ẩn khi
+          full-screen, phong cách Finpath nhưng theo màu sắc/font Wealbee
+          (CARD2 + border thay vì nền đen trong suốt, brand color cho mã). */}
+      {isFullscreen && (
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 12,
+          padding: "7px 12px", borderRadius: 10, background: tk.CARD2, border: `1px solid ${tk.BORDER}`,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: tk.MUTED, fontFamily: FONT }}>{sym}</span>
+          {latestClose != null && (
+            <span style={{ fontSize: 15, fontWeight: 800, color: tk.TEXT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{fmtStockPrice(latestClose)}</span>
+          )}
+          {chgAbs != null && chgPct != null && (
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: isPriceUp ? GREEN : RED, fontFamily: FONT }}>
+              {fmtStockChange(chgAbs)} ({isPriceUp ? "+" : ""}{chgPct.toFixed(2)}%)
+            </span>
+          )}
+        </div>
+      )}
       {isFullscreen && onPeriodChange && (
         <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
           {FS_PERIODS.map(p => (
