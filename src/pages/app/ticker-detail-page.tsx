@@ -643,57 +643,65 @@ function StatementPanel({ tab, companyType, stmt, ratios, isMobile }: {
           <div style={{ fontSize: 12, color: tk.MUTED }}>Click vào từng chỉ tiêu để xem biểu đồ · {years[0]}–{years[years.length - 1]}</div>
         </div>
         {isMobile ? (
-          /* Mobile: bảng 6 cột (Chỉ tiêu + 5 năm) luôn tràn ngang, overflowX chỉ
-             lộ 1-2 cột — thay bằng list: tên chỉ tiêu + giá trị năm gần nhất +
-             delta YoY (▲/▼, màu xanh/đỏ đồng bộ toàn app). Xu hướng đủ 5 năm đã
-             có trong biểu đồ cột phía trên khi tap chọn dòng. */
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 22px 8px", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: tk.MUTED2 }}>
-              <span>Chỉ tiêu</span>
-              <span>Năm {years[years.length - 1]}</span>
-            </div>
-            {rows.map(row => {
-              const isActive = activeCode === row.code;
-              const latestY = years[years.length - 1];
-              const prevY   = years.length > 1 ? years[years.length - 2] : undefined;
-              const latestRaw = lookup[row.code]?.[latestY];
-              const prevRaw   = prevY != null ? lookup[row.code]?.[prevY] : undefined;
-              let delta: { up: boolean; str: string } | null = null;
-              if (latestRaw != null && prevRaw != null) {
-                const isPctFmt = row.fmt === "pct";
-                const diff = isPctFmt ? (latestRaw - prevRaw) * 100 : (prevRaw !== 0 ? ((latestRaw - prevRaw) / Math.abs(prevRaw)) * 100 : null);
-                if (diff != null && Number.isFinite(diff)) {
-                  const up = diff >= 0;
-                  delta = { up, str: isPctFmt ? `${up ? "+" : ""}${diff.toFixed(1)}đpt` : `${up ? "+" : ""}${diff.toFixed(1)}%` };
-                }
-              }
-              return (
-                <div key={row.code} onClick={() => setActiveCode(row.code)}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
-                    padding: "12px 22px", cursor: "pointer",
-                    background: isActive ? tk.ACCENT_HL : "transparent",
-                    borderTop: `0.5px solid ${tk.BORDER}`,
-                  }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    {isActive && <div style={{ width: 3, height: 16, background: tk.ACCENT_BAR, borderRadius: 2, flexShrink: 0 }} />}
-                    <span style={{ fontSize: 13.5, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 700 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {row.label}
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1, flexShrink: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontVariantNumeric: "tabular-nums" }}>
-                      {latestRaw != null ? fmtCell(latestRaw, row.fmt) : "—"}
-                    </span>
-                    {delta && (
-                      <span style={{ fontSize: 10.5, fontWeight: 700, color: delta.up ? GREEN : RED }}>
-                        {delta.up ? "▲" : "▼"} {delta.str}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+          /* Mobile: vẫn đủ 5 năm như bảng gốc (không rút gọn còn 1 năm) —
+             cột "Chỉ tiêu" sticky đứng yên bên trái, chỉ phần 5 cột năm cuộn
+             ngang. User luôn biết đang xem chỉ tiêu nào khi vuốt sang các năm,
+             thay vì mất luôn nhãn cột như overflowX trên cả bảng trước đây. */
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <table style={{ borderCollapse: "separate", borderSpacing: 0, fontFamily: FONT }}>
+              <thead>
+                <tr>
+                  <th style={{ position: "sticky", left: 0, zIndex: 2, background: tk.CARD2, textAlign: "left", padding: "10px 8px 10px 22px", fontSize: 10.5, fontWeight: 700, color: tk.MUTED2, letterSpacing: "0.04em", textTransform: "uppercase", width: 108, minWidth: 108, borderBottom: `0.5px solid ${tk.BORDER}` }}>
+                    Chỉ tiêu
+                  </th>
+                  {years.map(y => (
+                    <th key={y} style={{ background: tk.CARD2, textAlign: "right", padding: "10px 10px 10px 0", fontSize: 11, fontWeight: 700, color: tk.MUTED2, width: 58, minWidth: 58, borderBottom: `0.5px solid ${tk.BORDER}` }}>
+                      {y}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(row => {
+                  const isActive = activeCode === row.code;
+                  // ACCENT_HL là rgba bán trong suốt (dùng để tint đè lên nền có sẵn) — dưới
+                  // position:sticky khi cuộn ngang, các ô đã cuộn qua vẫn "lộ" xuyên qua lớp
+                  // tint mờ này (ghosting). Composite tint lên nền CARD đặc ngay trong cùng
+                  // 1 lớp background (2 layer) để ô sticky luôn che kín, không bị lộ chữ.
+                  const rowBgStyle: React.CSSProperties = isActive
+                    ? { backgroundColor: tk.CARD, backgroundImage: `linear-gradient(${tk.ACCENT_HL}, ${tk.ACCENT_HL})` }
+                    : { backgroundColor: tk.CARD };
+                  return (
+                    <tr key={row.code} onClick={() => setActiveCode(row.code)} style={{ cursor: "pointer" }}>
+                      <td style={{
+                        position: "sticky", left: 0, zIndex: 1, ...rowBgStyle,
+                        padding: "11px 8px 11px 22px", fontSize: 12, whiteSpace: "nowrap",
+                        color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 700 : 500,
+                        borderBottom: `0.5px solid ${tk.BORDER}`,
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {isActive && <div style={{ width: 3, height: 14, background: tk.ACCENT_BAR, borderRadius: 2, flexShrink: 0 }} />}
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{row.label}</span>
+                        </div>
+                      </td>
+                      {years.map(y => {
+                        const raw = lookup[row.code]?.[y];
+                        return (
+                          <td key={y} style={{
+                            ...rowBgStyle, padding: "11px 10px 11px 0", textAlign: "right",
+                            fontSize: 12, fontVariantNumeric: "tabular-nums",
+                            color: isActive ? tk.ACCENT_TEXT : tk.TEXT, fontWeight: isActive ? 600 : 400,
+                            borderBottom: `0.5px solid ${tk.BORDER}`,
+                          }}>
+                            {raw != null ? fmtCell(raw, row.fmt) : "—"}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
