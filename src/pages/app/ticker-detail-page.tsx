@@ -871,7 +871,8 @@ export function TickerDetailPage() {
   ];
   const EXTRA_TABS: { id: "dividends" | "insiders" | "news"; icon: React.ElementType; label: string; count: number }[] = [
     { id: "dividends", icon: Coins,     label: "Cổ tức",  count: dividends.length + divAnnouncements.length },
-    { id: "insiders",  icon: Users,     label: "Insider", count: insiders.length  },
+    // "Insider" → "Nội bộ": tiếng Việt thuần, giữ nhịp 2 âm tiết đồng bộ với "Cổ tức"/"Tin tức"
+    { id: "insiders",  icon: Users,     label: "Nội bộ",  count: insiders.length  },
     { id: "news",      icon: Newspaper, label: "Tin tức", count: news.length      },
   ];
 
@@ -1039,24 +1040,6 @@ export function TickerDetailPage() {
                     <InfoField label="Trong VN30" value={ticker.in_vn30 ? "Có" : "Không"} />
                   </div>
 
-                  {latestFin && (
-                    <>
-                      {divider}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px 8px" }}>
-                        {[
-                          { label: "P/E", val: latestFin.pe_ratio?.toFixed(1) ?? "—" },
-                          { label: "P/B", val: latestFin.pb_ratio?.toFixed(2) ?? "—" },
-                          { label: "ROE", val: latestFin.roe != null ? `${(latestFin.roe * 100).toFixed(1)}%` : "—" },
-                        ].map(m => (
-                          <div key={m.label} style={{ textAlign: "center", background: tk.CARD2, borderRadius: 10, padding: "10px 8px" }}>
-                            <div style={{ fontSize: 10, color: tk.MUTED, marginBottom: 4 }}>{m.label}</div>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: tk.ACCENT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{m.val}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-
                   {(stockInfo?.company_context || profile?.about) && (() => { const about = (stockInfo?.company_context ?? profile?.about ?? "") as string; return (
                     <>
                       {divider}
@@ -1106,6 +1089,24 @@ export function TickerDetailPage() {
                       </div>
 
                       {divider}
+
+                      {latestFin && (
+                        <>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px 8px", marginBottom: 14 }}>
+                            {[
+                              { label: "P/E", val: latestFin.pe_ratio?.toFixed(1) ?? "—" },
+                              { label: "P/B", val: latestFin.pb_ratio?.toFixed(2) ?? "—" },
+                              { label: "ROE", val: latestFin.roe != null ? `${(latestFin.roe * 100).toFixed(1)}%` : "—" },
+                            ].map(m => (
+                              <div key={m.label} style={{ textAlign: "center", background: tk.CARD2, borderRadius: 10, padding: "10px 8px" }}>
+                                <div style={{ fontSize: 10, color: tk.MUTED, marginBottom: 4 }}>{m.label}</div>
+                                <div style={{ fontSize: 16, fontWeight: 800, color: tk.ACCENT, fontFamily: "'Montserrat', system-ui, sans-serif" }}>{m.val}</div>
+                              </div>
+                            ))}
+                          </div>
+                          {divider}
+                        </>
+                      )}
 
                       <div style={{ marginBottom: 14 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -1257,7 +1258,58 @@ export function TickerDetailPage() {
 
               {/* ─ Dividends ─ */}
               {extraTab === "dividends" && (
-                dividends.length === 0 && divAnnouncements.length === 0 ? <EmptyState message={`Chưa có dữ liệu cổ tức cho ${sym}`} /> : (
+                dividends.length === 0 && divAnnouncements.length === 0 ? <EmptyState message={`Chưa có dữ liệu cổ tức cho ${sym}`} /> : isMobile ? (
+                  /* Mobile: card-row 2 tầng thay bảng 4 cột — bảng luôn tràn ngang phải cuộn,
+                     ẩn mất "Loại"/"Tỷ lệ" (đúng thông tin user cần nhìn đầu tiên). */
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {divAnnouncements.map((a: any) => {
+                      const typeStyle = a.dividend_type === "cash"
+                        ? { bg: "rgba(52,199,89,0.12)", text: "#16a34a", label: "Tiền mặt" }
+                        : a.dividend_type === "rights"
+                        ? { bg: "rgba(124,58,237,0.10)", text: "#7C3AED", label: "Quyền mua" }
+                        : { bg: "rgba(8,73,172,0.1)", text: "#0849AC", label: "Cổ phiếu" };
+                      return (
+                        <div key={`ann-${a.id}`} style={{ padding: "12px 14px", borderRadius: 12, background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.25)" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                              <span style={{ padding: "2px 7px", borderRadius: 5, fontSize: 10.5, fontWeight: 700, fontStyle: "italic", background: "rgba(245,158,11,0.16)", color: "#B45309", flexShrink: 0 }}>Dự kiến</span>
+                              <span style={{ padding: "2px 7px", borderRadius: 5, fontSize: 10.5, fontWeight: 700, background: typeStyle.bg, color: typeStyle.text, flexShrink: 0 }}>{typeStyle.label}</span>
+                            </div>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: tk.TEXT, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                              {a.dividend_type === "cash" ? `${fmtN(a.amount)} đ/CP` : fmtRatio(a.amount)}
+                            </span>
+                          </div>
+                          <div style={{ marginTop: 5, fontSize: 12, color: tk.MUTED }}>Ngày GDKHQ chưa chốt chính thức</div>
+                        </div>
+                      );
+                    })}
+                    {dividends.map((d: any) => {
+                      const typeStyle = d.dividend_type === "cash"
+                        ? { bg: "rgba(52,199,89,0.12)", text: "#16a34a", label: "Tiền mặt" }
+                        : d.dividend_type === "rights"
+                        ? { bg: "rgba(124,58,237,0.10)", text: "#7C3AED", label: "Quyền mua" }
+                        : { bg: "rgba(8,73,172,0.1)", text: "#0849AC", label: "Cổ phiếu" };
+                      return (
+                        <div key={d.id} style={{ padding: "12px 14px", borderRadius: 12, background: tk.CARD2, border: `1px solid ${tk.BORDER}` }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                            <span style={{ padding: "2px 7px", borderRadius: 5, fontSize: 10.5, fontWeight: 700, background: typeStyle.bg, color: typeStyle.text, flexShrink: 0 }}>{typeStyle.label}</span>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: tk.TEXT, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                              {d.dividend_type === "cash" ? `${fmtN(d.amount)} đ/CP` : fmtRatio(d.amount)}
+                            </span>
+                          </div>
+                          <div style={{ marginTop: 5, fontSize: 12, color: tk.MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            GDKHQ {fmtDate(d.ex_date)} · Thực hiện {d.payment_date ? fmtDate(d.payment_date) : "—"}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {divAnnouncements.length > 0 && (
+                      <div style={{ padding: "4px 4px 0", fontSize: 11.5, color: tk.MUTED2, fontStyle: "italic", lineHeight: 1.5 }}>
+                        * Dự kiến: doanh nghiệp đã công bố ý định trả cổ tức nhưng chưa chốt ngày GDKHQ chính thức — số liệu có thể thay đổi.
+                      </div>
+                    )}
+                  </div>
+                ) : (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                       <thead>
@@ -1315,9 +1367,39 @@ export function TickerDetailPage() {
                 )
               )}
 
-              {/* ─ Insiders ─ */}
+              {/* ─ Insiders (Nội bộ) ─ */}
               {extraTab === "insiders" && (
-                insiders.length === 0 ? <EmptyState message={`Chưa có dữ liệu giao dịch nội bộ cho ${sym}`} /> : (
+                insiders.length === 0 ? <EmptyState message={`Chưa có dữ liệu giao dịch nội bộ cho ${sym}`} /> : isMobile ? (
+                  /* Mobile: card-row — tên người nội bộ (thông tin chính, "ai đang mua/bán")
+                     lên đầu thay vì cột "Ngày đăng ký" như bảng desktop */
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {insiders.map((ins: any) => {
+                      const dateRange = ins.reg_start_date && ins.reg_end_date
+                        ? (ins.reg_start_date === ins.reg_end_date ? fmtDate(ins.reg_end_date) : `${fmtShort(ins.reg_start_date)} - ${fmtDate(ins.reg_end_date)}`)
+                        : fmtDate(ins.trade_date);
+                      const isBuy = ins.trade_type === "buy";
+                      return (
+                        <div key={ins.id} style={{ padding: "12px 14px", borderRadius: 12, background: tk.CARD2, border: `1px solid ${tk.BORDER}` }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: tk.TEXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                              {ins.insider_name}
+                            </span>
+                            <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 700, flexShrink: 0, background: isBuy ? "rgba(52,199,89,0.12)" : "rgba(255,59,48,0.1)", color: isBuy ? "#16a34a" : "#FF3B30" }}>
+                              {isBuy ? "▲ MUA" : "▼ BÁN"}
+                            </span>
+                          </div>
+                          <div style={{ marginTop: 5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 12, color: tk.MUTED }}>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>Đăng ký {dateRange}</span>
+                            <span style={{ flexShrink: 0, fontWeight: 600, color: tk.TEXT }}>{ins.volume != null ? `${ins.volume.toLocaleString("vi-VN")} CP` : "—"}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div style={{ padding: "4px 4px 0", fontSize: 11.5, color: tk.MUTED2, fontStyle: "italic", lineHeight: 1.5 }}>
+                      * KL là khối lượng ĐÃ CÔNG BỐ Ý ĐỊNH giao dịch — có thể khác khối lượng thực hiện thật (nguồn chưa có dữ liệu xác nhận kết quả).
+                    </div>
+                  </div>
+                ) : (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                       <thead>
@@ -1376,10 +1458,12 @@ export function TickerDetailPage() {
                                 {n.impact_score != null && <span style={{ fontSize: 10, color: tk.MUTED }}>Tác động: {n.impact_score > 0 ? "+" : ""}{n.impact_score}</span>}
                               </div>
                             </div>
-                            <p style={{ margin: "6px 0 0", fontSize: 11, color: tk.MUTED }}>
-                              {new Date(n.published_at).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                              {n.article_url && <span style={{ marginLeft: 8, color: tk.ACCENT }}>↗ Đọc bài</span>}
-                            </p>
+                            <div style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                              <span style={{ fontSize: 11, color: tk.MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+                                {new Date(n.published_at).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                              {n.article_url && <span style={{ fontSize: 11, color: tk.ACCENT, whiteSpace: "nowrap", flexShrink: 0 }}>↗ Đọc bài</span>}
+                            </div>
                           </div>
                         </a>
                       );
