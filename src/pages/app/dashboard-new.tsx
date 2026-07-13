@@ -258,7 +258,6 @@ function IndexCard({ idx, isDark, onClick, active, onExpand }: { idx: IndexState
           />
         </svg>
       )}
-      <div style={{ fontSize: 12, color: fgSubtle, fontFamily: "'Montserrat', system-ui, sans-serif" }}>7 ngày gần nhất</div>
     </div>
   );
 }
@@ -1169,9 +1168,11 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.transform = "none"; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "0"; }}>
                 <DragHint />
                 <AskAiButton card={newsCard(item)} onAsk={askAI} />
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, paddingRight: askAI ? 36 : 0 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 6, background: tagStyle.bg, color: tagStyle.text }}>{item.tag}</span>
-                  <span style={{ fontSize: 12, color: fgSubtle }}>{item.source} · {item.time}</span>
+                {/* Meta luôn 1 hàng (mobile hay gãy): tag nowrap, tên nguồn dài → ellipsis, giờ không rơi dòng */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, paddingRight: askAI ? 36 : 0, minWidth: 0 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 6, background: tagStyle.bg, color: tagStyle.text, whiteSpace: "nowrap", flexShrink: 0 }}>{item.tag}</span>
+                  <span style={{ fontSize: 12, color: fgSubtle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{item.source}</span>
+                  <span style={{ fontSize: 12, color: fgSubtle, whiteSpace: "nowrap", flexShrink: 0 }}>· {item.time}</span>
                 </div>
                 <p style={{ margin: 0, fontSize: 14, color: fg, lineHeight: 1.5 }}>{item.title}</p>
                 {item.url && (
