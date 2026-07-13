@@ -1100,17 +1100,22 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = isDark ? "0 4px 12px rgba(0,0,0,0.50)" : "0 4px 12px rgba(8,73,172,0.16)"; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "1"; }}
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = cardShadow; const hint = (e.currentTarget as HTMLElement).querySelector(".drag-hint") as HTMLElement | null; if (hint) hint.style.opacity = "0"; }}>
         <DragHint />
-        {/* Mobile: xếp dọc (số tổng + nút "Xem danh mục" chung 1 hàng ngang bị ép
-            hẹp, số 26px bold + "đ" tự tràn xuống dòng riêng) — tách 2 hàng để số
-            tổng có trọn chiều rộng thẻ, không bao giờ vỡ dòng nữa. */}
-        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "center", gap: isMobile ? 12 : 0, marginBottom: 12 }}>
-          <div>
+        {/* Số tổng + nút "Xem danh mục" luôn chung 1 hàng (tiết kiệm không gian
+            thay vì xếp dọc) — nhưng nhờ 2 lớp phòng thủ nên không bao giờ vỡ:
+            (1) khối số bên trái flex:1 + minWidth:0 để có thể co lại nhường chỗ
+            cho nút (button flexShrink:0 luôn giữ nguyên kích thước, luôn thấy
+            trọn); (2) số tổng tự ellipsis ("…") nếu danh mục quá lớn (nhiều mã
+            giá trị cao) khiến chuỗi số dài hơn cả chỗ còn lại — không tràn dòng,
+            không đẩy nút xuống hàng khác dù danh mục lớn cỡ nào. Mobile giảm cỡ
+            chữ (20px thay vì 26px) để vừa 2 bên hơn trong trường hợp phổ thông. */}
+        <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: fg, marginBottom: 4 }}>DANH MỤC CỦA BẠN</div>
             {watchLoading ? (
               <div style={{ fontSize: 22, color: fgSubtle }}>Đang tải…</div>
             ) : watchHoldings.length > 0 ? (
               <>
-                <div style={{ fontSize: 26, fontWeight: 700, color: fg, whiteSpace: "nowrap" }}>{fmtFinNumber(portfolioTotal)} đ</div>
+                <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 700, color: fg, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtFinNumber(portfolioTotal)} đ</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                   <span style={{ fontSize: 13, color: fgSubtle }}>{watchHoldings.length} mã</span>
                 </div>
@@ -1120,7 +1125,7 @@ export function Dashboard({ onNavigate, onSelectTicker, isDark = false, onAskAI 
             )}
           </div>
           <button onClick={e => { e.stopPropagation(); onNavigate("portfolio"); }}
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 14px", borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.20)"), background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 600, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif", alignSelf: isMobile ? "flex-start" : "center", WebkitTapHighlightColor: "transparent" }}>
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 14px", borderRadius: 10, border: "0.5px solid " + (isDark ? "rgba(255,255,255,0.13)" : "rgba(8,73,172,0.20)"), background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 600, color: brand, fontFamily: "'Montserrat', system-ui, sans-serif", flexShrink: 0, whiteSpace: "nowrap", WebkitTapHighlightColor: "transparent" }}>
             Xem danh mục <ArrowUpRight size={14} strokeWidth={1.5} />
           </button>
         </div>
