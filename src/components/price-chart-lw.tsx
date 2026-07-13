@@ -388,7 +388,10 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
   return (
     <div style={isFullscreen ? {
       position: "fixed", inset: 0, zIndex: 500, background: tk.CARD,
-      padding: "calc(12px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom))",
+      // Lề phải giảm còn 6px (thay vì 14px như lề trái) — full-screen là màn hình
+      // dành riêng cho chart, trục giá nên sát mép phải nhất có thể mà vẫn chừa đủ
+      // để không dính viền/bo góc thiết bị (khác padding card thường cần đều 4 phía).
+      padding: "calc(12px + env(safe-area-inset-top)) 6px calc(16px + env(safe-area-inset-bottom)) 14px",
       overflowY: "auto",
     } : undefined}>
       {/* Tên mã + nút đóng riêng 1 hàng đã bỏ — trùng lặp với nút Minimize2 ở hàng

@@ -151,9 +151,11 @@ export function IndexDetailModal({
         onClick={e => e.stopPropagation()}
         style={isMobile ? {
           // Full màn hình trên mobile — không phí diện tích cho backdrop/khung
-          // căn giữa, nhường tối đa chỗ cho chart nến.
+          // căn giữa, nhường tối đa chỗ cho chart nến. Lề phải giảm còn 6px (thay
+          // vì 16px như lề trái) để trục giá sát mép phải nhất có thể mà vẫn chừa
+          // đủ tránh dính viền/bo góc thiết bị.
           width: "100%", height: "100%", overflowY: "auto", background: bg,
-          padding: "calc(12px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))",
+          padding: "calc(12px + env(safe-area-inset-top)) 6px calc(20px + env(safe-area-inset-bottom)) 16px",
           fontFamily: "'Montserrat', system-ui, sans-serif",
         } : {
           width: "100%", maxWidth: 900, maxHeight: "92vh", overflowY: "auto", background: bg,
