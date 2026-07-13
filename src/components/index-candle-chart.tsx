@@ -223,14 +223,18 @@ export function IndexCandleChart({ rows, periodCutoff, period, symbol, isDark, U
     <div>
       <div style={{ position: "relative" }}>
         {displayBar && (
-          /* Grid cố định 3 cột thay vì flexWrap tự do — flexWrap từng bị số liệu dài
-             (VD "1.829,50") đẩy tràn vào đúng vùng trục giá bên phải (minimumWidth
-             100), gây chữ đè chữ. Grid luôn chia đều trong maxWidth an toàn nên
-             không bao giờ chạm trục giá dù số liệu dài ngắn thế nào. */
+          /* Mobile: grid cố định 3 cột thay vì flexWrap tự do — flexWrap từng bị số
+             liệu dài (VD "1.829,50") đẩy tràn vào đúng vùng trục giá bên phải
+             (minimumWidth 100), gây chữ đè chữ. Grid luôn chia đều trong maxWidth an
+             toàn nên không bao giờ chạm trục giá dù số liệu dài ngắn thế nào.
+             Desktop: đủ rộng để cả 5 mục nằm 1 hàng — ép grid 3 cột chỉ làm phí
+             chỗ trống và tự vỡ xuống hàng 2 không cần thiết, nên dùng flex 1 hàng. */
           <div style={{
             position: "absolute", top: 6, left: 6, zIndex: 2,
             maxWidth: isMobile ? "calc(100% - 84px)" : "calc(100% - 110px)",
-            display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px 8px",
+            display: isMobile ? "grid" : "flex",
+            gridTemplateColumns: isMobile ? "repeat(3, 1fr)" : undefined,
+            gap: isMobile ? "2px 8px" : 14,
             fontSize: isMobile ? 10 : 11, fontFamily: "'Montserrat', system-ui, sans-serif",
             pointerEvents: "none", background: isDark ? "rgba(19,24,36,0.55)" : "rgba(255,255,255,0.72)",
             borderRadius: 6, padding: "3px 6px",
@@ -239,7 +243,7 @@ export function IndexCandleChart({ rows, periodCutoff, period, symbol, isDark, U
             <span style={{ color: mutedColor, whiteSpace: "nowrap" }}>H <b style={{ color: barColor }}>{fmtNum(displayBar.high, 2)}</b></span>
             <span style={{ color: mutedColor, whiteSpace: "nowrap" }}>L <b style={{ color: barColor }}>{fmtNum(displayBar.low, 2)}</b></span>
             <span style={{ color: mutedColor, whiteSpace: "nowrap" }}>C <b style={{ color: barColor }}>{fmtNum(displayBar.close, 2)}</b></span>
-            <span style={{ color: mutedColor, whiteSpace: "nowrap", gridColumn: "span 2" }}>Vol <b style={{ color: textColor }}>{fmtVol(displayBar.volume)}</b></span>
+            <span style={{ color: mutedColor, whiteSpace: "nowrap", gridColumn: isMobile ? "span 2" : undefined }}>Vol <b style={{ color: textColor }}>{fmtVol(displayBar.volume)}</b></span>
           </div>
         )}
         {is1D && (intradayLoading || intradayError) && (

@@ -435,13 +435,16 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
       <div style={{ display: mode === "candle" ? "block" : "none" }}>
         <div style={{ position: "relative" }}>
           {displayBar && (
-            /* Grid cố định 3 cột (không phải flexWrap tự do) — tránh số liệu dài
-               tràn vào đúng vùng trục giá bên phải, gây chữ đè chữ ở màn hẹp.
-               maxWidth chừa đúng khoảng price-scale (minimumWidth 56). */
+            /* Mobile: grid cố định 3 cột (không phải flexWrap tự do) — tránh số liệu
+               dài tràn vào đúng vùng trục giá bên phải, gây chữ đè chữ ở màn hẹp.
+               maxWidth chừa đúng khoảng price-scale (minimumWidth 56). Desktop: đủ
+               rộng để cả 5 mục nằm 1 hàng — dùng flex thay vì ép vỡ xuống 2 hàng. */
             <div style={{
               position: "absolute", top: 6, left: 6, zIndex: 2,
               maxWidth: isMobile ? "calc(100% - 84px)" : "calc(100% - 110px)",
-              display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px 10px",
+              display: isMobile ? "grid" : "flex",
+              gridTemplateColumns: isMobile ? "repeat(3, 1fr)" : undefined,
+              gap: isMobile ? "2px 10px" : 14,
               fontSize: isMobile ? 11 : 12, fontFamily: FONT, pointerEvents: "none",
               background: isDark ? "rgba(11,13,24,0.55)" : "rgba(255,255,255,0.72)",
               borderRadius: 6, padding: "3px 7px",
@@ -456,7 +459,7 @@ export function PriceChartLW({ ohlc, periodCutoff, period, vniPrices, hnxPrices,
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>H <b style={{ color: barColor }}>{fmtStockPrice(displayBar.high)}</b></span>
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>L <b style={{ color: barColor }}>{fmtStockPrice(displayBar.low)}</b></span>
               <span style={{ color: tk.MUTED, whiteSpace: "nowrap" }}>C <b style={{ color: barColor }}>{fmtStockPrice(displayBar.close)}</b></span>
-              <span style={{ color: tk.MUTED, whiteSpace: "nowrap", gridColumn: "span 2" }}>Vol <b style={{ color: tk.TEXT }}>{fmtVol(displayBar.volume)}</b></span>
+              <span style={{ color: tk.MUTED, whiteSpace: "nowrap", gridColumn: isMobile ? "span 2" : undefined }}>Vol <b style={{ color: tk.TEXT }}>{fmtVol(displayBar.volume)}</b></span>
             </div>
           )}
           {is1D && (intradayLoading || intradayError) && (
